@@ -11,11 +11,13 @@
     "pdfjs-dist": "^6.1.200",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
+    "tesseract.js": "^7.0.0",
     "xlsx": "^0.18.5"
   },
   "devDependencies": {
     "@fontsource/inter": "^5.2.8",
     "@fontsource/space-grotesk": "^5.2.10",
+    "@tesseract.js-data/eng": "^1.0.0",
     "esbuild": "^0.24.0",
     "fake-indexeddb": "^6.0.0",
     "jsdom": "^25.0.1"

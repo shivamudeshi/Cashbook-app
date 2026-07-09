@@ -27,7 +27,7 @@ async function main() {
   await new Promise((r) => setTimeout(r, 400));
 
   const text = window.document.body.textContent;
-  for (const expected of ["Cash Book", "Book", "Owed", "Reports", "Plan", "Setup", "Bank balance", "Import"]) {
+  for (const expected of ["Cash Book", "Book", "Owed", "Reports", "Setup", "Bank balance", "Import", "All transactions"]) {
     assert.ok(text.includes(expected), `rendered app should contain "${expected}"`);
   }
 
@@ -126,6 +126,20 @@ async function main() {
   assert.strictEqual(E.suggestHead(ruleDb, "UPI-SWIGGY BANGALORE"), "Food out");
   assert.strictEqual(E.suggestHead(ruleDb, "mystery shop"), "Suspense");
   assert.strictEqual(E.keywordOf("UPI-SWIGGY BANGALORE"), "swiggy", "skips upi/neft noise words");
+
+  // Bank-SMS share-target parser.
+  const sms1 = E.parseBankSms(
+    "Rs.450.00 debited from A/c XX1234 on 05/07/26 at SWIGGY BANGALORE via UPI. Avl bal Rs.10,000"
+  );
+  assert.deepStrictEqual(
+    [sms1.amount, sms1.type, sms1.date],
+    [450, "out", "2026-07-05"],
+    "debit SMS → out with SMS date"
+  );
+  assert.ok(/swiggy/i.test(sms1.note), "merchant captured in note");
+  const sms2 = E.parseBankSms("INR 80,000 credited to your account from ACME CORP on 01/07/2026");
+  assert.deepStrictEqual([sms2.amount, sms2.type], [80000, "in"], "credit SMS → in");
+  assert.strictEqual(E.parseBankSms("Your OTP is 482910"), null, "non-money SMS rejected");
 
   // Default book sanity: sheet balances from day one, Suspense head exists.
   const fresh = E.defaultBook();
