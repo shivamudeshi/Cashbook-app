@@ -3,23 +3,29 @@ import { loadBook, saveBook, loadApiKey, saveApiKey } from "./storage.js";
 import { askClaude } from "./api.js";
 
 /* ────────────────────────── palette & type ──────────────────────────
-   Olive classic ledger: deep olive ink on warm cream paper, muted
-   terracotta as the companion accent (money out / alerts). */
+   Emerald fintech, dark: near-black charcoal surfaces, emerald for the
+   balance and money-in, warm coral for money-out. `olive` keeps its name
+   as the primary-action slot; `paper` is the app background; `creamText`
+   is the on-primary text color. */
 export const C = {
-  olive: "#4a5320",
-  oliveDeep: "#39411a",
-  oliveSoft: "#6b7a3a",
-  paper: "#f7f4e9",
-  card: "#fffdf3",
-  line: "#ded8c0",
-  ink: "#2f3417",
-  faint: "#87825f",
-  credit: "#4a7a1e",
-  debit: "#b3552b",
-  creamText: "#f4f1df",
+  olive: "#34d399", // primary action — emerald
+  oliveDeep: "#a7f3d0", // bright tint for headings on dark
+  oliveSoft: "#1f4e3b",
+  paper: "#0e1210",
+  card: "#161c18",
+  line: "#242d27",
+  ink: "#e9efe9",
+  faint: "#8b9c92",
+  credit: "#34d399",
+  debit: "#ff7a6b",
+  creamText: "#05130c", // text on emerald
+  heroFrom: "#143528",
+  heroTo: "#0f231a",
+  input: "#131916",
+  glow: "0 8px 30px rgba(52,211,153,.18)",
 };
 export const F = {
-  serif: 'Georgia, "Iowan Old Style", "Times New Roman", serif',
+  serif: 'system-ui, -apple-system, "Segoe UI", Roboto, sans-serif',
   sans: 'system-ui, -apple-system, "Segoe UI", Roboto, sans-serif',
 };
 
@@ -239,16 +245,16 @@ const clone = (o) => JSON.parse(JSON.stringify(o));
 const st = {
   input: {
     width: "100%", boxSizing: "border-box", padding: "10px 12px",
-    borderRadius: 8, border: `1px solid ${C.line}`, background: "#fff",
-    fontSize: 16, fontFamily: F.sans, color: C.ink,
+    borderRadius: 10, border: `1px solid ${C.line}`, background: C.input,
+    fontSize: 16, fontFamily: F.sans, color: C.ink, colorScheme: "dark",
   },
   label: {
     display: "block", fontSize: 12, color: C.faint, margin: "12px 0 4px",
     textTransform: "uppercase", letterSpacing: "0.06em",
   },
   card: {
-    background: C.card, border: `1px solid ${C.line}`, borderRadius: 12,
-    padding: 14, margin: "10px 12px", boxShadow: "0 1px 2px rgba(60,60,30,.06)",
+    background: C.card, border: `1px solid ${C.line}`, borderRadius: 16,
+    padding: 14, margin: "10px 12px",
   },
 };
 
@@ -259,7 +265,7 @@ function Btn({ primary, danger, style, ...props }) {
         padding: "10px 16px", borderRadius: 10, fontSize: 15, fontWeight: 600,
         fontFamily: F.sans, cursor: "pointer",
         border: primary || danger ? "none" : `1px solid ${C.line}`,
-        background: danger ? C.debit : primary ? C.olive : "#fff",
+        background: danger ? C.debit : primary ? C.olive : "transparent",
         color: primary || danger ? C.creamText : C.ink,
         ...style,
       }}
@@ -271,8 +277,8 @@ function Btn({ primary, danger, style, ...props }) {
 function Seg({ options, value, onChange }) {
   return (
     <div style={{
-      display: "flex", border: `1px solid ${C.line}`, borderRadius: 10,
-      overflow: "hidden", background: "#fff",
+      display: "flex", border: `1px solid ${C.line}`, borderRadius: 12,
+      overflow: "hidden", background: C.input,
     }}>
       {options.map((o) => (
         <button
@@ -297,7 +303,7 @@ function Sheet({ title, onClose, children }) {
     <div
       onClick={onClose}
       style={{
-        position: "fixed", inset: 0, background: "rgba(47,52,23,.45)",
+        position: "fixed", inset: 0, background: "rgba(0,0,0,.6)",
         display: "flex", alignItems: "flex-end", zIndex: 30,
       }}
     >
@@ -385,16 +391,21 @@ function BookView({ book, onEdit }) {
   }
   return (
     <div>
-      <div style={{ ...st.card, background: C.olive, border: "none", color: C.creamText }}>
-        <div style={{ fontSize: 12, letterSpacing: "0.08em", textTransform: "uppercase", opacity: 0.8 }}>
+      <div style={{
+        ...st.card,
+        background: `linear-gradient(135deg, ${C.heroFrom}, ${C.heroTo})`,
+        border: `1px solid ${C.oliveSoft}`, boxShadow: C.glow,
+        color: C.ink, padding: 18,
+      }}>
+        <div style={{ fontSize: 12, letterSpacing: "0.1em", textTransform: "uppercase", color: C.oliveDeep }}>
           Bank balance
         </div>
-        <div style={{ fontFamily: F.serif, fontSize: 34, fontWeight: 700, margin: "2px 0 8px" }}>
+        <div style={{ fontSize: 36, fontWeight: 800, margin: "4px 0 10px", color: C.olive, fontVariantNumeric: "tabular-nums" }}>
           {inr(bank)}
         </div>
-        <div style={{ display: "flex", gap: 18, fontSize: 13, opacity: 0.9 }}>
-          <span>This month in <b style={{ fontFamily: F.serif }}>{inr(mIn)}</b></span>
-          <span>out <b style={{ fontFamily: F.serif }}>{inr(mOut)}</b></span>
+        <div style={{ display: "flex", gap: 18, fontSize: 13, color: C.faint }}>
+          <span>This month in <b style={{ color: C.credit }}>{inr(mIn)}</b></span>
+          <span>out <b style={{ color: C.debit }}>{inr(mOut)}</b></span>
         </div>
       </div>
       {groups.length === 0 && (
@@ -794,12 +805,16 @@ function ReportsView({ book }) {
               <RowLine name="Total expenses" amount={pl.totalExpense} strong color={C.debit} />
             </div>
           </div>
-          <div style={{ ...st.card, background: C.olive, border: "none" }}>
-            <div style={{ display: "flex", color: C.creamText }}>
+          <div style={{
+            ...st.card,
+            background: `linear-gradient(135deg, ${C.heroFrom}, ${C.heroTo})`,
+            border: `1px solid ${C.oliveSoft}`, boxShadow: C.glow,
+          }}>
+            <div style={{ display: "flex", color: C.ink }}>
               <span style={{ flex: 1, fontWeight: 700 }}>Net {pl.net >= 0 ? "surplus" : "deficit"}</span>
-              <span style={{ fontFamily: F.serif, fontSize: 18, fontWeight: 700 }}>{inr(pl.net)}</span>
+              <span style={{ fontSize: 18, fontWeight: 800, color: pl.net >= 0 ? C.credit : C.debit }}>{inr(pl.net)}</span>
             </div>
-            <div style={{ fontSize: 12, color: C.creamText, opacity: 0.75, marginTop: 4 }}>
+            <div style={{ fontSize: 12, color: C.faint, marginTop: 4 }}>
               Cash basis · transfers, party entries and SIP-type heads excluded
             </div>
           </div>
@@ -1331,8 +1346,8 @@ export default function CashBook() {
           style={{
             position: "fixed", right: 18, bottom: "calc(76px + env(safe-area-inset-bottom))",
             width: 58, height: 58, borderRadius: 29, border: "none",
-            background: C.debit, color: "#fff", fontSize: 30, lineHeight: "58px",
-            boxShadow: "0 4px 12px rgba(60,40,10,.35)", cursor: "pointer", zIndex: 20,
+            background: C.olive, color: C.creamText, fontSize: 30, lineHeight: "58px",
+            fontWeight: 700, boxShadow: C.glow, cursor: "pointer", zIndex: 20,
           }}
         >
           +

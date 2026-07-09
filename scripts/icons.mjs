@@ -1,10 +1,10 @@
 // One-off generator for public/icons/icon-192.png and icon-512.png.
-// Pure node (zlib) PNG encoder — draws a serif rupee mark on an olive tile.
+// Pure node (zlib) PNG encoder — draws a rupee mark on a dark charcoal tile.
 import { deflateSync } from "node:zlib";
 import { writeFileSync, mkdirSync } from "node:fs";
 
-const OLIVE = [74, 83, 32]; // #4a5320
-const CREAM = [247, 244, 233]; // #f7f4e9
+const OLIVE = [14, 18, 16]; // #0e1210 — tile
+const CREAM = [52, 211, 153]; // #34d399 — emerald glyph
 
 function crc32(buf) {
   let c,
