@@ -4,7 +4,8 @@ import { loadApiKey } from "./storage.js";
 
 export const MODEL = "claude-sonnet-5";
 
-export async function askClaude(system, userText) {
+// `content` is a Messages-API content-block array (text, image, document).
+export async function askClaudeContent(system, content, maxTokens = 4000) {
   const key = await loadApiKey();
   if (!key) throw new Error("No API key — add one in Setup.");
   const res = await fetch("https://api.anthropic.com/v1/messages", {
@@ -17,9 +18,9 @@ export async function askClaude(system, userText) {
     },
     body: JSON.stringify({
       model: MODEL,
-      max_tokens: 1500,
+      max_tokens: maxTokens,
       system,
-      messages: [{ role: "user", content: userText }],
+      messages: [{ role: "user", content }],
     }),
   });
   if (!res.ok) {
@@ -31,4 +32,8 @@ export async function askClaude(system, userText) {
     .filter((b) => b.type === "text")
     .map((b) => b.text)
     .join("\n");
+}
+
+export function askClaude(system, userText) {
+  return askClaudeContent(system, [{ type: "text", text: userText }], 1500);
 }

@@ -1,27 +1,60 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
+import * as XLSX from "xlsx";
 import { loadBook, saveBook, loadApiKey, saveApiKey } from "./storage.js";
-import { askClaude } from "./api.js";
+import { askClaude, askClaudeContent } from "./api.js";
 
 /* ────────────────────────── palette & type ──────────────────────────
-   Olive classic ledger: deep olive ink on warm cream paper, muted
-   terracotta as the companion accent (money out / alerts). */
+   Emerald fintech, dark: near-black charcoal surfaces, emerald for the
+   balance and money-in, warm coral for money-out. `olive` keeps its name
+   as the primary-action slot; `paper` is the app background; `creamText`
+   is the on-primary text color. */
 export const C = {
-  olive: "#4a5320",
-  oliveDeep: "#39411a",
-  oliveSoft: "#6b7a3a",
-  paper: "#f7f4e9",
-  card: "#fffdf3",
-  line: "#ded8c0",
-  ink: "#2f3417",
-  faint: "#87825f",
-  credit: "#4a7a1e",
-  debit: "#b3552b",
-  creamText: "#f4f1df",
+  olive: "#34d399", // primary action — emerald
+  oliveDeep: "#a7f3d0", // bright tint for headings on dark
+  oliveSoft: "#1f4e3b",
+  paper: "#0e1210",
+  card: "#161c18",
+  line: "#242d27",
+  ink: "#e9efe9",
+  faint: "#8b9c92",
+  credit: "#34d399",
+  debit: "#ff7a6b",
+  creamText: "#05130c", // text on emerald
+  heroFrom: "#143528",
+  heroTo: "#0f231a",
+  input: "#131916",
+  glow: "0 8px 30px rgba(52,211,153,.18)",
 };
+// Display face (amounts, balances, headings) vs body face. The families are
+// self-hosted woff2 in public/fonts and precached by the service worker.
 export const F = {
-  serif: 'Georgia, "Iowan Old Style", "Times New Roman", serif',
-  sans: 'system-ui, -apple-system, "Segoe UI", Roboto, sans-serif',
+  serif: '"Space Grotesk", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif',
+  sans: '"Inter", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif',
 };
+
+/* Keyframes and state-driven styles (:active, :focus) can't be inline —
+   this sheet is injected once at the app root. */
+const ANIM_CSS = `
+@keyframes cbFadeUp { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
+@keyframes cbSlideUp { from { transform: translateY(48px); opacity: .4; } to { transform: none; opacity: 1; } }
+@keyframes cbFadeIn { from { opacity: 0; } to { opacity: 1; } }
+.cb-view { animation: cbFadeUp .28s ease both; }
+.cb-row { animation: cbFadeIn .3s ease both; }
+.cb-sheet-overlay { animation: cbFadeIn .2s ease both; }
+.cb-sheet { animation: cbSlideUp .3s cubic-bezier(.2,.9,.3,1) both; }
+.cb-press { transition: transform .12s ease, filter .15s ease, background .2s ease, color .2s ease; }
+.cb-press:active { transform: scale(.96); }
+.cb-fab { transition: transform .15s ease, box-shadow .2s ease; }
+.cb-fab:active { transform: scale(.9); }
+input, select { transition: border-color .18s ease, box-shadow .18s ease; }
+input:focus, select:focus { outline: none; border-color: #34d399 !important; box-shadow: 0 0 0 3px rgba(52,211,153,.15); }
+.cb-tab { transition: color .2s ease, transform .15s ease; }
+.cb-tab:active { transform: translateY(1px); }
+@media (prefers-reduced-motion: reduce) {
+  .cb-view, .cb-row, .cb-sheet, .cb-sheet-overlay { animation: none; }
+  .cb-press, .cb-fab, .cb-tab, input, select { transition: none; }
+}
+`;
 
 /* ────────────────────────── money helpers ────────────────────────── */
 export function inr(n) {
@@ -239,27 +272,28 @@ const clone = (o) => JSON.parse(JSON.stringify(o));
 const st = {
   input: {
     width: "100%", boxSizing: "border-box", padding: "10px 12px",
-    borderRadius: 8, border: `1px solid ${C.line}`, background: "#fff",
-    fontSize: 16, fontFamily: F.sans, color: C.ink,
+    borderRadius: 10, border: `1px solid ${C.line}`, background: C.input,
+    fontSize: 16, fontFamily: F.sans, color: C.ink, colorScheme: "dark",
   },
   label: {
     display: "block", fontSize: 12, color: C.faint, margin: "12px 0 4px",
     textTransform: "uppercase", letterSpacing: "0.06em",
   },
   card: {
-    background: C.card, border: `1px solid ${C.line}`, borderRadius: 12,
-    padding: 14, margin: "10px 12px", boxShadow: "0 1px 2px rgba(60,60,30,.06)",
+    background: C.card, border: `1px solid ${C.line}`, borderRadius: 16,
+    padding: 14, margin: "10px 12px",
   },
 };
 
 function Btn({ primary, danger, style, ...props }) {
   return (
     <button
+      className="cb-press"
       style={{
         padding: "10px 16px", borderRadius: 10, fontSize: 15, fontWeight: 600,
         fontFamily: F.sans, cursor: "pointer",
         border: primary || danger ? "none" : `1px solid ${C.line}`,
-        background: danger ? C.debit : primary ? C.olive : "#fff",
+        background: danger ? C.debit : primary ? C.olive : "transparent",
         color: primary || danger ? C.creamText : C.ink,
         ...style,
       }}
@@ -271,12 +305,13 @@ function Btn({ primary, danger, style, ...props }) {
 function Seg({ options, value, onChange }) {
   return (
     <div style={{
-      display: "flex", border: `1px solid ${C.line}`, borderRadius: 10,
-      overflow: "hidden", background: "#fff",
+      display: "flex", border: `1px solid ${C.line}`, borderRadius: 12,
+      overflow: "hidden", background: C.input,
     }}>
       {options.map((o) => (
         <button
           key={o.v}
+          className="cb-press"
           onClick={() => onChange(o.v)}
           style={{
             flex: 1, padding: "9px 4px", fontSize: 14, fontFamily: F.sans,
@@ -296,13 +331,15 @@ function Sheet({ title, onClose, children }) {
   return (
     <div
       onClick={onClose}
+      className="cb-sheet-overlay"
       style={{
-        position: "fixed", inset: 0, background: "rgba(47,52,23,.45)",
+        position: "fixed", inset: 0, background: "rgba(0,0,0,.6)",
         display: "flex", alignItems: "flex-end", zIndex: 30,
       }}
     >
       <div
         onClick={(e) => e.stopPropagation()}
+        className="cb-sheet"
         style={{
           background: C.paper, borderRadius: "16px 16px 0 0", width: "100%",
           maxWidth: 480, margin: "0 auto", maxHeight: "88vh", overflowY: "auto",
@@ -365,7 +402,7 @@ const entrySign = (e) =>
   e.type === "in" || ((e.type === "transfer" || e.type === "party") && e.dir === "in") ? 1 : -1;
 
 /* ────────────────────────── Book (ledger) ────────────────────────── */
-function BookView({ book, onEdit }) {
+function BookView({ book, onEdit, onImport }) {
   const t = today();
   const { bank } = balancesAsOf(book, t);
   const monthStart = t.slice(0, 8) + "01";
@@ -385,16 +422,24 @@ function BookView({ book, onEdit }) {
   }
   return (
     <div>
-      <div style={{ ...st.card, background: C.olive, border: "none", color: C.creamText }}>
-        <div style={{ fontSize: 12, letterSpacing: "0.08em", textTransform: "uppercase", opacity: 0.8 }}>
+      <div style={{
+        ...st.card,
+        background: `linear-gradient(135deg, ${C.heroFrom}, ${C.heroTo})`,
+        border: `1px solid ${C.oliveSoft}`, boxShadow: C.glow,
+        color: C.ink, padding: 18,
+      }}>
+        <div style={{ fontSize: 12, letterSpacing: "0.1em", textTransform: "uppercase", color: C.oliveDeep }}>
           Bank balance
         </div>
-        <div style={{ fontFamily: F.serif, fontSize: 34, fontWeight: 700, margin: "2px 0 8px" }}>
+        <div style={{ fontSize: 36, fontWeight: 800, margin: "4px 0 10px", color: C.olive, fontVariantNumeric: "tabular-nums" }}>
           {inr(bank)}
         </div>
-        <div style={{ display: "flex", gap: 18, fontSize: 13, opacity: 0.9 }}>
-          <span>This month in <b style={{ fontFamily: F.serif }}>{inr(mIn)}</b></span>
-          <span>out <b style={{ fontFamily: F.serif }}>{inr(mOut)}</b></span>
+        <div style={{ display: "flex", gap: 18, fontSize: 13, color: C.faint, alignItems: "center" }}>
+          <span>This month in <b style={{ color: C.credit }}>{inr(mIn)}</b></span>
+          <span style={{ flex: 1 }}>out <b style={{ color: C.debit }}>{inr(mOut)}</b></span>
+          <Btn onClick={onImport} style={{ padding: "6px 12px", fontSize: 13, borderColor: C.oliveSoft, color: C.olive }}>
+            ⤓ Import
+          </Btn>
         </div>
       </div>
       {groups.length === 0 && (
@@ -411,6 +456,7 @@ function BookView({ book, onEdit }) {
             {g.items.map((e, i) => (
               <div
                 key={e.id}
+                className="cb-row cb-press"
                 onClick={() => onEdit(e)}
                 style={{
                   display: "flex", alignItems: "center", gap: 10, padding: "11px 14px",
@@ -568,6 +614,207 @@ function EntrySheet({ book, initial, onSave, onClose }) {
         <div style={{ fontSize: 12, color: C.faint, marginTop: 10 }}>
           Entries are never deleted. Re-code them, or park unexplained ones in Suspense.
         </div>
+      )}
+    </Sheet>
+  );
+}
+
+/* ─────────────────── statement import (PDF / image / Excel) ───────────────────
+   The file is read on-device; PDF and images go to the Claude API as document/
+   image blocks, Excel/CSV are converted to CSV text locally first. Claude
+   returns a JSON list of transactions which the user reviews before anything
+   is added to the book. */
+
+const fileToBase64 = (file) =>
+  new Promise((resolve, reject) => {
+    const r = new FileReader();
+    r.onload = () => resolve(String(r.result).split(",")[1]);
+    r.onerror = () => reject(r.error);
+    r.readAsDataURL(file);
+  });
+
+async function fileToContentBlock(file) {
+  const name = file.name.toLowerCase();
+  if (name.endsWith(".pdf")) {
+    return {
+      type: "document",
+      source: { type: "base64", media_type: "application/pdf", data: await fileToBase64(file) },
+    };
+  }
+  if (file.type.startsWith("image/")) {
+    return {
+      type: "image",
+      source: { type: "base64", media_type: file.type, data: await fileToBase64(file) },
+    };
+  }
+  if (name.endsWith(".csv")) {
+    return { type: "text", text: `Statement (CSV):\n${await file.text()}` };
+  }
+  if (name.endsWith(".xlsx") || name.endsWith(".xls")) {
+    const wb = XLSX.read(await file.arrayBuffer());
+    const csv = wb.SheetNames
+      .map((n) => `--- sheet: ${n} ---\n${XLSX.utils.sheet_to_csv(wb.Sheets[n])}`)
+      .join("\n");
+    return { type: "text", text: `Statement (from Excel):\n${csv}` };
+  }
+  throw new Error("Unsupported file — use PDF, an image, Excel or CSV.");
+}
+
+function parseTxJson(text) {
+  const a = text.indexOf("["), b = text.lastIndexOf("]");
+  if (a < 0 || b < a) throw new Error("Couldn't find transactions in the reply.");
+  const rows = JSON.parse(text.slice(a, b + 1));
+  return rows
+    .filter(
+      (r) =>
+        r && /^\d{4}-\d{2}-\d{2}$/.test(r.date || "") &&
+        Number.isFinite(+r.amount) && +r.amount > 0 &&
+        (r.type === "in" || r.type === "out")
+    )
+    .map((r) => ({
+      date: r.date,
+      amount: Math.round(+r.amount),
+      type: r.type,
+      head: typeof r.head === "string" ? r.head : "Suspense",
+      note: typeof r.note === "string" ? r.note.slice(0, 80) : "",
+      include: true,
+    }));
+}
+
+function ImportSheet({ book, hasKey, onDone, onClose }) {
+  const [stage, setStage] = useState("pick"); // pick | busy | review
+  const [err, setErr] = useState("");
+  const [rows, setRows] = useState([]);
+  const fileRef = useRef(null);
+
+  const run = async (file) => {
+    setErr("");
+    setStage("busy");
+    try {
+      const block = await fileToContentBlock(file);
+      const heads = [...book.heads.expense, ...book.heads.income];
+      const sys =
+        "You extract bank transactions from statements and receipts. Reply with ONLY a JSON " +
+        'array, no prose: [{"date":"YYYY-MM-DD","amount":<positive integer rupees>,' +
+        '"type":"in" (money into the account) or "out","head":<best-fitting category from ' +
+        'the provided list, else "Suspense">,"note":<short description, max 8 words>}]. ' +
+        "Skip opening/closing balance lines, totals, and duplicates.";
+      const text = await askClaudeContent(sys, [
+        { type: "text", text: `Category heads: ${heads.join(", ")}` },
+        block,
+      ]);
+      const parsed = parseTxJson(text);
+      if (!parsed.length) throw new Error("No transactions found in that file.");
+      setRows(parsed);
+      setStage("review");
+    } catch (e) {
+      setErr(e.message);
+      setStage("pick");
+    }
+  };
+
+  const setRow = (i, patch) =>
+    setRows((rs) => rs.map((r, j) => (j === i ? { ...r, ...patch } : r)));
+  const picked = rows.filter((r) => r.include);
+
+  return (
+    <Sheet title="Import statement" onClose={onClose}>
+      {stage === "pick" && (
+        <>
+          <div style={{ fontSize: 13, color: C.faint, margin: "4px 0 12px" }}>
+            Upload a bank statement or receipt — PDF, photo, Excel or CSV. It's
+            read with your API key (sent only to api.anthropic.com), then you
+            review every transaction before it enters the book.
+          </div>
+          {!hasKey && (
+            <div style={{ fontSize: 13, color: C.debit, marginBottom: 10 }}>
+              Needs your Anthropic API key — add it in Setup first.
+            </div>
+          )}
+          {err && <div style={{ fontSize: 13, color: C.debit, marginBottom: 10 }}>{err}</div>}
+          <Btn
+            primary disabled={!hasKey}
+            style={{ width: "100%", opacity: hasKey ? 1 : 0.5 }}
+            onClick={() => fileRef.current && fileRef.current.click()}
+          >
+            Choose file…
+          </Btn>
+          <input
+            ref={fileRef} type="file" style={{ display: "none" }}
+            accept=".pdf,.csv,.xlsx,.xls,image/*"
+            onChange={(e) => {
+              if (e.target.files[0]) run(e.target.files[0]);
+              e.target.value = "";
+            }}
+          />
+        </>
+      )}
+
+      {stage === "busy" && (
+        <div style={{ textAlign: "center", padding: 30, color: C.faint }}>
+          <div style={{ fontFamily: F.serif, fontSize: 18, fontWeight: 700, color: C.olive }}>
+            Reading statement…
+          </div>
+          <div style={{ fontSize: 13, marginTop: 6 }}>Extracting transactions with Claude</div>
+        </div>
+      )}
+
+      {stage === "review" && (
+        <>
+          <div style={{ fontSize: 13, color: C.faint, margin: "4px 0 10px" }}>
+            {rows.length} found — untick anything you don't want, fix heads, then add.
+          </div>
+          {rows.map((r, i) => (
+            <div
+              key={i}
+              className="cb-row"
+              style={{
+                display: "flex", alignItems: "center", gap: 8, padding: "8px 0",
+                borderTop: i ? `1px solid ${C.line}` : "none",
+                opacity: r.include ? 1 : 0.45,
+              }}
+            >
+              <input
+                type="checkbox" checked={r.include}
+                onChange={(e) => setRow(i, { include: e.target.checked })}
+                style={{ width: 18, height: 18, accentColor: C.olive }}
+              />
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontSize: 13, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                  {r.note || "(no description)"}
+                </div>
+                <div style={{ display: "flex", gap: 6, alignItems: "center", marginTop: 3 }}>
+                  <span style={{ fontSize: 11, color: C.faint }}>{r.date}</span>
+                  <select
+                    style={{ ...st.input, width: "auto", padding: "2px 6px", fontSize: 12 }}
+                    value={
+                      (r.type === "in" ? book.heads.income : book.heads.expense).includes(r.head)
+                        ? r.head : "Suspense"
+                    }
+                    onChange={(e) => setRow(i, { head: e.target.value })}
+                  >
+                    {(r.type === "in" ? book.heads.income : book.heads.expense).map((h) => (
+                      <option key={h} value={h}>{h}</option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+              <div style={{
+                fontFamily: F.serif, fontWeight: 700, fontSize: 14, whiteSpace: "nowrap",
+                color: r.type === "in" ? C.credit : C.debit,
+              }}>
+                {r.type === "in" ? "+" : "−"}{inr(r.amount)}
+              </div>
+            </div>
+          ))}
+          <Btn
+            primary disabled={!picked.length}
+            style={{ width: "100%", marginTop: 14, opacity: picked.length ? 1 : 0.5 }}
+            onClick={() => onDone(picked)}
+          >
+            Add {picked.length} {picked.length === 1 ? "entry" : "entries"}
+          </Btn>
+        </>
       )}
     </Sheet>
   );
@@ -794,12 +1041,16 @@ function ReportsView({ book }) {
               <RowLine name="Total expenses" amount={pl.totalExpense} strong color={C.debit} />
             </div>
           </div>
-          <div style={{ ...st.card, background: C.olive, border: "none" }}>
-            <div style={{ display: "flex", color: C.creamText }}>
+          <div style={{
+            ...st.card,
+            background: `linear-gradient(135deg, ${C.heroFrom}, ${C.heroTo})`,
+            border: `1px solid ${C.oliveSoft}`, boxShadow: C.glow,
+          }}>
+            <div style={{ display: "flex", color: C.ink }}>
               <span style={{ flex: 1, fontWeight: 700 }}>Net {pl.net >= 0 ? "surplus" : "deficit"}</span>
-              <span style={{ fontFamily: F.serif, fontSize: 18, fontWeight: 700 }}>{inr(pl.net)}</span>
+              <span style={{ fontSize: 18, fontWeight: 800, color: pl.net >= 0 ? C.credit : C.debit }}>{inr(pl.net)}</span>
             </div>
-            <div style={{ fontSize: 12, color: C.creamText, opacity: 0.75, marginTop: 4 }}>
+            <div style={{ fontSize: 12, color: C.faint, marginTop: 4 }}>
               Cash basis · transfers, party entries and SIP-type heads excluded
             </div>
           </div>
@@ -1250,6 +1501,7 @@ export default function CashBook() {
   const [tab, setTab] = useState("book");
   const [entrySheet, setEntrySheet] = useState(null); // {initial} | null
   const [memoParty, setMemoParty] = useState(null);
+  const [importOpen, setImportOpen] = useState(false);
   const [hasKey, setHasKey] = useState(false);
   const skipSave = useRef(true);
 
@@ -1294,6 +1546,7 @@ export default function CashBook() {
       maxWidth: 480, margin: "0 auto",
       paddingBottom: "calc(92px + env(safe-area-inset-bottom))",
     }}>
+      <style>{ANIM_CSS}</style>
       <div style={{
         display: "flex", alignItems: "baseline", padding: "16px 16px 4px",
       }}>
@@ -1305,34 +1558,43 @@ export default function CashBook() {
         </div>
       </div>
 
-      {tab === "book" && <BookView book={book} onEdit={(e) => setEntrySheet({ initial: e })} />}
-      {tab === "owed" && (
-        <OwedView
-          book={book}
-          onSettle={(p) =>
-            setEntrySheet({
-              initial: {
-                type: "party", partyId: p.id, amount: Math.abs(p.balance),
-                dir: p.balance > 0 ? "in" : "out", date: today(), note: "Settlement",
-              },
-            })
-          }
-          onAddMemo={(p) => setMemoParty(p)}
-        />
-      )}
-      {tab === "reports" && <ReportsView book={book} />}
-      {tab === "plan" && <PlanView book={book} hasKey={hasKey} />}
-      {tab === "setup" && <SetupView book={book} up={up} hasKey={hasKey} onKeySaved={() => setHasKey(true)} />}
+      <div className="cb-view" key={tab}>
+        {tab === "book" && (
+          <BookView
+            book={book}
+            onEdit={(e) => setEntrySheet({ initial: e })}
+            onImport={() => setImportOpen(true)}
+          />
+        )}
+        {tab === "owed" && (
+          <OwedView
+            book={book}
+            onSettle={(p) =>
+              setEntrySheet({
+                initial: {
+                  type: "party", partyId: p.id, amount: Math.abs(p.balance),
+                  dir: p.balance > 0 ? "in" : "out", date: today(), note: "Settlement",
+                },
+              })
+            }
+            onAddMemo={(p) => setMemoParty(p)}
+          />
+        )}
+        {tab === "reports" && <ReportsView book={book} />}
+        {tab === "plan" && <PlanView book={book} hasKey={hasKey} />}
+        {tab === "setup" && <SetupView book={book} up={up} hasKey={hasKey} onKeySaved={() => setHasKey(true)} />}
+      </div>
 
       {tab === "book" && (
         <button
           onClick={() => setEntrySheet({ initial: null })}
           aria-label="Add entry"
+          className="cb-fab"
           style={{
             position: "fixed", right: 18, bottom: "calc(76px + env(safe-area-inset-bottom))",
             width: 58, height: 58, borderRadius: 29, border: "none",
-            background: C.debit, color: "#fff", fontSize: 30, lineHeight: "58px",
-            boxShadow: "0 4px 12px rgba(60,40,10,.35)", cursor: "pointer", zIndex: 20,
+            background: C.olive, color: C.creamText, fontSize: 30, lineHeight: "58px",
+            fontWeight: 700, boxShadow: C.glow, cursor: "pointer", zIndex: 20,
           }}
         >
           +
@@ -1350,6 +1612,7 @@ export default function CashBook() {
           {TABS.map((tb) => (
             <button
               key={tb.id}
+              className="cb-tab"
               onClick={() => setTab(tb.id)}
               style={{
                 flex: 1, padding: "9px 0 7px", border: "none", background: "none",
@@ -1372,6 +1635,27 @@ export default function CashBook() {
           initial={entrySheet.initial}
           onSave={saveEntry}
           onClose={() => setEntrySheet(null)}
+        />
+      )}
+      {importOpen && (
+        <ImportSheet
+          book={book}
+          hasKey={hasKey}
+          onClose={() => setImportOpen(false)}
+          onDone={(picked) => {
+            up((b) => {
+              for (const r of picked) {
+                const heads = r.type === "in" ? b.heads.income : b.heads.expense;
+                b.entries.push({
+                  id: uid(), date: r.date, amount: r.amount, type: r.type,
+                  head: heads.includes(r.head) ? r.head : "Suspense",
+                  note: r.note,
+                });
+              }
+              return b;
+            });
+            setImportOpen(false);
+          }}
         />
       )}
       {memoParty && (

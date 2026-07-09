@@ -1,6 +1,6 @@
 // Bump CACHE whenever the build changes, or installed phones keep serving the
 // stale cached bundle.
-const CACHE = "cashbook-v1";
+const CACHE = "cashbook-v3";
 const SHELL = [
   ".",
   "index.html",
@@ -8,6 +8,11 @@ const SHELL = [
   "manifest.json",
   "icons/icon-192.png",
   "icons/icon-512.png",
+  "fonts/space-grotesk-latin-500-normal.woff2",
+  "fonts/space-grotesk-latin-700-normal.woff2",
+  "fonts/inter-latin-400-normal.woff2",
+  "fonts/inter-latin-500-normal.woff2",
+  "fonts/inter-latin-700-normal.woff2",
 ];
 
 self.addEventListener("install", (e) => {
