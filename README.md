@@ -52,11 +52,20 @@ GitHub Actions on every push to `main` (`.github/workflows/pages.yml`).
 3. Serve `dist/` from any static host (data is keyed to the origin — keep it
    stable).
 
-## Plan tab (optional)
+## Statement import (free)
+
+Book → ⤓ Import reads PDF/Excel/CSV statements entirely on-device (pdf.js +
+SheetJS + a heuristic parser). Keyword rules code the rows to heads and learn
+from your corrections (Setup → Import rules). Everything lands on a review
+screen before entering the book.
+
+## AI features (optional)
 
 Setup → paste an Anthropic API key (stored only on-device, sent only to
-`api.anthropic.com`). The Plan tab sends this FY's totals — no notes, no
-names — and returns spending insights.
+`api.anthropic.com`). It unlocks: the Plan tab (spending insights from FY
+totals — no notes, no names), smarter reading of messy statements and photos,
+and variance analysis in Reports. Without a key the app is fully functional
+and costs nothing to run.
 
 ## Backups
 

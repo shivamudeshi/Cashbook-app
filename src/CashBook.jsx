@@ -1,7 +1,16 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import * as XLSX from "xlsx";
-import { loadBook, saveBook, loadApiKey, saveApiKey } from "./storage.js";
+import { loadBook, saveBook, loadApiKey, saveApiKey, DEFAULT_CODING_RULES } from "./storage.js";
 import { askClaude, askClaudeContent } from "./api.js";
+
+// pdf.js touches browser-only APIs (DOMMatrix) the moment its module runs, so
+// it is loaded lazily on first PDF import — esbuild defers evaluation of the
+// bundled module until this call.
+async function getPdfjs() {
+  const pdfjsLib = await import("pdfjs-dist");
+  pdfjsLib.GlobalWorkerOptions.workerSrc = "pdf.worker.min.mjs";
+  return pdfjsLib;
+}
 
 /* ────────────────────────── palette & type ──────────────────────────
    Emerald fintech, dark: near-black charcoal surfaces, emerald for the
@@ -242,6 +251,7 @@ export function defaultBook() {
     ],
     opening: { asOf: today(), bank: 0, accounts: {} },
     owedMemos: [],
+    codingRules: DEFAULT_CODING_RULES.map((r) => ({ ...r })),
   };
 }
 
@@ -251,7 +261,7 @@ function normalizeBook(j) {
   b.heads = { ...d.heads, ...(j.heads || {}) };
   b.opening = { ...d.opening, ...(j.opening || {}) };
   if (!b.opening.accounts) b.opening.accounts = {};
-  for (const k of ["entries", "bsAccounts", "parties", "owedMemos"]) {
+  for (const k of ["entries", "bsAccounts", "parties", "owedMemos", "codingRules"]) {
     if (!Array.isArray(b[k])) b[k] = d[k];
   }
   if (!b.headClass) b.headClass = {};
@@ -263,6 +273,7 @@ if (typeof window !== "undefined") {
   window.__cashbookEngine = {
     inr, parseAmount, fyOf, quarterOf, fyRange, monthRange,
     computePL, balancesAsOf, owedAsOf, computeBS, defaultBook,
+    parseStatementText, suggestHead, keywordOf,
   };
 }
 
@@ -299,6 +310,29 @@ function Btn({ primary, danger, style, ...props }) {
       }}
       {...props}
     />
+  );
+}
+
+function Chips({ options, value, onChange, render }) {
+  return (
+    <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+      {options.map((o) => (
+        <button
+          key={o}
+          className="cb-press"
+          onClick={() => onChange(o)}
+          style={{
+            padding: "6px 11px", borderRadius: 999, fontSize: 13, fontWeight: 600,
+            fontFamily: F.sans, cursor: "pointer",
+            border: `1px solid ${value === o ? C.olive : C.line}`,
+            background: value === o ? C.olive : "transparent",
+            color: value === o ? C.creamText : C.ink,
+          }}
+        >
+          {render ? render(o) : o}
+        </button>
+      ))}
+    </div>
   );
 }
 
@@ -403,6 +437,8 @@ const entrySign = (e) =>
 
 /* ────────────────────────── Book (ledger) ────────────────────────── */
 function BookView({ book, onEdit, onImport }) {
+  const [q, setQ] = useState("");
+  const [headFilter, setHeadFilter] = useState("");
   const t = today();
   const { bank } = balancesAsOf(book, t);
   const monthStart = t.slice(0, 8) + "01";
@@ -411,15 +447,24 @@ function BookView({ book, onEdit, onImport }) {
     if (e.date < monthStart || e.date > t) continue;
     entrySign(e) > 0 ? (mIn += e.amount) : (mOut += e.amount);
   }
-  const sorted = [...book.entries].sort(
-    (a, b) => b.date.localeCompare(a.date) || (b.id > a.id ? 1 : -1)
-  );
+  const needle = q.trim().toLowerCase();
+  const matches = (e) => {
+    if (headFilter && e.head !== headFilter) return false;
+    if (!needle) return true;
+    const hay = `${entryLabel(book, e)} ${e.note || ""} ${e.amount} ${e.date}`.toLowerCase();
+    return needle.split(/\s+/).every((w) => hay.includes(w));
+  };
+  const filtering = needle || headFilter;
+  const sorted = [...book.entries]
+    .filter(matches)
+    .sort((a, b) => b.date.localeCompare(a.date) || (b.id > a.id ? 1 : -1));
   const groups = [];
   for (const e of sorted) {
     const g = groups[groups.length - 1];
     if (g && g.date === e.date) g.items.push(e);
     else groups.push({ date: e.date, items: [e] });
   }
+  const allHeads = [...new Set(book.entries.filter((e) => e.head).map((e) => e.head))];
   return (
     <div>
       <div style={{
@@ -442,9 +487,46 @@ function BookView({ book, onEdit, onImport }) {
           </Btn>
         </div>
       </div>
+      {book.entries.length > 0 && (
+        <div style={{ margin: "10px 12px 0" }}>
+          <input
+            style={st.input}
+            placeholder="Search entries…"
+            value={q}
+            onChange={(e) => setQ(e.target.value)}
+          />
+          {allHeads.length > 1 && (
+            <div style={{ display: "flex", gap: 6, overflowX: "auto", padding: "8px 0 0", WebkitOverflowScrolling: "touch" }}>
+              {allHeads.map((h) => (
+                <button
+                  key={h}
+                  className="cb-press"
+                  onClick={() => setHeadFilter(headFilter === h ? "" : h)}
+                  style={{
+                    padding: "5px 10px", borderRadius: 999, fontSize: 12, fontWeight: 600,
+                    whiteSpace: "nowrap", flexShrink: 0, cursor: "pointer", fontFamily: F.sans,
+                    border: `1px solid ${headFilter === h ? C.olive : C.line}`,
+                    background: headFilter === h ? C.olive : "transparent",
+                    color: headFilter === h ? C.creamText : C.faint,
+                  }}
+                >
+                  {h}
+                </button>
+              ))}
+            </div>
+          )}
+          {filtering && (
+            <div style={{ fontSize: 12, color: C.faint, marginTop: 6 }}>
+              {sorted.length} of {book.entries.length} entries
+            </div>
+          )}
+        </div>
+      )}
       {groups.length === 0 && (
         <div style={{ ...st.card, textAlign: "center", color: C.faint, padding: 28 }}>
-          No entries yet — tap <b>+</b> to record the first one.
+          {filtering ? "Nothing matches that search." : (
+            <>No entries yet — tap <b>+</b> to record the first one.</>
+          )}
         </div>
       )}
       {groups.map((g) => (
@@ -521,7 +603,7 @@ function EntrySheet({ book, initial, onSave, onClose }) {
   return (
     <Sheet title={editing ? "Re-code entry" : "New entry"} onClose={onClose}>
       <label style={st.label}>Amount</label>
-      <AmountField value={amount} onChange={setAmount} autoFocus={!editing} />
+      <AmountField value={amount} onChange={setAmount} />
 
       <label style={st.label}>Kind</label>
       <Seg
@@ -538,13 +620,12 @@ function EntrySheet({ book, initial, onSave, onClose }) {
       {(type === "in" || type === "out") && (
         <>
           <label style={st.label}>Head</label>
-          <select style={st.input} value={effHead} onChange={(e) => setHead(e.target.value)}>
-            {heads.map((h) => (
-              <option key={h} value={h}>
-                {h}{book.headClass[h] ? ` → ${book.headClass[h]}` : ""}
-              </option>
-            ))}
-          </select>
+          <Chips
+            options={heads}
+            value={effHead}
+            onChange={setHead}
+            render={(h) => (book.headClass[h] ? `${h} → ${book.headClass[h]}` : h)}
+          />
         </>
       )}
 
@@ -601,6 +682,16 @@ function EntrySheet({ book, initial, onSave, onClose }) {
         <Btn primary disabled={!valid} style={{ flex: 1, opacity: valid ? 1 : 0.5 }} onClick={() => valid && save()}>
           {editing ? "Save changes" : "Add entry"}
         </Btn>
+        {editing && (
+          <Btn
+            disabled={!valid}
+            style={{ opacity: valid ? 1 : 0.5 }}
+            onClick={() => valid && save({ id: uid(), date: today() })}
+            title="Add a fresh copy of this entry dated today — handy for rent, SIP, etc."
+          >
+            ↻ Repeat today
+          </Btn>
+        )}
         {editing && (initial.type === "in" || initial.type === "out") && (
           <Btn
             onClick={() => save({ head: "Suspense", type: initial.type, account: undefined, partyId: undefined, dir: undefined })}
@@ -620,10 +711,96 @@ function EntrySheet({ book, initial, onSave, onClose }) {
 }
 
 /* ─────────────────── statement import (PDF / image / Excel) ───────────────────
-   The file is read on-device; PDF and images go to the Claude API as document/
-   image blocks, Excel/CSV are converted to CSV text locally first. Claude
-   returns a JSON list of transactions which the user reviews before anything
-   is added to the book. */
+   Local-first and free: digital PDFs are read with pdf.js, Excel/CSV are
+   converted to text, and a heuristic parser plus user-taught keyword rules do
+   the extraction and coding — all on-device. The Claude API is used only for
+   photos, or as an opt-in fallback for files the local parser can't read, and
+   only when a key is saved. Every path ends at the same review screen. */
+
+const MONTHS3 = { jan: 1, feb: 2, mar: 3, apr: 4, may: 5, jun: 6,
+                  jul: 7, aug: 8, sep: 9, oct: 10, nov: 11, dec: 12 };
+
+// Heuristic statement-line parser. A transaction line = a date + at least one
+// amount; when a trailing running balance is present the amount is the
+// second-last number. Direction comes from Dr/Cr-style markers, defaulting to
+// "out" (the review screen lets the user flip anything).
+export function parseStatementText(text) {
+  const dateRe =
+    /\b(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{2,4})\b|\b(\d{1,2})[ \-]?(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*[ \-,']*(\d{2,4})\b|\b(\d{4})-(\d{2})-(\d{2})\b/i;
+  const rows = [];
+  for (const raw of String(text).split(/\r?\n/)) {
+    const line = raw.replace(/[|;"]+/g, " ").trim();
+    if (!line) continue;
+    const dm = line.match(dateRe);
+    if (!dm) continue;
+    let y, m, d;
+    if (dm[1]) { d = +dm[1]; m = +dm[2]; y = +dm[3]; }
+    else if (dm[4]) { d = +dm[4]; m = MONTHS3[dm[5].toLowerCase()]; y = +dm[6]; }
+    else { y = +dm[7]; m = +dm[8]; d = +dm[9]; }
+    if (y < 100) y += 2000;
+    if (!m || m > 12 || !d || d > 31 || y < 1990 || y > 2100) continue;
+    const date = `${y}-${pad2(m)}-${pad2(d)}`;
+
+    const rest = line.replace(dm[0], " ");
+    const nums = [...rest.matchAll(/\d[\d,]*(?:\.\d{1,2})?/g)]
+      .map((t) => ({ v: parseFloat(t[0].replace(/,/g, "")), i: t.index, raw: t[0] }))
+      .filter((n) => Number.isFinite(n.v) && n.v > 0);
+    if (!nums.length) continue;
+    const amtTok = nums.length >= 2 ? nums[nums.length - 2] : nums[0];
+    const amount = Math.round(amtTok.v);
+    if (!amount) continue;
+
+    const low = line.toLowerCase();
+    let type = /\b(cr|credit|deposit|received)\b/.test(low) ? "in" : "out";
+
+    let note = rest
+      .slice(0, amtTok.i)
+      .replace(/\b(dr|cr|debit|credit|deposit|withdrawal|w\/d)\b/gi, " ")
+      .replace(/\s{2,}/g, " ")
+      .replace(/^[\s\-–—:,.]+|[\s\-–—:,.]+$/g, "")
+      .slice(0, 60);
+    rows.push({ date, amount, type, note });
+  }
+  return rows;
+}
+
+// First matching keyword rule wins; unknowns land in Suspense for re-coding.
+export function suggestHead(db, note) {
+  const low = (note || "").toLowerCase();
+  for (const r of db.codingRules || []) {
+    if (r.match && low.includes(r.match.toLowerCase())) return r.head;
+  }
+  return "Suspense";
+}
+
+// The keyword the importer learns when the user re-codes a row: the first
+// reasonably distinctive word of the note.
+export function keywordOf(note) {
+  const words = (note || "").toLowerCase().match(/[a-z]{4,}/g) || [];
+  const skip = new Set(["upi", "neft", "imps", "rtgs", "bank", "transfer", "payment", "toward", "from"]);
+  return words.find((w) => !skip.has(w)) || words[0] || "";
+}
+
+async function extractPdfText(file) {
+  const pdfjsLib = await getPdfjs();
+  const pdf = await pdfjsLib.getDocument({ data: await file.arrayBuffer() }).promise;
+  const out = [];
+  for (let p = 1; p <= pdf.numPages; p++) {
+    const page = await pdf.getPage(p);
+    const tc = await page.getTextContent();
+    const lines = new Map();
+    for (const it of tc.items) {
+      if (!it.str || !it.str.trim()) continue;
+      const y = Math.round(it.transform[5]);
+      if (!lines.has(y)) lines.set(y, []);
+      lines.get(y).push({ x: it.transform[4], s: it.str });
+    }
+    for (const y of [...lines.keys()].sort((a, b) => b - a)) {
+      out.push(lines.get(y).sort((a, b) => a.x - b.x).map((i) => i.s).join(" "));
+    }
+  }
+  return out.join("\n");
+}
 
 const fileToBase64 = (file) =>
   new Promise((resolve, reject) => {
@@ -685,27 +862,65 @@ function ImportSheet({ book, hasKey, onDone, onClose }) {
   const [stage, setStage] = useState("pick"); // pick | busy | review
   const [err, setErr] = useState("");
   const [rows, setRows] = useState([]);
+  const [via, setVia] = useState("local"); // how the current rows were read
+  const [learned, setLearned] = useState({}); // keyword -> head, from re-coding
   const fileRef = useRef(null);
+  const lastFile = useRef(null);
 
-  const run = async (file) => {
+  const codeRows = (raw) =>
+    raw.map((r) => ({ ...r, head: r.head && r.head !== "Suspense" ? r.head : suggestHead(book, r.note), include: true }));
+
+  // Free path: everything is read and parsed on this device.
+  const runLocal = async (file) => {
+    const name = file.name.toLowerCase();
+    let text;
+    if (name.endsWith(".pdf")) text = await extractPdfText(file);
+    else if (name.endsWith(".csv")) text = await file.text();
+    else if (name.endsWith(".xlsx") || name.endsWith(".xls")) {
+      const wb = XLSX.read(await file.arrayBuffer());
+      text = wb.SheetNames.map((n) => XLSX.utils.sheet_to_csv(wb.Sheets[n])).join("\n");
+    } else throw new Error("image");
+    return parseStatementText(text).map((r) => ({ ...r, head: "" }));
+  };
+
+  const runAI = async (file) => {
+    const block = await fileToContentBlock(file);
+    const heads = [...book.heads.expense, ...book.heads.income];
+    const sys =
+      "You extract bank transactions from statements and receipts. Reply with ONLY a JSON " +
+      'array, no prose: [{"date":"YYYY-MM-DD","amount":<positive integer rupees>,' +
+      '"type":"in" (money into the account) or "out","head":<best-fitting category from ' +
+      'the provided list, else "Suspense">,"note":<short description, max 8 words>}]. ' +
+      "Skip opening/closing balance lines, totals, and duplicates.";
+    const text = await askClaudeContent(sys, [
+      { type: "text", text: `Category heads: ${heads.join(", ")}` },
+      block,
+    ]);
+    return parseTxJson(text);
+  };
+
+  const run = async (file, forceAI = false) => {
     setErr("");
     setStage("busy");
+    lastFile.current = file;
     try {
-      const block = await fileToContentBlock(file);
-      const heads = [...book.heads.expense, ...book.heads.income];
-      const sys =
-        "You extract bank transactions from statements and receipts. Reply with ONLY a JSON " +
-        'array, no prose: [{"date":"YYYY-MM-DD","amount":<positive integer rupees>,' +
-        '"type":"in" (money into the account) or "out","head":<best-fitting category from ' +
-        'the provided list, else "Suspense">,"note":<short description, max 8 words>}]. ' +
-        "Skip opening/closing balance lines, totals, and duplicates.";
-      const text = await askClaudeContent(sys, [
-        { type: "text", text: `Category heads: ${heads.join(", ")}` },
-        block,
-      ]);
-      const parsed = parseTxJson(text);
-      if (!parsed.length) throw new Error("No transactions found in that file.");
-      setRows(parsed);
+      if (forceAI || file.type.startsWith("image/")) {
+        if (!hasKey) throw new Error("Photos need the AI key (Setup) — PDF, Excel and CSV work without it.");
+        setRows(codeRows(await runAI(file)));
+        setVia("ai");
+      } else {
+        let parsed = [];
+        try { parsed = await runLocal(file); } catch (e) { if (e.message === "image") throw e; }
+        if (parsed.length) {
+          setRows(codeRows(parsed));
+          setVia("local");
+        } else if (hasKey) {
+          setRows(codeRows(await runAI(file)));
+          setVia("ai");
+        } else {
+          throw new Error("Couldn't find transactions in that file. A cleaner export (CSV/Excel) usually works; the AI key in Setup unlocks smarter reading.");
+        }
+      }
       setStage("review");
     } catch (e) {
       setErr(e.message);
@@ -713,8 +928,13 @@ function ImportSheet({ book, hasKey, onDone, onClose }) {
     }
   };
 
-  const setRow = (i, patch) =>
+  const setRow = (i, patch) => {
     setRows((rs) => rs.map((r, j) => (j === i ? { ...r, ...patch } : r)));
+    if (patch.head) {
+      const kw = keywordOf(rows[i] && rows[i].note);
+      if (kw) setLearned((l) => ({ ...l, [kw]: patch.head }));
+    }
+  };
   const picked = rows.filter((r) => r.include);
 
   return (
@@ -722,19 +942,14 @@ function ImportSheet({ book, hasKey, onDone, onClose }) {
       {stage === "pick" && (
         <>
           <div style={{ fontSize: 13, color: C.faint, margin: "4px 0 12px" }}>
-            Upload a bank statement or receipt — PDF, photo, Excel or CSV. It's
-            read with your API key (sent only to api.anthropic.com), then you
-            review every transaction before it enters the book.
+            Upload a bank statement — PDF, Excel or CSV are read entirely on
+            this phone, free. Photos need the optional AI key. You review every
+            transaction before it enters the book.
           </div>
-          {!hasKey && (
-            <div style={{ fontSize: 13, color: C.debit, marginBottom: 10 }}>
-              Needs your Anthropic API key — add it in Setup first.
-            </div>
-          )}
           {err && <div style={{ fontSize: 13, color: C.debit, marginBottom: 10 }}>{err}</div>}
           <Btn
-            primary disabled={!hasKey}
-            style={{ width: "100%", opacity: hasKey ? 1 : 0.5 }}
+            primary
+            style={{ width: "100%" }}
             onClick={() => fileRef.current && fileRef.current.click()}
           >
             Choose file…
@@ -755,14 +970,27 @@ function ImportSheet({ book, hasKey, onDone, onClose }) {
           <div style={{ fontFamily: F.serif, fontSize: 18, fontWeight: 700, color: C.olive }}>
             Reading statement…
           </div>
-          <div style={{ fontSize: 13, marginTop: 6 }}>Extracting transactions with Claude</div>
+          <div style={{ fontSize: 13, marginTop: 6 }}>Extracting transactions</div>
         </div>
       )}
 
       {stage === "review" && (
         <>
           <div style={{ fontSize: 13, color: C.faint, margin: "4px 0 10px" }}>
-            {rows.length} found — untick anything you don't want, fix heads, then add.
+            {rows.length} found{via === "local" ? " (read on-device)" : " (read with AI)"} —
+            untick anything you don't want, fix heads, then add. Head fixes are
+            remembered for next time.
+            {via === "local" && hasKey && lastFile.current && (
+              <button
+                onClick={() => run(lastFile.current, true)}
+                style={{
+                  background: "none", border: "none", color: C.olive, cursor: "pointer",
+                  fontSize: 13, padding: 0, marginLeft: 6, textDecoration: "underline",
+                }}
+              >
+                Re-read with AI
+              </button>
+            )}
           </div>
           {rows.map((r, i) => (
             <div
@@ -810,7 +1038,7 @@ function ImportSheet({ book, hasKey, onDone, onClose }) {
           <Btn
             primary disabled={!picked.length}
             style={{ width: "100%", marginTop: 14, opacity: picked.length ? 1 : 0.5 }}
-            onClick={() => onDone(picked)}
+            onClick={() => onDone(picked, learned)}
           >
             Add {picked.length} {picked.length === 1 ? "entry" : "entries"}
           </Btn>
@@ -967,7 +1195,56 @@ function MemoSheet({ party, onSave, onClose }) {
 }
 
 /* ────────────────────────── Reports ────────────────────────── */
-function ReportsView({ book }) {
+export function addDays(dateStr, n) {
+  const d = new Date(dateStr + "T00:00:00");
+  d.setDate(d.getDate() + n);
+  return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
+}
+export function shiftYear(dateStr, n) {
+  const [y, m, d] = dateStr.split("-").map(Number);
+  const dt = new Date(y + n, m - 1, d);
+  if (dt.getMonth() !== m - 1) dt.setDate(0); // 29 Feb → 28 Feb
+  return `${dt.getFullYear()}-${pad2(dt.getMonth() + 1)}-${pad2(dt.getDate())}`;
+}
+// The comparative range: the immediately preceding period of equal length,
+// or the same period one financial year earlier.
+export function compareRange(span, fy, from, to, mode) {
+  if (mode === "prev") {
+    if (span === "year") return fyRange(fy - 1);
+    if (span.startsWith("q")) {
+      const q = +span[1];
+      return q > 1 ? fyRange(fy, q - 1) : fyRange(fy - 1, 4);
+    }
+    if (span.startsWith("m")) {
+      const i = +span.slice(1);
+      return i > 0 ? monthRange(fy, i - 1) : monthRange(fy - 1, 11);
+    }
+    const days = Math.round((new Date(to) - new Date(from)) / 86400000) + 1;
+    const pTo = addDays(from, -1);
+    return [addDays(pTo, -(days - 1)), pTo];
+  }
+  if (span === "year") return fyRange(fy - 1);
+  if (span.startsWith("q")) return fyRange(fy - 1, +span[1]);
+  if (span.startsWith("m")) return monthRange(fy - 1, +span.slice(1));
+  return [shiftYear(from, -1), shiftYear(to, -1)];
+}
+
+function Variance({ current, prev, goodWhenUp }) {
+  const diff = current - prev;
+  const pct = prev !== 0 ? Math.round((diff / Math.abs(prev)) * 100) : null;
+  const good = goodWhenUp ? diff >= 0 : diff <= 0;
+  return (
+    <div style={{ fontSize: 11, color: C.faint, marginTop: 1 }}>
+      prev {inr(prev)} ·{" "}
+      <span style={{ color: diff === 0 ? C.faint : good ? C.credit : C.debit, fontWeight: 600 }}>
+        {diff >= 0 ? "+" : "−"}{inr(Math.abs(diff))}
+        {pct !== null && ` (${diff >= 0 ? "+" : "−"}${Math.abs(pct)}%)`}
+      </span>
+    </div>
+  );
+}
+
+function ReportsView({ book, hasKey }) {
   const [mode, setMode] = useState("pl");
   const t = today();
   const fys = useMemo(() => {
@@ -976,22 +1253,110 @@ function ReportsView({ book }) {
     return [...s].sort((a, b) => b - a);
   }, [book.entries, t]);
   const [fy, setFy] = useState(fyOf(t));
-  const [span, setSpan] = useState("year"); // year | q1..q4 | m0..m11
+  const [span, setSpan] = useState("year"); // year | q1..q4 | m0..m11 | custom
+  const [customFrom, setCustomFrom] = useState(t.slice(0, 8) + "01");
+  const [customTo, setCustomTo] = useState(t);
+  const [cmp, setCmp] = useState("off"); // off | prev | lastyear
   const [asOf, setAsOf] = useState(t);
+  const [cmpAsOf, setCmpAsOf] = useState("");
+  const [openHead, setOpenHead] = useState("");
+  const [aiBusy, setAiBusy] = useState(false);
+  const [aiOut, setAiOut] = useState("");
+  const [aiErr, setAiErr] = useState("");
 
   const [from, to] =
     span === "year" ? fyRange(fy)
     : span.startsWith("q") ? fyRange(fy, +span[1])
+    : span === "custom" ? [customFrom, customTo]
     : monthRange(fy, +span.slice(1));
   const pl = computePL(book, from, to);
+  const [pFrom, pTo] = cmp === "off" ? [null, null] : compareRange(span, fy, from, to, cmp);
+  const plPrev = cmp === "off" ? null : computePL(book, pFrom, pTo);
   const bs = computeBS(book, asOf || t);
+  const bsPrev = cmpAsOf ? computeBS(book, cmpAsOf) : null;
 
-  const RowLine = ({ name, amount, strong, color }) => (
-    <div style={{ display: "flex", padding: "5px 0", fontSize: strong ? 15 : 14, fontWeight: strong ? 700 : 400 }}>
-      <span style={{ flex: 1 }}>{name}</span>
-      <span style={{ fontFamily: F.serif, color: color || C.ink }}>{inr(amount)}</span>
+  const entriesFor = (type, head) =>
+    book.entries
+      .filter((e) => e.type === type && e.head === head && e.date >= from && e.date <= to)
+      .sort((a, b) => b.date.localeCompare(a.date));
+
+  const analyse = async () => {
+    setAiBusy(true); setAiErr(""); setAiOut("");
+    try {
+      const fmt = (p) =>
+        `income: ${JSON.stringify(p.income)}; expenses: ${JSON.stringify(p.expense)}; net: ${p.net}`;
+      const sys =
+        "You are a personal-finance analyst (amounts in ₹, Indian FY, cash basis). Compare the two " +
+        "periods, explain the main variances head by head in plain language, and flag anything " +
+        "worth attention. Be concise; plain text.";
+      setAiOut(await askClaude(sys,
+        `Current period ${from} → ${to}: ${fmt(pl)}\nComparative ${pFrom} → ${pTo}: ${fmt(plPrev)}`));
+    } catch (e) {
+      setAiErr(e.message);
+    } finally {
+      setAiBusy(false);
+    }
+  };
+
+  // Drill-down P&L section: tap a head to see the entries behind the number.
+  const PLSection = ({ title, bag, prevBag, type, totalName, total, prevTotal, goodWhenUp, color }) => (
+    <div style={st.card}>
+      <div style={{ fontFamily: F.serif, fontSize: 17, fontWeight: 700, marginBottom: 6 }}>{title}</div>
+      {Object.entries(bag).map(([h, a]) => {
+        const open = openHead === `${type}:${h}`;
+        return (
+          <div key={h} style={{ borderBottom: "none" }}>
+            <div
+              className="cb-press"
+              onClick={() => setOpenHead(open ? "" : `${type}:${h}`)}
+              style={{ display: "flex", padding: "6px 0", fontSize: 14, cursor: "pointer", alignItems: "baseline" }}
+            >
+              <span style={{ flex: 1 }}>
+                <span style={{ color: C.faint, fontSize: 11, marginRight: 6 }}>{open ? "▾" : "▸"}</span>
+                {h}
+              </span>
+              <span style={{ fontFamily: F.serif, fontWeight: 600 }}>{inr(a)}</span>
+            </div>
+            {plPrev && <div style={{ marginLeft: 17 }}><Variance current={a} prev={prevBag[h] || 0} goodWhenUp={goodWhenUp} /></div>}
+            {open && (
+              <div style={{ margin: "2px 0 8px 17px", borderLeft: `2px solid ${C.line}`, paddingLeft: 10 }}>
+                {entriesFor(type, h).map((e) => (
+                  <div key={e.id} className="cb-row" style={{ display: "flex", gap: 8, fontSize: 12, padding: "3px 0", color: C.faint }}>
+                    <span style={{ flexShrink: 0 }}>{prettyDate(e.date)}</span>
+                    <span style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", color: C.ink }}>
+                      {e.note || "—"}
+                    </span>
+                    <span style={{ fontFamily: F.serif, color: C.ink }}>{inr(e.amount)}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        );
+      })}
+      {Object.keys(bag).length === 0 && <div style={{ fontSize: 13, color: C.faint }}>Nothing in this period.</div>}
+      <div style={{ borderTop: `1px solid ${C.line}`, marginTop: 4, paddingTop: 4 }}>
+        <div style={{ display: "flex", fontSize: 15, fontWeight: 700 }}>
+          <span style={{ flex: 1 }}>{totalName}</span>
+          <span style={{ fontFamily: F.serif, color }}>{inr(total)}</span>
+        </div>
+        {plPrev && <Variance current={total} prev={prevTotal} goodWhenUp={goodWhenUp} />}
+      </div>
     </div>
   );
+
+  const RowLine = ({ name, amount, prev, strong, color, goodWhenUp = true }) => (
+    <div style={{ padding: "5px 0" }}>
+      <div style={{ display: "flex", fontSize: strong ? 15 : 14, fontWeight: strong ? 700 : 400 }}>
+        <span style={{ flex: 1 }}>{name}</span>
+        <span style={{ fontFamily: F.serif, color: color || C.ink }}>{inr(amount)}</span>
+      </div>
+      {prev !== undefined && prev !== null && <Variance current={amount} prev={prev} goodWhenUp={goodWhenUp} />}
+    </div>
+  );
+
+  const spend = Object.entries(pl.expense).sort((a, b) => b[1] - a[1]);
+  const spendMax = spend.length ? spend[0][1] : 0;
 
   return (
     <div>
@@ -1009,7 +1374,7 @@ function ReportsView({ book }) {
       {mode === "pl" && (
         <>
           <div style={{ display: "flex", gap: 8, margin: "10px 12px" }}>
-            <select style={{ ...st.input, flex: "0 0 130px" }} value={fy} onChange={(e) => setFy(+e.target.value)}>
+            <select style={{ ...st.input, flex: "0 0 120px" }} value={fy} onChange={(e) => setFy(+e.target.value)}>
               {fys.map((y) => (
                 <option key={y} value={y}>FY {y}–{String(y + 1).slice(2)}</option>
               ))}
@@ -1023,24 +1388,64 @@ function ReportsView({ book }) {
               {MONTH_NAMES.map((m, i) => (
                 <option key={m} value={`m${i}`}>{m} {i < 9 ? fy : fy + 1}</option>
               ))}
+              <option value="custom">Custom range…</option>
             </select>
           </div>
-          <div style={st.card}>
-            <div style={{ fontFamily: F.serif, fontSize: 17, fontWeight: 700, marginBottom: 6 }}>Income</div>
-            {Object.entries(pl.income).map(([h, a]) => <RowLine key={h} name={h} amount={a} />)}
-            {Object.keys(pl.income).length === 0 && <div style={{ fontSize: 13, color: C.faint }}>Nothing in this period.</div>}
-            <div style={{ borderTop: `1px solid ${C.line}`, marginTop: 4 }}>
-              <RowLine name="Total income" amount={pl.totalIncome} strong color={C.credit} />
+          {span === "custom" && (
+            <div style={{ display: "flex", gap: 8, margin: "0 12px 10px" }}>
+              <input style={st.input} type="date" value={customFrom} onChange={(e) => setCustomFrom(e.target.value)} />
+              <input style={st.input} type="date" value={customTo} onChange={(e) => setCustomTo(e.target.value)} />
             </div>
+          )}
+          <div style={{ margin: "0 12px 4px" }}>
+            <Seg
+              value={cmp}
+              onChange={(v) => { setCmp(v); setAiOut(""); }}
+              options={[
+                { v: "off", label: "No compare" },
+                { v: "prev", label: "vs previous" },
+                { v: "lastyear", label: "vs last year" },
+              ]}
+            />
+            {plPrev && (
+              <div style={{ fontSize: 11, color: C.faint, marginTop: 4 }}>
+                Comparing {from} → {to} with {pFrom} → {pTo}
+              </div>
+            )}
           </div>
-          <div style={st.card}>
-            <div style={{ fontFamily: F.serif, fontSize: 17, fontWeight: 700, marginBottom: 6 }}>Expenses</div>
-            {Object.entries(pl.expense).map(([h, a]) => <RowLine key={h} name={h} amount={a} />)}
-            {Object.keys(pl.expense).length === 0 && <div style={{ fontSize: 13, color: C.faint }}>Nothing in this period.</div>}
-            <div style={{ borderTop: `1px solid ${C.line}`, marginTop: 4 }}>
-              <RowLine name="Total expenses" amount={pl.totalExpense} strong color={C.debit} />
+
+          <PLSection
+            title="Income" bag={pl.income} prevBag={plPrev ? plPrev.income : {}} type="in"
+            totalName="Total income" total={pl.totalIncome}
+            prevTotal={plPrev ? plPrev.totalIncome : 0} goodWhenUp={true} color={C.credit}
+          />
+          <PLSection
+            title="Expenses" bag={pl.expense} prevBag={plPrev ? plPrev.expense : {}} type="out"
+            totalName="Total expenses" total={pl.totalExpense}
+            prevTotal={plPrev ? plPrev.totalExpense : 0} goodWhenUp={false} color={C.debit}
+          />
+
+          {spend.length > 0 && (
+            <div style={st.card}>
+              <div style={{ fontFamily: F.serif, fontSize: 17, fontWeight: 700, marginBottom: 10 }}>Where it went</div>
+              {spend.map(([h, a]) => (
+                <div key={h} style={{ marginBottom: 9 }}>
+                  <div style={{ display: "flex", fontSize: 12, marginBottom: 3 }}>
+                    <span style={{ flex: 1, color: C.ink }}>{h}</span>
+                    <span style={{ fontFamily: F.serif, fontWeight: 600 }}>{inr(a)}</span>
+                  </div>
+                  <div style={{ height: 8, borderRadius: 4, background: C.input, overflow: "hidden" }}>
+                    <div style={{
+                      height: "100%", borderRadius: 4, background: C.olive,
+                      width: `${Math.max(2, Math.round((a / spendMax) * 100))}%`,
+                      transition: "width .4s ease",
+                    }} />
+                  </div>
+                </div>
+              ))}
             </div>
-          </div>
+          )}
+
           <div style={{
             ...st.card,
             background: `linear-gradient(135deg, ${C.heroFrom}, ${C.heroTo})`,
@@ -1050,40 +1455,58 @@ function ReportsView({ book }) {
               <span style={{ flex: 1, fontWeight: 700 }}>Net {pl.net >= 0 ? "surplus" : "deficit"}</span>
               <span style={{ fontSize: 18, fontWeight: 800, color: pl.net >= 0 ? C.credit : C.debit }}>{inr(pl.net)}</span>
             </div>
+            {plPrev && <Variance current={pl.net} prev={plPrev.net} goodWhenUp={true} />}
             <div style={{ fontSize: 12, color: C.faint, marginTop: 4 }}>
               Cash basis · transfers, party entries and SIP-type heads excluded
             </div>
           </div>
+
+          {plPrev && hasKey && (
+            <div style={{ margin: "0 12px" }}>
+              <Btn primary disabled={aiBusy} style={{ width: "100%", opacity: aiBusy ? 0.6 : 1 }} onClick={analyse}>
+                {aiBusy ? "Analysing…" : "Analyse variances with AI"}
+              </Btn>
+              <div style={{ fontSize: 11, color: C.faint, marginTop: 4, textAlign: "center" }}>
+                Optional — sends only the two periods' head totals
+              </div>
+            </div>
+          )}
+          {aiErr && <div style={{ ...st.card, color: C.debit, fontSize: 14 }}>{aiErr}</div>}
+          {aiOut && <div style={{ ...st.card, fontSize: 14, lineHeight: 1.55, whiteSpace: "pre-wrap" }}>{aiOut}</div>}
         </>
       )}
 
       {mode === "bs" && (
         <>
-          <div style={{ margin: "10px 12px" }}>
-            <label style={{ ...st.label, margin: "0 0 4px" }}>As of</label>
-            <input style={st.input} type="date" value={asOf} onChange={(e) => setAsOf(e.target.value)} />
-          </div>
-          <div style={st.card}>
-            <div style={{ fontFamily: F.serif, fontSize: 17, fontWeight: 700, marginBottom: 6 }}>Assets</div>
-            {bs.assets.map((r) => <RowLine key={r.name} name={r.name} amount={r.amount} />)}
-            <div style={{ borderTop: `1px solid ${C.line}`, marginTop: 4 }}>
-              <RowLine name="Total assets" amount={bs.totalAssets} strong />
+          <div style={{ display: "flex", gap: 8, margin: "10px 12px" }}>
+            <div style={{ flex: 1 }}>
+              <label style={{ ...st.label, margin: "0 0 4px" }}>As of</label>
+              <input style={st.input} type="date" value={asOf} onChange={(e) => setAsOf(e.target.value)} />
+            </div>
+            <div style={{ flex: 1 }}>
+              <label style={{ ...st.label, margin: "0 0 4px" }}>Compare as of</label>
+              <input style={st.input} type="date" value={cmpAsOf} onChange={(e) => setCmpAsOf(e.target.value)} />
             </div>
           </div>
-          <div style={st.card}>
-            <div style={{ fontFamily: F.serif, fontSize: 17, fontWeight: 700, marginBottom: 6 }}>Liabilities</div>
-            {bs.liabilities.map((r) => <RowLine key={r.name} name={r.name} amount={r.amount} />)}
-            <div style={{ borderTop: `1px solid ${C.line}`, marginTop: 4 }}>
-              <RowLine name="Total liabilities" amount={bs.totalLiabilities} strong />
+          {[
+            { title: "Assets", rows: bs.assets, prevRows: bsPrev ? bsPrev.assets : null, totalName: "Total assets", total: bs.totalAssets, prevTotal: bsPrev ? bsPrev.totalAssets : null },
+            { title: "Liabilities", rows: bs.liabilities, prevRows: bsPrev ? bsPrev.liabilities : null, totalName: "Total liabilities", total: bs.totalLiabilities, prevTotal: bsPrev ? bsPrev.totalLiabilities : null, goodWhenUp: false },
+            { title: "Equity", rows: bs.equity, prevRows: bsPrev ? bsPrev.equity : null, totalName: "Total equity", total: bs.totalEquity, prevTotal: bsPrev ? bsPrev.totalEquity : null },
+          ].map((sec) => (
+            <div key={sec.title} style={st.card}>
+              <div style={{ fontFamily: F.serif, fontSize: 17, fontWeight: 700, marginBottom: 6 }}>{sec.title}</div>
+              {sec.rows.map((r) => (
+                <RowLine
+                  key={r.name} name={r.name} amount={r.amount}
+                  prev={sec.prevRows ? (sec.prevRows.find((p) => p.name === r.name) || { amount: 0 }).amount : undefined}
+                  goodWhenUp={sec.goodWhenUp !== false}
+                />
+              ))}
+              <div style={{ borderTop: `1px solid ${C.line}`, marginTop: 4 }}>
+                <RowLine name={sec.totalName} amount={sec.total} strong prev={sec.prevTotal ?? undefined} goodWhenUp={sec.goodWhenUp !== false} />
+              </div>
             </div>
-          </div>
-          <div style={st.card}>
-            <div style={{ fontFamily: F.serif, fontSize: 17, fontWeight: 700, marginBottom: 6 }}>Equity</div>
-            {bs.equity.map((r) => <RowLine key={r.name} name={r.name} amount={r.amount} />)}
-            <div style={{ borderTop: `1px solid ${C.line}`, marginTop: 4 }}>
-              <RowLine name="Total equity" amount={bs.totalEquity} strong />
-            </div>
-          </div>
+          ))}
           <div style={{ ...st.card, textAlign: "center", fontSize: 14 }}>
             Assets {inr(bs.totalAssets)} = Liabilities {inr(bs.totalLiabilities)} + Equity {inr(bs.totalEquity)}{" "}
             <b style={{ color: bs.balanced ? C.credit : C.debit }}>
@@ -1229,6 +1652,8 @@ function SetupView({ book, up, hasKey, onKeySaved }) {
   const [newParty, setNewParty] = useState("");
   const [newHead, setNewHead] = useState("");
   const [newHeadSide, setNewHeadSide] = useState("expense");
+  const [newRuleMatch, setNewRuleMatch] = useState("");
+  const [newRuleHead, setNewRuleHead] = useState("");
   const [mapHead, setMapHead] = useState("");
   const [mapAcct, setMapAcct] = useState("");
   const fileRef = useRef(null);
@@ -1470,6 +1895,66 @@ function SetupView({ book, up, hasKey, onKeySaved }) {
         </div>
       </Section>
 
+      <Section
+        title="Import rules"
+        hint="Keyword → head mappings the statement importer uses. It learns automatically when you fix heads on the review screen."
+      >
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 8 }}>
+          {(book.codingRules || []).map((r, i) => (
+            <span
+              key={`${r.match}-${i}`}
+              style={{
+                display: "inline-flex", alignItems: "center", gap: 6, fontSize: 12,
+                border: `1px solid ${C.line}`, borderRadius: 999, padding: "4px 8px",
+              }}
+            >
+              {r.match} → {r.head}
+              <button
+                onClick={() => up((b) => ((b.codingRules = b.codingRules.filter((x) => !(x.match === r.match && x.head === r.head))), b))}
+                aria-label={`Remove rule ${r.match}`}
+                style={{ background: "none", border: "none", color: C.debit, cursor: "pointer", fontSize: 13, padding: 0 }}
+              >
+                ✕
+              </button>
+            </span>
+          ))}
+          {(book.codingRules || []).length === 0 && (
+            <span style={{ fontSize: 13, color: C.faint }}>No rules yet — they'll appear as you import.</span>
+          )}
+        </div>
+        <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
+          <input
+            style={{ ...st.input, flex: 1 }} placeholder="keyword"
+            value={newRuleMatch} onChange={(e) => setNewRuleMatch(e.target.value)}
+          />
+          <select style={{ ...st.input, flex: 1 }} value={newRuleHead} onChange={(e) => setNewRuleHead(e.target.value)}>
+            <option value="">head…</option>
+            {[...book.heads.expense, ...book.heads.income].map((h) => (
+              <option key={h} value={h}>{h}</option>
+            ))}
+          </select>
+          <Btn
+            primary disabled={!newRuleMatch.trim() || !newRuleHead}
+            style={{ opacity: newRuleMatch.trim() && newRuleHead ? 1 : 0.5 }}
+            onClick={() =>
+              up((b) => {
+                const match = newRuleMatch.trim().toLowerCase();
+                if (match && newRuleHead) {
+                  const ex = b.codingRules.find((x) => x.match === match);
+                  if (ex) ex.head = newRuleHead;
+                  else b.codingRules.push({ match, head: newRuleHead });
+                  setNewRuleMatch("");
+                  setNewRuleHead("");
+                }
+                return b;
+              })
+            }
+          >
+            Add
+          </Btn>
+        </div>
+      </Section>
+
       <Section title="Backup" hint="Everything lives only on this phone — export regularly. Never commit backups anywhere shared.">
         <div style={{ display: "flex", gap: 10, marginTop: 8 }}>
           <Btn primary style={{ flex: 1 }} onClick={doExport}>Export JSON</Btn>
@@ -1580,7 +2065,7 @@ export default function CashBook() {
             onAddMemo={(p) => setMemoParty(p)}
           />
         )}
-        {tab === "reports" && <ReportsView book={book} />}
+        {tab === "reports" && <ReportsView book={book} hasKey={hasKey} />}
         {tab === "plan" && <PlanView book={book} hasKey={hasKey} />}
         {tab === "setup" && <SetupView book={book} up={up} hasKey={hasKey} onKeySaved={() => setHasKey(true)} />}
       </div>
@@ -1642,7 +2127,7 @@ export default function CashBook() {
           book={book}
           hasKey={hasKey}
           onClose={() => setImportOpen(false)}
-          onDone={(picked) => {
+          onDone={(picked, learned) => {
             up((b) => {
               for (const r of picked) {
                 const heads = r.type === "in" ? b.heads.income : b.heads.expense;
@@ -1651,6 +2136,11 @@ export default function CashBook() {
                   head: heads.includes(r.head) ? r.head : "Suspense",
                   note: r.note,
                 });
+              }
+              for (const [match, head] of Object.entries(learned || {})) {
+                const ex = b.codingRules.find((x) => x.match === match);
+                if (ex) ex.head = head;
+                else b.codingRules.push({ match, head });
               }
               return b;
             });
