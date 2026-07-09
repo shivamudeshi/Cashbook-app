@@ -17,6 +17,19 @@ Always run `npm run build && npm test` before shipping. The test also checks
 the accounting engine on a worked example — the balance sheet must foot to
 the rupee.
 
+## Install on your phone
+
+The app deploys to **https://shivamudeshi.github.io/Cashbook-app/** via
+GitHub Actions on every push to `main` (`.github/workflows/pages.yml`).
+
+1. Open that URL in Chrome on the phone.
+2. Chrome menu (⋮) → **Add to Home screen** → **Install**.
+3. First run: **Setup** → enter opening balances, rename the placeholder
+   parties to real names, and (optionally) paste an Anthropic API key for
+   the Plan tab.
+4. Export a JSON backup from Setup regularly — the data lives only on the
+   phone, and it is keyed to this URL, so keep the origin stable.
+
 ## How it works
 
 - **Cash basis, Indian FY (Apr–Mar).** Every entry has Bank on one side; the
