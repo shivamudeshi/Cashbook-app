@@ -1,10 +1,11 @@
 // Bump CACHE whenever the build changes, or installed phones keep serving the
 // stale cached bundle.
-const CACHE = "cashbook-v3";
+const CACHE = "cashbook-v4";
 const SHELL = [
   ".",
   "index.html",
   "app.js",
+  "pdf.worker.min.mjs",
   "manifest.json",
   "icons/icon-192.png",
   "icons/icon-512.png",

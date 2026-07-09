@@ -71,6 +71,36 @@ const MIGRATIONS = [
     if (!book.owedMemos) book.owedMemos = [];
     return book;
   },
+  // v3: codingRules — keyword → head mappings the local importer learns from.
+  (book) => {
+    if (!book.codingRules) book.codingRules = DEFAULT_CODING_RULES.map((r) => ({ ...r }));
+    return book;
+  },
+];
+
+// Starter keywords for the local importer; the review screen adds to these
+// whenever the user re-codes a row.
+export const DEFAULT_CODING_RULES = [
+  { match: "swiggy", head: "Food out" },
+  { match: "zomato", head: "Food out" },
+  { match: "uber", head: "Transport" },
+  { match: "ola", head: "Transport" },
+  { match: "rapido", head: "Transport" },
+  { match: "petrol", head: "Transport" },
+  { match: "electricity", head: "Utilities" },
+  { match: "jio", head: "Utilities" },
+  { match: "airtel", head: "Utilities" },
+  { match: "bigbasket", head: "Groceries" },
+  { match: "blinkit", head: "Groceries" },
+  { match: "zepto", head: "Groceries" },
+  { match: "pharmacy", head: "Health" },
+  { match: "amazon", head: "Shopping" },
+  { match: "flipkart", head: "Shopping" },
+  { match: "myntra", head: "Shopping" },
+  { match: "rent", head: "Rent" },
+  { match: "sip", head: "SIP" },
+  { match: "salary", head: "Salary" },
+  { match: "interest", head: "Interest" },
 ];
 
 export async function loadBook() {

@@ -101,6 +101,32 @@ async function main() {
   assert.strictEqual(E.quarterOf("2026-07-09"), 2, "Jul = Q2");
   assert.strictEqual(E.quarterOf("2026-02-01"), 4);
 
+  // Local statement parser: dates in mixed formats, trailing balance column,
+  // Cr marker for credits, header lines skipped.
+  const sample = [
+    "Date Description Debit Credit Balance",
+    "01/05/2025 UPI-SWIGGY BANGALORE 450.00 12,550.00",
+    "02/05/2025 NEFT SALARY ACME CORP CR 80,000.00 92,550.00",
+    "03-05-2025 ATM WITHDRAWAL 2,000.00 90,550.00",
+    "Closing balance 90,550.00",
+  ].join("\n");
+  const txs = E.parseStatementText(sample);
+  assert.strictEqual(txs.length, 3, "three transaction lines parsed");
+  assert.deepStrictEqual(
+    [txs[0].date, txs[0].amount, txs[0].type],
+    ["2025-05-01", 450, "out"],
+    "amount is the second-last number when a balance column exists"
+  );
+  assert.ok(txs[0].note.includes("SWIGGY"), "note keeps the description");
+  assert.deepStrictEqual([txs[1].amount, txs[1].type], [80000, "in"], "CR marker → in");
+  assert.deepStrictEqual([txs[2].date, txs[2].amount], ["2025-05-03", 2000], "dd-mm-yyyy parsed");
+
+  // Keyword coder + learning keyword extraction.
+  const ruleDb = { codingRules: [{ match: "swiggy", head: "Food out" }] };
+  assert.strictEqual(E.suggestHead(ruleDb, "UPI-SWIGGY BANGALORE"), "Food out");
+  assert.strictEqual(E.suggestHead(ruleDb, "mystery shop"), "Suspense");
+  assert.strictEqual(E.keywordOf("UPI-SWIGGY BANGALORE"), "swiggy", "skips upi/neft noise words");
+
   // Default book sanity: sheet balances from day one, Suspense head exists.
   const fresh = E.defaultBook();
   assert.ok(E.computeBS(fresh, "2099-12-31").balanced, "fresh book balances");

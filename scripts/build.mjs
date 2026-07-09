@@ -15,4 +15,9 @@ await build({
 });
 
 cpSync("public", "dist", { recursive: true });
+// pdf.js parses statements in a worker; the file must ship next to app.js.
+cpSync(
+  "node_modules/pdfjs-dist/build/pdf.worker.min.mjs",
+  "dist/pdf.worker.min.mjs"
+);
 console.log("dist/ ready");
