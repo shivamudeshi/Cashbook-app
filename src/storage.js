@@ -4,7 +4,6 @@ const DB_NAME = "cashbook";
 const DB_VERSION = 1;
 const STORE = "kv";
 const KEY = "book";
-const API_KEY = "apiKey";
 
 function openDB() {
   return new Promise((resolve, reject) => {
@@ -118,11 +117,3 @@ export async function saveBook(book) {
   await set(KEY, book);
 }
 
-// API key lives on-device only. Read at call time, never logged.
-export async function loadApiKey() {
-  return (await get(API_KEY)) || "";
-}
-
-export async function saveApiKey(key) {
-  await set(API_KEY, key);
-}

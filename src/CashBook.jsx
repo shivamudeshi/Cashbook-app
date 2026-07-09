@@ -1,7 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import * as XLSX from "xlsx";
-import { loadBook, saveBook, loadApiKey, saveApiKey, DEFAULT_CODING_RULES } from "./storage.js";
-import { askClaude, askClaudeContent } from "./api.js";
+import { loadBook, saveBook, DEFAULT_CODING_RULES } from "./storage.js";
 
 // pdf.js touches browser-only APIs (DOMMatrix) the moment its module runs, so
 // it is loaded lazily on first PDF import — esbuild defers evaluation of the
@@ -10,6 +9,32 @@ async function getPdfjs() {
   const pdfjsLib = await import("pdfjs-dist");
   pdfjsLib.GlobalWorkerOptions.workerSrc = "pdf.worker.min.mjs";
   return pdfjsLib;
+}
+
+// Tesseract OCR, also lazy. Assets are self-hosted under ocr/ (copied from
+// node_modules by the build) and runtime-cached by the service worker, so
+// after the first ~9MB download recognition is free and offline.
+async function getOcrWorker(onProgress) {
+  const { createWorker } = await import("tesseract.js");
+  const base = new URL("ocr/", window.location.href).href;
+  const worker = createWorker("eng", 1, {
+    workerPath: base + "worker.min.js",
+    corePath: base,
+    langPath: base,
+    gzip: true,
+    logger: (m) => {
+      if (m.status === "recognizing text" && onProgress) {
+        onProgress(Math.round((m.progress || 0) * 100));
+      }
+    },
+  });
+  // A failed worker script never settles the promise — surface it instead.
+  return Promise.race([
+    worker,
+    new Promise((_, reject) =>
+      setTimeout(() => reject(new Error("The reader didn't start — check the connection for the one-time download and try again.")), 90000)
+    ),
+  ]);
 }
 
 /* ────────────────────────── palette & type ──────────────────────────
@@ -44,13 +69,28 @@ export const F = {
 /* Keyframes and state-driven styles (:active, :focus) can't be inline —
    this sheet is injected once at the app root. */
 const ANIM_CSS = `
-@keyframes cbFadeUp { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
+html { scroll-behavior: smooth; }
+@keyframes cbFadeUp { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: none; } }
 @keyframes cbSlideUp { from { transform: translateY(48px); opacity: .4; } to { transform: none; opacity: 1; } }
+@keyframes cbSlideIn { from { transform: translateX(56px); opacity: 0; } to { transform: none; opacity: 1; } }
 @keyframes cbFadeIn { from { opacity: 0; } to { opacity: 1; } }
-.cb-view { animation: cbFadeUp .28s ease both; }
+@keyframes cbSplashPop {
+  0% { transform: scale(.55); opacity: 0; }
+  60% { transform: scale(1.06); opacity: 1; }
+  100% { transform: scale(1); opacity: 1; }
+}
+@keyframes cbSplashRise { from { opacity: 0; transform: translateY(14px); } to { opacity: 1; transform: none; } }
+.cb-view { animation: cbFadeUp .32s cubic-bezier(.2,.8,.3,1) both; }
+.cb-subpage { animation: cbSlideIn .3s cubic-bezier(.2,.8,.3,1) both; }
+.cb-stagger > * { animation: cbFadeUp .34s cubic-bezier(.2,.8,.3,1) both; }
+.cb-stagger > *:nth-child(2) { animation-delay: .04s; }
+.cb-stagger > *:nth-child(3) { animation-delay: .08s; }
+.cb-stagger > *:nth-child(4) { animation-delay: .12s; }
+.cb-stagger > *:nth-child(5) { animation-delay: .16s; }
+.cb-stagger > *:nth-child(6) { animation-delay: .2s; }
 .cb-row { animation: cbFadeIn .3s ease both; }
 .cb-sheet-overlay { animation: cbFadeIn .2s ease both; }
-.cb-sheet { animation: cbSlideUp .3s cubic-bezier(.2,.9,.3,1) both; }
+.cb-sheet { animation: cbSlideUp .32s cubic-bezier(.2,.9,.3,1) both; }
 .cb-press { transition: transform .12s ease, filter .15s ease, background .2s ease, color .2s ease; }
 .cb-press:active { transform: scale(.96); }
 .cb-fab { transition: transform .15s ease, box-shadow .2s ease; }
@@ -59,11 +99,54 @@ input, select { transition: border-color .18s ease, box-shadow .18s ease; }
 input:focus, select:focus { outline: none; border-color: #34d399 !important; box-shadow: 0 0 0 3px rgba(52,211,153,.15); }
 .cb-tab { transition: color .2s ease, transform .15s ease; }
 .cb-tab:active { transform: translateY(1px); }
+.cb-splash-glyph { animation: cbSplashPop .55s cubic-bezier(.2,.8,.3,1) both; }
+.cb-splash-name { animation: cbSplashRise .5s .25s ease both; }
+.cb-splash-out { transition: opacity .35s ease; opacity: 0 !important; pointer-events: none; }
+.cb-header { position: sticky; top: 0; z-index: 15; backdrop-filter: blur(10px);
+  background: rgba(14,18,16,.82); border-bottom: 1px solid rgba(36,45,39,.6); }
 @media (prefers-reduced-motion: reduce) {
-  .cb-view, .cb-row, .cb-sheet, .cb-sheet-overlay { animation: none; }
+  .cb-view, .cb-row, .cb-sheet, .cb-sheet-overlay, .cb-subpage,
+  .cb-stagger > *, .cb-splash-glyph, .cb-splash-name { animation: none; }
   .cb-press, .cb-fab, .cb-tab, input, select { transition: none; }
+  html { scroll-behavior: auto; }
+}
+@media print {
+  body { background: #fff !important; }
+  .cb-header, .cb-noprint { display: none !important; }
 }
 `;
+
+/* ─────────────── bank SMS → entry (Android share-target) ───────────────
+   The user shares a bank SMS to the app; this extracts amount, direction and
+   a merchant-ish note. Returns null when the text doesn't look like money. */
+export function parseBankSms(text) {
+  const t = String(text || "").replace(/\s+/g, " ").trim();
+  if (!t) return null;
+  const amtM = t.match(/(?:rs\.?|inr|₹)\s*([\d,]+(?:\.\d{1,2})?)/i);
+  if (!amtM) return null;
+  const amount = Math.round(parseFloat(amtM[1].replace(/,/g, "")));
+  if (!amount) return null;
+  const low = t.toLowerCase();
+  let type = null;
+  if (/\b(debited|spent|paid|withdrawn|purchase|sent)\b/.test(low)) type = "out";
+  else if (/\b(credited|received|deposited|refund)\b/.test(low)) type = "in";
+  if (!type) return null;
+  // merchant / counterparty: "at X", "to X", "from X", or a UPI VPA
+  let note = "";
+  const m =
+    t.match(/(?:\bat|\bto|\bfrom)\s+([A-Za-z0-9 &.\-*_']{3,40}?)(?=\s+(?:on|via|ref|upi|a\/c|avl|bal|info)\b|[.,;]|$)/i) ||
+    t.match(/([\w.\-]{2,}@[\w]{2,})/);
+  if (m) note = m[1].trim();
+  const dm = t.match(/\b(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{2,4})\b/);
+  let date = today();
+  if (dm) {
+    let y = +dm[3];
+    if (y < 100) y += 2000;
+    const mo = +dm[2], d = +dm[1];
+    if (mo >= 1 && mo <= 12 && d >= 1 && d <= 31) date = `${y}-${pad2(mo)}-${pad2(d)}`;
+  }
+  return { amount, type, note, date };
+}
 
 /* ────────────────────────── money helpers ────────────────────────── */
 export function inr(n) {
@@ -273,7 +356,7 @@ if (typeof window !== "undefined") {
   window.__cashbookEngine = {
     inr, parseAmount, fyOf, quarterOf, fyRange, monthRange,
     computePL, balancesAsOf, owedAsOf, computeBS, defaultBook,
-    parseStatementText, suggestHead, keywordOf,
+    parseStatementText, suggestHead, keywordOf, parseBankSms,
   };
 }
 
@@ -436,17 +519,183 @@ const entrySign = (e) =>
   e.type === "in" || ((e.type === "transfer" || e.type === "party") && e.dir === "in") ? 1 : -1;
 
 /* ────────────────────────── Book (ledger) ────────────────────────── */
-function BookView({ book, onEdit, onImport }) {
-  const [q, setQ] = useState("");
-  const [headFilter, setHeadFilter] = useState("");
+
+// Eased count-up for hero figures; snaps instantly under reduced motion.
+function useCountUp(target, ms = 600) {
+  const [v, setV] = useState(0);
+  const prev = useRef(0);
+  useEffect(() => {
+    const from = prev.current;
+    prev.current = target;
+    if (from === target) { setV(target); return; }
+    if (window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+      setV(target);
+      return;
+    }
+    let raf;
+    const t0 = performance.now();
+    const tick = (now) => {
+      const p = Math.min(1, (now - t0) / ms);
+      const e = 1 - Math.pow(1 - p, 3);
+      setV(Math.round(from + (target - from) * e));
+      if (p < 1) raf = requestAnimationFrame(tick);
+    };
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
+  }, [target, ms]);
+  return v;
+}
+
+function EntryRow({ book, e, onEdit, divider }) {
+  return (
+    <div
+      className="cb-row cb-press"
+      onClick={() => onEdit(e)}
+      style={{
+        display: "flex", alignItems: "center", gap: 10, padding: "11px 14px",
+        borderTop: divider ? `1px solid ${C.line}` : "none", cursor: "pointer",
+      }}
+    >
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{ fontSize: 15, fontWeight: 600 }}>
+          {entryLabel(book, e)}
+          {e.head === "Suspense" && (
+            <span style={{ color: C.debit, fontSize: 12, marginLeft: 6 }}>● re-code</span>
+          )}
+        </div>
+        {e.note && (
+          <div style={{ fontSize: 13, color: C.faint, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+            {e.note}
+          </div>
+        )}
+      </div>
+      <div style={{
+        fontFamily: F.serif, fontSize: 16, fontWeight: 700, whiteSpace: "nowrap",
+        color: entrySign(e) > 0 ? C.credit : C.debit,
+      }}>
+        {entrySign(e) > 0 ? "+" : "−"}{inr(e.amount)}
+      </div>
+    </div>
+  );
+}
+
+// Home: summary only. The full ledger lives behind "All transactions".
+function HomeView({ book, onEdit, onImport, onOpenTx, onOwed }) {
   const t = today();
   const { bank } = balancesAsOf(book, t);
+  const shownBank = useCountUp(bank);
   const monthStart = t.slice(0, 8) + "01";
   let mIn = 0, mOut = 0;
   for (const e of book.entries) {
     if (e.date < monthStart || e.date > t) continue;
     entrySign(e) > 0 ? (mIn += e.amount) : (mOut += e.amount);
   }
+  const pl = computePL(book, monthStart, t);
+  const spend = Object.entries(pl.expense).sort((a, b) => b[1] - a[1]).slice(0, 3);
+  const spendMax = spend.length ? spend[0][1] : 0;
+  const owed = owedAsOf(book, t);
+  const recent = [...book.entries]
+    .sort((a, b) => b.date.localeCompare(a.date) || (b.id > a.id ? 1 : -1))
+    .slice(0, 3);
+
+  return (
+    <div className="cb-stagger">
+      <div style={{
+        ...st.card,
+        background: `linear-gradient(135deg, ${C.heroFrom}, ${C.heroTo})`,
+        border: `1px solid ${C.oliveSoft}`, boxShadow: C.glow,
+        color: C.ink, padding: 18,
+      }}>
+        <div style={{ fontSize: 12, letterSpacing: "0.1em", textTransform: "uppercase", color: C.oliveDeep }}>
+          Bank balance
+        </div>
+        <div style={{ fontSize: 38, fontWeight: 800, margin: "4px 0 10px", color: C.olive, fontVariantNumeric: "tabular-nums" }}>
+          {inr(shownBank)}
+        </div>
+        <div style={{ display: "flex", gap: 18, fontSize: 13, color: C.faint, alignItems: "center" }}>
+          <span>This month in <b style={{ color: C.credit }}>{inr(mIn)}</b></span>
+          <span style={{ flex: 1 }}>out <b style={{ color: C.debit }}>{inr(mOut)}</b></span>
+          <Btn onClick={onImport} style={{ padding: "6px 12px", fontSize: 13, borderColor: C.oliveSoft, color: C.olive }}>
+            ⤓ Import
+          </Btn>
+        </div>
+      </div>
+
+      {spend.length > 0 && (
+        <div style={st.card}>
+          <div style={{ fontFamily: F.serif, fontSize: 15, fontWeight: 700, marginBottom: 8 }}>
+            This month's top spends
+          </div>
+          {spend.map(([h, a]) => (
+            <div key={h} style={{ marginBottom: 8 }}>
+              <div style={{ display: "flex", fontSize: 12, marginBottom: 3 }}>
+                <span style={{ flex: 1 }}>{h}</span>
+                <span style={{ fontFamily: F.serif, fontWeight: 600 }}>{inr(a)}</span>
+              </div>
+              <div style={{ height: 7, borderRadius: 4, background: C.input, overflow: "hidden" }}>
+                <div style={{
+                  height: "100%", borderRadius: 4, background: C.olive,
+                  width: `${Math.max(3, Math.round((a / spendMax) * 100))}%`,
+                  transition: "width .4s ease",
+                }} />
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {(owed.debtors > 0 || owed.creditors > 0) && (
+        <div className="cb-press" onClick={onOwed} style={{ ...st.card, display: "flex", cursor: "pointer", textAlign: "center" }}>
+          <div style={{ flex: 1 }}>
+            <div style={{ fontSize: 11, color: C.faint, textTransform: "uppercase", letterSpacing: "0.06em" }}>Owed to you</div>
+            <div style={{ fontFamily: F.serif, fontSize: 18, fontWeight: 700, color: C.credit }}>{inr(owed.debtors)}</div>
+          </div>
+          <div style={{ width: 1, background: C.line }} />
+          <div style={{ flex: 1 }}>
+            <div style={{ fontSize: 11, color: C.faint, textTransform: "uppercase", letterSpacing: "0.06em" }}>You owe</div>
+            <div style={{ fontFamily: F.serif, fontSize: 18, fontWeight: 700, color: C.debit }}>{inr(owed.creditors)}</div>
+          </div>
+        </div>
+      )}
+
+      {recent.length > 0 && (
+        <div style={{ ...st.card, padding: 0, overflow: "hidden" }}>
+          <div style={{ fontFamily: F.serif, fontSize: 15, fontWeight: 700, padding: "12px 14px 4px" }}>
+            Recent
+          </div>
+          {recent.map((e, i) => (
+            <EntryRow key={e.id} book={book} e={e} onEdit={onEdit} divider={i > 0} />
+          ))}
+        </div>
+      )}
+
+      <div
+        className="cb-press"
+        onClick={onOpenTx}
+        style={{
+          ...st.card, display: "flex", alignItems: "center", cursor: "pointer",
+          border: `1px solid ${C.oliveSoft}`,
+        }}
+      >
+        <span style={{ flex: 1, fontWeight: 700, fontSize: 15 }}>All transactions</span>
+        <span style={{ fontSize: 12, color: C.faint, marginRight: 8 }}>
+          {book.entries.length} {book.entries.length === 1 ? "entry" : "entries"}
+        </span>
+        <span style={{ color: C.olive, fontSize: 18 }}>→</span>
+      </div>
+      {book.entries.length === 0 && (
+        <div style={{ ...st.card, textAlign: "center", color: C.faint, padding: 24 }}>
+          No entries yet — tap <b>+</b> to record the first one, or ⤓ Import a statement.
+        </div>
+      )}
+    </div>
+  );
+}
+
+// The full ledger, opened from Home as a slide-in sub-page.
+function TransactionsView({ book, onEdit }) {
+  const [q, setQ] = useState("");
+  const [headFilter, setHeadFilter] = useState("");
   const needle = q.trim().toLowerCase();
   const matches = (e) => {
     if (headFilter && e.head !== headFilter) return false;
@@ -467,26 +716,6 @@ function BookView({ book, onEdit, onImport }) {
   const allHeads = [...new Set(book.entries.filter((e) => e.head).map((e) => e.head))];
   return (
     <div>
-      <div style={{
-        ...st.card,
-        background: `linear-gradient(135deg, ${C.heroFrom}, ${C.heroTo})`,
-        border: `1px solid ${C.oliveSoft}`, boxShadow: C.glow,
-        color: C.ink, padding: 18,
-      }}>
-        <div style={{ fontSize: 12, letterSpacing: "0.1em", textTransform: "uppercase", color: C.oliveDeep }}>
-          Bank balance
-        </div>
-        <div style={{ fontSize: 36, fontWeight: 800, margin: "4px 0 10px", color: C.olive, fontVariantNumeric: "tabular-nums" }}>
-          {inr(bank)}
-        </div>
-        <div style={{ display: "flex", gap: 18, fontSize: 13, color: C.faint, alignItems: "center" }}>
-          <span>This month in <b style={{ color: C.credit }}>{inr(mIn)}</b></span>
-          <span style={{ flex: 1 }}>out <b style={{ color: C.debit }}>{inr(mOut)}</b></span>
-          <Btn onClick={onImport} style={{ padding: "6px 12px", fontSize: 13, borderColor: C.oliveSoft, color: C.olive }}>
-            ⤓ Import
-          </Btn>
-        </div>
-      </div>
       {book.entries.length > 0 && (
         <div style={{ margin: "10px 12px 0" }}>
           <input
@@ -536,35 +765,7 @@ function BookView({ book, onEdit, onImport }) {
           </div>
           <div style={{ background: C.card, border: `1px solid ${C.line}`, borderRadius: 12, overflow: "hidden" }}>
             {g.items.map((e, i) => (
-              <div
-                key={e.id}
-                className="cb-row cb-press"
-                onClick={() => onEdit(e)}
-                style={{
-                  display: "flex", alignItems: "center", gap: 10, padding: "11px 14px",
-                  borderTop: i ? `1px solid ${C.line}` : "none", cursor: "pointer",
-                }}
-              >
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontSize: 15, fontWeight: 600 }}>
-                    {entryLabel(book, e)}
-                    {e.head === "Suspense" && (
-                      <span style={{ color: C.debit, fontSize: 12, marginLeft: 6 }}>● re-code</span>
-                    )}
-                  </div>
-                  {e.note && (
-                    <div style={{ fontSize: 13, color: C.faint, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
-                      {e.note}
-                    </div>
-                  )}
-                </div>
-                <div style={{
-                  fontFamily: F.serif, fontSize: 16, fontWeight: 700, whiteSpace: "nowrap",
-                  color: entrySign(e) > 0 ? C.credit : C.debit,
-                }}>
-                  {entrySign(e) > 0 ? "+" : "−"}{inr(e.amount)}
-                </div>
-              </div>
+              <EntryRow key={e.id} book={book} e={e} onEdit={onEdit} divider={i > 0} />
             ))}
           </div>
         </div>
@@ -802,75 +1003,42 @@ async function extractPdfText(file) {
   return out.join("\n");
 }
 
-const fileToBase64 = (file) =>
-  new Promise((resolve, reject) => {
-    const r = new FileReader();
-    r.onload = () => resolve(String(r.result).split(",")[1]);
-    r.onerror = () => reject(r.error);
-    r.readAsDataURL(file);
-  });
-
-async function fileToContentBlock(file) {
-  const name = file.name.toLowerCase();
-  if (name.endsWith(".pdf")) {
-    return {
-      type: "document",
-      source: { type: "base64", media_type: "application/pdf", data: await fileToBase64(file) },
-    };
-  }
-  if (file.type.startsWith("image/")) {
-    return {
-      type: "image",
-      source: { type: "base64", media_type: file.type, data: await fileToBase64(file) },
-    };
-  }
-  if (name.endsWith(".csv")) {
-    return { type: "text", text: `Statement (CSV):\n${await file.text()}` };
-  }
-  if (name.endsWith(".xlsx") || name.endsWith(".xls")) {
-    const wb = XLSX.read(await file.arrayBuffer());
-    const csv = wb.SheetNames
-      .map((n) => `--- sheet: ${n} ---\n${XLSX.utils.sheet_to_csv(wb.Sheets[n])}`)
-      .join("\n");
-    return { type: "text", text: `Statement (from Excel):\n${csv}` };
-  }
-  throw new Error("Unsupported file — use PDF, an image, Excel or CSV.");
+// OCR a photo or a rendered PDF page. `src` is a File/Blob or a canvas.
+async function ocrRecognize(worker, src) {
+  const { data } = await worker.recognize(src);
+  return data.text || "";
 }
 
-function parseTxJson(text) {
-  const a = text.indexOf("["), b = text.lastIndexOf("]");
-  if (a < 0 || b < a) throw new Error("Couldn't find transactions in the reply.");
-  const rows = JSON.parse(text.slice(a, b + 1));
-  return rows
-    .filter(
-      (r) =>
-        r && /^\d{4}-\d{2}-\d{2}$/.test(r.date || "") &&
-        Number.isFinite(+r.amount) && +r.amount > 0 &&
-        (r.type === "in" || r.type === "out")
-    )
-    .map((r) => ({
-      date: r.date,
-      amount: Math.round(+r.amount),
-      type: r.type,
-      head: typeof r.head === "string" ? r.head : "Suspense",
-      note: typeof r.note === "string" ? r.note.slice(0, 80) : "",
-      include: true,
-    }));
+// Render each page of a scanned PDF to a canvas for OCR.
+async function pdfPagesToCanvases(file, onPage) {
+  const pdfjsLib = await getPdfjs();
+  const pdf = await pdfjsLib.getDocument({ data: await file.arrayBuffer() }).promise;
+  const out = [];
+  for (let p = 1; p <= pdf.numPages; p++) {
+    const page = await pdf.getPage(p);
+    const viewport = page.getViewport({ scale: 2 });
+    const canvas = document.createElement("canvas");
+    canvas.width = viewport.width;
+    canvas.height = viewport.height;
+    await page.render({ canvasContext: canvas.getContext("2d"), viewport }).promise;
+    out.push(canvas);
+    if (onPage) onPage(p, pdf.numPages);
+  }
+  return out;
 }
 
-function ImportSheet({ book, hasKey, onDone, onClose }) {
+function ImportSheet({ book, onDone, onClose }) {
   const [stage, setStage] = useState("pick"); // pick | busy | review
   const [err, setErr] = useState("");
   const [rows, setRows] = useState([]);
-  const [via, setVia] = useState("local"); // how the current rows were read
+  const [progress, setProgress] = useState("");
   const [learned, setLearned] = useState({}); // keyword -> head, from re-coding
   const fileRef = useRef(null);
-  const lastFile = useRef(null);
 
   const codeRows = (raw) =>
     raw.map((r) => ({ ...r, head: r.head && r.head !== "Suspense" ? r.head : suggestHead(book, r.note), include: true }));
 
-  // Free path: everything is read and parsed on this device.
+  // Digital files: parsed as text, entirely on-device.
   const runLocal = async (file) => {
     const name = file.name.toLowerCase();
     let text;
@@ -879,48 +1047,52 @@ function ImportSheet({ book, hasKey, onDone, onClose }) {
     else if (name.endsWith(".xlsx") || name.endsWith(".xls")) {
       const wb = XLSX.read(await file.arrayBuffer());
       text = wb.SheetNames.map((n) => XLSX.utils.sheet_to_csv(wb.Sheets[n])).join("\n");
-    } else throw new Error("image");
-    return parseStatementText(text).map((r) => ({ ...r, head: "" }));
+    } else return null; // photos take the OCR path
+    return parseStatementText(text);
   };
 
-  const runAI = async (file) => {
-    const block = await fileToContentBlock(file);
-    const heads = [...book.heads.expense, ...book.heads.income];
-    const sys =
-      "You extract bank transactions from statements and receipts. Reply with ONLY a JSON " +
-      'array, no prose: [{"date":"YYYY-MM-DD","amount":<positive integer rupees>,' +
-      '"type":"in" (money into the account) or "out","head":<best-fitting category from ' +
-      'the provided list, else "Suspense">,"note":<short description, max 8 words>}]. ' +
-      "Skip opening/closing balance lines, totals, and duplicates.";
-    const text = await askClaudeContent(sys, [
-      { type: "text", text: `Category heads: ${heads.join(", ")}` },
-      block,
-    ]);
-    return parseTxJson(text);
-  };
-
-  const run = async (file, forceAI = false) => {
-    setErr("");
-    setStage("busy");
-    lastFile.current = file;
+  // Photos and scanned PDFs: on-device OCR (one-time ~9MB reader download,
+  // cached by the service worker).
+  const runOcr = async (file) => {
+    setProgress("Preparing the reader — first time needs a one-off download…");
+    const worker = await getOcrWorker((pct) => setProgress(`Recognising… ${pct}%`));
     try {
-      if (forceAI || file.type.startsWith("image/")) {
-        if (!hasKey) throw new Error("Photos need the AI key (Setup) — PDF, Excel and CSV work without it.");
-        setRows(codeRows(await runAI(file)));
-        setVia("ai");
+      let text = "";
+      if (file.type.startsWith("image/")) {
+        text = await ocrRecognize(worker, file);
       } else {
-        let parsed = [];
-        try { parsed = await runLocal(file); } catch (e) { if (e.message === "image") throw e; }
-        if (parsed.length) {
-          setRows(codeRows(parsed));
-          setVia("local");
-        } else if (hasKey) {
-          setRows(codeRows(await runAI(file)));
-          setVia("ai");
-        } else {
-          throw new Error("Couldn't find transactions in that file. A cleaner export (CSV/Excel) usually works; the AI key in Setup unlocks smarter reading.");
+        const canvases = await pdfPagesToCanvases(file, (p, n) =>
+          setProgress(`Rendering page ${p}/${n}…`)
+        );
+        for (let i = 0; i < canvases.length; i++) {
+          setProgress(`Recognising page ${i + 1}/${canvases.length}…`);
+          text += "\n" + (await ocrRecognize(worker, canvases[i]));
         }
       }
+      return parseStatementText(text);
+    } finally {
+      await worker.terminate();
+    }
+  };
+
+  const run = async (file) => {
+    setErr("");
+    setStage("busy");
+    setProgress("Reading…");
+    try {
+      let parsed;
+      if (file.type.startsWith("image/")) {
+        parsed = await runOcr(file);
+      } else {
+        parsed = await runLocal(file);
+        if (parsed && !parsed.length && file.name.toLowerCase().endsWith(".pdf")) {
+          parsed = await runOcr(file); // no text layer — scanned PDF
+        }
+      }
+      if (!parsed || !parsed.length) {
+        throw new Error("Couldn't find transactions in that file. A cleaner export (CSV/Excel) usually parses best.");
+      }
+      setRows(codeRows(parsed));
       setStage("review");
     } catch (e) {
       setErr(e.message);
@@ -942,9 +1114,10 @@ function ImportSheet({ book, hasKey, onDone, onClose }) {
       {stage === "pick" && (
         <>
           <div style={{ fontSize: 13, color: C.faint, margin: "4px 0 12px" }}>
-            Upload a bank statement — PDF, Excel or CSV are read entirely on
-            this phone, free. Photos need the optional AI key. You review every
-            transaction before it enters the book.
+            Upload a bank statement — PDF, Excel, CSV, or a photo/scan. Every
+            format is read entirely on this phone (photos use a built-in
+            reader with a one-time download), and you review each transaction
+            before it enters the book.
           </div>
           {err && <div style={{ fontSize: 13, color: C.debit, marginBottom: 10 }}>{err}</div>}
           <Btn
@@ -970,27 +1143,15 @@ function ImportSheet({ book, hasKey, onDone, onClose }) {
           <div style={{ fontFamily: F.serif, fontSize: 18, fontWeight: 700, color: C.olive }}>
             Reading statement…
           </div>
-          <div style={{ fontSize: 13, marginTop: 6 }}>Extracting transactions</div>
+          <div style={{ fontSize: 13, marginTop: 6 }}>{progress || "Extracting transactions"}</div>
         </div>
       )}
 
       {stage === "review" && (
         <>
           <div style={{ fontSize: 13, color: C.faint, margin: "4px 0 10px" }}>
-            {rows.length} found{via === "local" ? " (read on-device)" : " (read with AI)"} —
-            untick anything you don't want, fix heads, then add. Head fixes are
-            remembered for next time.
-            {via === "local" && hasKey && lastFile.current && (
-              <button
-                onClick={() => run(lastFile.current, true)}
-                style={{
-                  background: "none", border: "none", color: C.olive, cursor: "pointer",
-                  fontSize: 13, padding: 0, marginLeft: 6, textDecoration: "underline",
-                }}
-              >
-                Re-read with AI
-              </button>
-            )}
+            {rows.length} found (read on-device) — untick anything you don't
+            want, fix heads, then add. Head fixes are remembered for next time.
           </div>
           {rows.map((r, i) => (
             <div
@@ -1244,7 +1405,7 @@ function Variance({ current, prev, goodWhenUp }) {
   );
 }
 
-function ReportsView({ book, hasKey }) {
+function ReportsView({ book }) {
   const [mode, setMode] = useState("pl");
   const t = today();
   const fys = useMemo(() => {
@@ -1260,9 +1421,6 @@ function ReportsView({ book, hasKey }) {
   const [asOf, setAsOf] = useState(t);
   const [cmpAsOf, setCmpAsOf] = useState("");
   const [openHead, setOpenHead] = useState("");
-  const [aiBusy, setAiBusy] = useState(false);
-  const [aiOut, setAiOut] = useState("");
-  const [aiErr, setAiErr] = useState("");
 
   const [from, to] =
     span === "year" ? fyRange(fy)
@@ -1280,22 +1438,43 @@ function ReportsView({ book, hasKey }) {
       .filter((e) => e.type === type && e.head === head && e.date >= from && e.date <= to)
       .sort((a, b) => b.date.localeCompare(a.date));
 
-  const analyse = async () => {
-    setAiBusy(true); setAiErr(""); setAiOut("");
-    try {
-      const fmt = (p) =>
-        `income: ${JSON.stringify(p.income)}; expenses: ${JSON.stringify(p.expense)}; net: ${p.net}`;
-      const sys =
-        "You are a personal-finance analyst (amounts in ₹, Indian FY, cash basis). Compare the two " +
-        "periods, explain the main variances head by head in plain language, and flag anything " +
-        "worth attention. Be concise; plain text.";
-      setAiOut(await askClaude(sys,
-        `Current period ${from} → ${to}: ${fmt(pl)}\nComparative ${pFrom} → ${pTo}: ${fmt(plPrev)}`));
-    } catch (e) {
-      setAiErr(e.message);
-    } finally {
-      setAiBusy(false);
+  // Export the report being viewed. CSV via the same blob-download pattern
+  // as backups; Print → the Android print dialog saves a PDF.
+  const downloadCsv = () => {
+    const esc = (s) => `"${String(s).replace(/"/g, '""')}"`;
+    const lines = [];
+    if (mode === "pl") {
+      lines.push(["Section", "Head", "Amount", ...(plPrev ? ["Previous", "Change"] : [])].map(esc).join(","));
+      const dump = (section, bag, prevBag) => {
+        for (const [h, a] of Object.entries(bag)) {
+          lines.push([section, h, a, ...(plPrev ? [prevBag[h] || 0, a - (prevBag[h] || 0)] : [])].map(esc).join(","));
+        }
+      };
+      dump("Income", pl.income, plPrev ? plPrev.income : {});
+      dump("Expenses", pl.expense, plPrev ? plPrev.expense : {});
+      lines.push(["Total", "Income", pl.totalIncome, ...(plPrev ? [plPrev.totalIncome, pl.totalIncome - plPrev.totalIncome] : [])].map(esc).join(","));
+      lines.push(["Total", "Expenses", pl.totalExpense, ...(plPrev ? [plPrev.totalExpense, pl.totalExpense - plPrev.totalExpense] : [])].map(esc).join(","));
+      lines.push(["Total", "Net", pl.net, ...(plPrev ? [plPrev.net, pl.net - plPrev.net] : [])].map(esc).join(","));
+    } else {
+      lines.push(["Section", "Line", "Amount", ...(bsPrev ? ["Previous", "Change"] : [])].map(esc).join(","));
+      const dump = (section, rows, prevRows) => {
+        for (const r of rows) {
+          const p = prevRows ? (prevRows.find((x) => x.name === r.name) || { amount: 0 }).amount : null;
+          lines.push([section, r.name, r.amount, ...(bsPrev ? [p, r.amount - p] : [])].map(esc).join(","));
+        }
+      };
+      dump("Assets", bs.assets, bsPrev && bsPrev.assets);
+      dump("Liabilities", bs.liabilities, bsPrev && bsPrev.liabilities);
+      dump("Equity", bs.equity, bsPrev && bsPrev.equity);
     }
+    const name =
+      mode === "pl" ? `cashbook-pl-${from}-to-${to}.csv` : `cashbook-bs-${asOf}.csv`;
+    const blob = new Blob([lines.join("\n")], { type: "text/csv" });
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = name;
+    a.click();
+    URL.revokeObjectURL(a.href);
   };
 
   // Drill-down P&L section: tap a head to see the entries behind the number.
@@ -1360,7 +1539,7 @@ function ReportsView({ book, hasKey }) {
 
   return (
     <div>
-      <div style={{ margin: "10px 12px" }}>
+      <div className="cb-noprint" style={{ margin: "10px 12px" }}>
         <Seg
           value={mode}
           onChange={setMode}
@@ -1369,6 +1548,14 @@ function ReportsView({ book, hasKey }) {
             { v: "bs", label: "Balance sheet" },
           ]}
         />
+        <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
+          <Btn style={{ flex: 1, padding: "8px 10px", fontSize: 13 }} onClick={downloadCsv}>
+            ⇩ Export CSV
+          </Btn>
+          <Btn style={{ flex: 1, padding: "8px 10px", fontSize: 13 }} onClick={() => window.print()}>
+            ⎙ Print / PDF
+          </Btn>
+        </div>
       </div>
 
       {mode === "pl" && (
@@ -1461,18 +1648,6 @@ function ReportsView({ book, hasKey }) {
             </div>
           </div>
 
-          {plPrev && hasKey && (
-            <div style={{ margin: "0 12px" }}>
-              <Btn primary disabled={aiBusy} style={{ width: "100%", opacity: aiBusy ? 0.6 : 1 }} onClick={analyse}>
-                {aiBusy ? "Analysing…" : "Analyse variances with AI"}
-              </Btn>
-              <div style={{ fontSize: 11, color: C.faint, marginTop: 4, textAlign: "center" }}>
-                Optional — sends only the two periods' head totals
-              </div>
-            </div>
-          )}
-          {aiErr && <div style={{ ...st.card, color: C.debit, fontSize: 14 }}>{aiErr}</div>}
-          {aiOut && <div style={{ ...st.card, fontSize: 14, lineHeight: 1.55, whiteSpace: "pre-wrap" }}>{aiOut}</div>}
         </>
       )}
 
@@ -1519,85 +1694,6 @@ function ReportsView({ book, hasKey }) {
   );
 }
 
-/* ────────────────────────── Plan (AI) ────────────────────────── */
-function bookSummary(book) {
-  const t = today();
-  const fy = fyOf(t);
-  const [from] = fyRange(fy);
-  const pl = computePL(book, from, t);
-  const bal = balancesAsOf(book, t);
-  const owed = owedAsOf(book, t);
-  const lines = [
-    `Cash book summary, FY ${fy}-${String(fy + 1).slice(2)} to date (${from} → ${t}). Amounts in INR.`,
-    `Income: ${Object.entries(pl.income).map(([h, a]) => `${h} ${a}`).join(", ") || "none"} (total ${pl.totalIncome})`,
-    `Expenses: ${Object.entries(pl.expense).map(([h, a]) => `${h} ${a}`).join(", ") || "none"} (total ${pl.totalExpense})`,
-    `Net surplus: ${pl.net}`,
-    `Bank balance: ${bal.bank}`,
-    ...book.bsAccounts.map((a) => `${a.kind === "liability" ? "Liability" : "Asset"} — ${a.name}: ${bal.accounts[a.name]}`),
-    `Debtors (owed to me): ${owed.debtors}; Creditors (I owe): ${owed.creditors}`,
-  ];
-  return lines.join("\n");
-}
-
-function PlanView({ book, hasKey }) {
-  const [q, setQ] = useState("");
-  const [busy, setBusy] = useState(false);
-  const [out, setOut] = useState("");
-  const [err, setErr] = useState("");
-
-  if (!hasKey) {
-    return (
-      <div style={{ ...st.card, textAlign: "center", padding: 28 }}>
-        <div style={{ fontFamily: F.serif, fontSize: 18, fontWeight: 700, marginBottom: 6 }}>Plan needs a key</div>
-        <div style={{ fontSize: 14, color: C.faint }}>
-          Add your Anthropic API key in <b>Setup</b> to get spending insights and a
-          month plan. Only the totals above are sent — never your notes or names.
-        </div>
-      </div>
-    );
-  }
-
-  const run = async () => {
-    setBusy(true); setErr(""); setOut("");
-    try {
-      const sys =
-        "You are a careful personal-finance assistant reviewing an Indian household cash book " +
-        "(amounts in ₹, financial year Apr–Mar, cash basis). Be concrete and concise: assess the " +
-        "position, flag anything unusual, and give a simple plan for the coming month with 3–5 " +
-        "actionable items. Plain text, no markdown tables.";
-      setOut(await askClaude(sys, bookSummary(book) + (q.trim() ? `\n\nQuestion: ${q.trim()}` : "")));
-    } catch (e) {
-      setErr(e.message);
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  return (
-    <div>
-      <div style={st.card}>
-        <div style={{ fontSize: 13, color: C.faint, marginBottom: 10 }}>
-          Sends only this FY's totals (heads, balances, owed totals — no notes, no
-          names) to Claude and returns a plan.
-        </div>
-        <input
-          style={st.input}
-          value={q}
-          placeholder="Optional question — e.g. can I raise my SIP?"
-          onChange={(e) => setQ(e.target.value)}
-        />
-        <Btn primary disabled={busy} style={{ width: "100%", marginTop: 10, opacity: busy ? 0.6 : 1 }} onClick={run}>
-          {busy ? "Thinking…" : "Get my plan"}
-        </Btn>
-      </div>
-      {err && <div style={{ ...st.card, color: C.debit, fontSize: 14 }}>{err}</div>}
-      {out && (
-        <div style={{ ...st.card, fontSize: 14, lineHeight: 1.55, whiteSpace: "pre-wrap" }}>{out}</div>
-      )}
-    </div>
-  );
-}
-
 /* ────────────────────────── Setup ────────────────────────── */
 function NameEditor({ value, onCommit, placeholder }) {
   const [v, setV] = useState(value);
@@ -1635,18 +1731,30 @@ function OpeningAmount({ value, onCommit }) {
   );
 }
 
-function Section({ title, children, hint }) {
+// Collapsible Setup section: keeps the tab scannable — tap a title to open.
+function Section({ title, children, hint, defaultOpen = false }) {
+  const [open, setOpen] = useState(defaultOpen);
   return (
     <div style={st.card}>
-      <div style={{ fontFamily: F.serif, fontSize: 17, fontWeight: 700 }}>{title}</div>
-      {hint && <div style={{ fontSize: 12, color: C.faint, margin: "3px 0 6px" }}>{hint}</div>}
-      {children}
+      <div
+        className="cb-press"
+        onClick={() => setOpen(!open)}
+        style={{ display: "flex", alignItems: "center", cursor: "pointer" }}
+      >
+        <div style={{ fontFamily: F.serif, fontSize: 17, fontWeight: 700, flex: 1 }}>{title}</div>
+        <span style={{ color: C.faint, fontSize: 13 }}>{open ? "▾" : "▸"}</span>
+      </div>
+      {open && (
+        <div className="cb-view">
+          {hint && <div style={{ fontSize: 12, color: C.faint, margin: "3px 0 6px" }}>{hint}</div>}
+          {children}
+        </div>
+      )}
     </div>
   );
 }
 
-function SetupView({ book, up, hasKey, onKeySaved }) {
-  const [keyInput, setKeyInput] = useState("");
+function SetupView({ book, up }) {
   const [newAcct, setNewAcct] = useState("");
   const [newAcctKind, setNewAcctKind] = useState("asset");
   const [newParty, setNewParty] = useState("");
@@ -1706,32 +1814,9 @@ function SetupView({ book, up, hasKey, onKeySaved }) {
 
   return (
     <div>
-      <Section title="Claude API key" hint="Stored only on this device; used only for the Plan tab.">
-        <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
-          <input
-            style={{ ...st.input, flex: 1 }}
-            type="password"
-            placeholder={hasKey ? "Key saved — paste to replace" : "sk-ant-…"}
-            value={keyInput}
-            onChange={(e) => setKeyInput(e.target.value)}
-          />
-          <Btn
-            primary disabled={!keyInput.trim()}
-            style={{ opacity: keyInput.trim() ? 1 : 0.5 }}
-            onClick={async () => {
-              await saveApiKey(keyInput.trim());
-              setKeyInput("");
-              onKeySaved();
-            }}
-          >
-            Save
-          </Btn>
-        </div>
-        {hasKey && <div style={{ fontSize: 12, color: C.credit, marginTop: 6 }}>✓ key on device</div>}
-      </Section>
-
       <Section
         title="Opening balances"
+        defaultOpen
         hint="Position on the day you started the book. Opening capital is derived so the sheet always balances."
       >
         <label style={st.label}>As of</label>
@@ -1977,22 +2062,54 @@ const TABS = [
   { id: "book", label: "Book", icon: "▤" },
   { id: "owed", label: "Owed", icon: "⇄" },
   { id: "reports", label: "Reports", icon: "∑" },
-  { id: "plan", label: "Plan", icon: "✦" },
   { id: "setup", label: "Setup", icon: "⚙" },
 ];
+
+function Splash({ leaving }) {
+  return (
+    <div
+      className={leaving ? "cb-splash-out" : ""}
+      style={{
+        position: "fixed", inset: 0, zIndex: 50, background: C.paper,
+        display: "flex", flexDirection: "column", alignItems: "center",
+        justifyContent: "center", gap: 14,
+      }}
+    >
+      <div
+        className="cb-splash-glyph"
+        style={{
+          width: 96, height: 96, borderRadius: 26,
+          background: `linear-gradient(140deg, ${C.heroFrom}, ${C.heroTo})`,
+          border: `1px solid ${C.oliveSoft}`, boxShadow: C.glow,
+          display: "flex", alignItems: "center", justifyContent: "center",
+          fontFamily: F.serif, fontSize: 52, fontWeight: 700, color: C.olive,
+        }}
+      >
+        ₹
+      </div>
+      <div className="cb-splash-name" style={{ fontFamily: F.serif, fontSize: 22, fontWeight: 700, color: C.oliveDeep }}>
+        Cash Book
+      </div>
+    </div>
+  );
+}
 
 export default function CashBook() {
   const [book, setBook] = useState(null);
   const [tab, setTab] = useState("book");
+  const [subPage, setSubPage] = useState("home"); // book tab: home | tx
   const [entrySheet, setEntrySheet] = useState(null); // {initial} | null
   const [memoParty, setMemoParty] = useState(null);
   const [importOpen, setImportOpen] = useState(false);
-  const [hasKey, setHasKey] = useState(false);
+  const [splash, setSplash] = useState("on"); // on | leaving | done
   const skipSave = useRef(true);
 
   useEffect(() => {
     loadBook().then((b) => setBook(b ? normalizeBook(b) : defaultBook()));
-    loadApiKey().then((k) => setHasKey(!!k));
+    const min = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches ? 0 : 750;
+    const t1 = setTimeout(() => setSplash("leaving"), min);
+    const t2 = setTimeout(() => setSplash("done"), min + 400);
+    return () => { clearTimeout(t1); clearTimeout(t2); };
   }, []);
   useEffect(() => {
     if (!book) return;
@@ -2002,17 +2119,29 @@ export default function CashBook() {
 
   const up = (fn) => setBook((b) => fn(clone(b)));
 
-  if (!book) {
-    return (
-      <div style={{
-        minHeight: "100vh", background: C.paper, display: "flex",
-        alignItems: "center", justifyContent: "center",
-        fontFamily: F.serif, fontSize: 20, color: C.olive,
-      }}>
-        Cash Book
-      </div>
-    );
-  }
+  // Android share-target: a bank SMS shared to the app arrives as ?text=…
+  // Pre-fill an entry from it, then clean the URL.
+  useEffect(() => {
+    if (!book) return;
+    const params = new URLSearchParams(window.location.search);
+    const shared = [params.get("title"), params.get("text"), params.get("url")]
+      .filter(Boolean)
+      .join(" ");
+    if (!shared) return;
+    window.history.replaceState(null, "", window.location.pathname);
+    const parsed = parseBankSms(shared);
+    if (parsed) {
+      setEntrySheet({
+        initial: {
+          type: parsed.type, amount: parsed.amount, date: parsed.date,
+          note: parsed.note, head: suggestHead(book, parsed.note),
+        },
+      });
+    }
+    // book is set once on load; this runs after that first load only
+  }, [!!book]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  if (!book) return <Splash leaving={false} />;
 
   const saveEntry = (e) => {
     up((b) => {
@@ -2032,24 +2161,50 @@ export default function CashBook() {
       paddingBottom: "calc(92px + env(safe-area-inset-bottom))",
     }}>
       <style>{ANIM_CSS}</style>
-      <div style={{
-        display: "flex", alignItems: "baseline", padding: "16px 16px 4px",
-      }}>
-        <div style={{ fontFamily: F.serif, fontSize: 22, fontWeight: 700, color: C.oliveDeep, flex: 1 }}>
-          Cash Book
-        </div>
-        <div style={{ fontSize: 12, color: C.faint }}>
-          FY {fyOf(today())}–{String(fyOf(today()) + 1).slice(2)} · Q{quarterOf(today())}
+      <div className="cb-header">
+        <div style={{
+          display: "flex", alignItems: "baseline", padding: "14px 16px 10px",
+          maxWidth: 480, margin: "0 auto",
+        }}>
+          {tab === "book" && subPage === "tx" ? (
+            <>
+              <button
+                className="cb-press"
+                onClick={() => setSubPage("home")}
+                style={{
+                  background: "none", border: "none", color: C.olive, cursor: "pointer",
+                  fontSize: 15, fontWeight: 700, fontFamily: F.sans, padding: 0, marginRight: 10,
+                }}
+              >
+                ← Back
+              </button>
+              <div style={{ fontFamily: F.serif, fontSize: 18, fontWeight: 700, color: C.oliveDeep, flex: 1 }}>
+                Transactions
+              </div>
+            </>
+          ) : (
+            <div style={{ fontFamily: F.serif, fontSize: 22, fontWeight: 700, color: C.oliveDeep, flex: 1 }}>
+              Cash Book
+            </div>
+          )}
+          <div style={{ fontSize: 12, color: C.faint }}>
+            FY {fyOf(today())}–{String(fyOf(today()) + 1).slice(2)} · Q{quarterOf(today())}
+          </div>
         </div>
       </div>
 
-      <div className="cb-view" key={tab}>
-        {tab === "book" && (
-          <BookView
+      <div className={tab === "book" && subPage === "tx" ? "cb-subpage" : "cb-view"} key={tab + subPage}>
+        {tab === "book" && subPage === "home" && (
+          <HomeView
             book={book}
             onEdit={(e) => setEntrySheet({ initial: e })}
             onImport={() => setImportOpen(true)}
+            onOpenTx={() => setSubPage("tx")}
+            onOwed={() => setTab("owed")}
           />
+        )}
+        {tab === "book" && subPage === "tx" && (
+          <TransactionsView book={book} onEdit={(e) => setEntrySheet({ initial: e })} />
         )}
         {tab === "owed" && (
           <OwedView
@@ -2065,16 +2220,15 @@ export default function CashBook() {
             onAddMemo={(p) => setMemoParty(p)}
           />
         )}
-        {tab === "reports" && <ReportsView book={book} hasKey={hasKey} />}
-        {tab === "plan" && <PlanView book={book} hasKey={hasKey} />}
-        {tab === "setup" && <SetupView book={book} up={up} hasKey={hasKey} onKeySaved={() => setHasKey(true)} />}
+        {tab === "reports" && <ReportsView book={book} />}
+        {tab === "setup" && <SetupView book={book} up={up} />}
       </div>
 
       {tab === "book" && (
         <button
           onClick={() => setEntrySheet({ initial: null })}
           aria-label="Add entry"
-          className="cb-fab"
+          className="cb-fab cb-noprint"
           style={{
             position: "fixed", right: 18, bottom: "calc(76px + env(safe-area-inset-bottom))",
             width: 58, height: 58, borderRadius: 29, border: "none",
@@ -2086,7 +2240,7 @@ export default function CashBook() {
         </button>
       )}
 
-      <div style={{
+      <div className="cb-noprint" style={{
         position: "fixed", left: 0, right: 0, bottom: 0, zIndex: 25,
         background: C.card, borderTop: `1px solid ${C.line}`,
       }}>
@@ -2098,7 +2252,7 @@ export default function CashBook() {
             <button
               key={tb.id}
               className="cb-tab"
-              onClick={() => setTab(tb.id)}
+              onClick={() => { setTab(tb.id); setSubPage("home"); }}
               style={{
                 flex: 1, padding: "9px 0 7px", border: "none", background: "none",
                 cursor: "pointer", color: tab === tb.id ? C.olive : C.faint,
@@ -2125,7 +2279,6 @@ export default function CashBook() {
       {importOpen && (
         <ImportSheet
           book={book}
-          hasKey={hasKey}
           onClose={() => setImportOpen(false)}
           onDone={(picked, learned) => {
             up((b) => {
@@ -2158,6 +2311,8 @@ export default function CashBook() {
           }}
         />
       )}
+
+      {splash !== "done" && <Splash leaving={splash === "leaving"} />}
     </div>
   );
 }
