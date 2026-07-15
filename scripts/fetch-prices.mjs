@@ -110,22 +110,38 @@ async function diagnose(url) {
   try {
     const res = await fetch(url, { headers: { "User-Agent": BROWSER_UA } });
     console.log(`DIAGNOSTIC ${url} -> HTTP ${res.status}`);
+    return res.status;
   } catch (e) {
     console.log(`DIAGNOSTIC ${url} -> ${e.message}`);
+    return null;
   }
 }
 
-async function main() {
-  await diagnose("https://www.amfiindia.com/");
-  await diagnose("https://www.nseindia.com/");
-  await diagnose("https://nsearchives.nseindia.com/");
+// Try each candidate URL in turn, return the text of the first one that
+// returns 200. Both AMFI and NSE have changed these paths before, so this
+// converges on whichever is current rather than betting on exactly one.
+async function fetchFirstWorking(urls) {
+  for (const url of urls) {
+    const status = await diagnose(url);
+    if (status === 200) return fetchText(url);
+  }
+  throw new Error(`none of ${urls.length} candidate URLs returned 200`);
+}
 
+async function main() {
   const instruments = { mf: [], stock: [] };
   const prices = {};
   const errors = [];
 
   try {
-    const navText = await fetchText("https://www.amfiindia.com/spider/NAVAll.txt");
+    const navText = await fetchFirstWorking([
+      "https://www.amfiindia.com/spider/NAVAll.txt",
+      "https://portal.amfiindia.com/spider/NAVAll.txt",
+      "https://www.amfiindia.com/spider/NavAll.txt",
+      "https://www.amfiindia.com/nav-history-download/NAVAll.txt",
+      "https://www.amfiindia.com/net-asset-value/nav-history",
+      "https://www.amfiindia.com/research-information/net-asset-value",
+    ]);
     const { mf, prices: mfPrices } = parseAmfiNav(navText);
     instruments.mf = mf;
     Object.assign(prices, mfPrices);
@@ -135,7 +151,12 @@ async function main() {
   }
 
   try {
-    const listText = await fetchText("https://nsearchives.nseindia.com/content/equity/EQUITY_L.csv");
+    const listText = await fetchFirstWorking([
+      "https://nsearchives.nseindia.com/content/equity/EQUITY_L.csv",
+      "https://archives.nseindia.com/content/equity/EQUITY_L.csv",
+      "https://nsearchives.nseindia.com/products/content/EQUITY_L.csv",
+      "https://nsearchives.nseindia.com/market-data/securities-available-for-trading",
+    ]);
     instruments.stock = parseNseEquityList(listText);
     console.log(`NSE symbol list: ${instruments.stock.length} equities`);
   } catch (e) {
