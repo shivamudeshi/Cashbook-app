@@ -121,6 +121,39 @@ async function main() {
   assert.deepStrictEqual([txs[1].amount, txs[1].type], [80000, "in"], "CR marker → in");
   assert.deepStrictEqual([txs[2].date, txs[2].amount], ["2025-05-03", 2000], "dd-mm-yyyy parsed");
 
+  // Columnar PDF table parser: reproduces the real bug found in a Union
+  // Bank of India statement — the narration cell wraps to a line before and
+  // a line after the row that actually carries the date/amount/balance, and
+  // the balance itself always prints "<amount> Cr", which must NOT be read
+  // as the transaction's own direction. Item x/y mirrors actual pdf.js
+  // output: a Withdrawal column (~x338) and a Deposit column (~x426), both
+  // well clear of the Balance column (~x513).
+  const pdfPage = [
+    // header row
+    { x: 29, y: 518, s: "SI" }, { x: 64, y: 518, s: "Date" }, { x: 150, y: 518, s: "Particulars" },
+    { x: 263, y: 518, s: "Chq Num" }, { x: 338, y: 518, s: "Withdrawal" }, { x: 426, y: 518, s: "Deposit" },
+    { x: 513, y: 518, s: "Balance" },
+    // withdrawal, narration wraps around the numeric row
+    { x: 105, y: 483, s: "AMAZON PAY INDIA PVT" },
+    { x: 35, y: 477, s: "2" }, { x: 50, y: 477, s: "02-06-2025" }, { x: 363, y: 477, s: "1,250.00" }, { x: 517, y: 477, s: "45,000.00 Cr" },
+    { x: 105, y: 472, s: "LTD REF9988776655" },
+    // deposit, narration wraps around the numeric row
+    { x: 105, y: 462, s: "NEFT SALARY ACME CORP" },
+    { x: 35, y: 456, s: "3" }, { x: 50, y: 456, s: "03-06-2025" }, { x: 439, y: 456, s: "80,000.00" }, { x: 517, y: 456, s: "1,25,000.00 Cr" },
+    { x: 105, y: 451, s: "PVT LTD HDFC0001234" },
+  ];
+  const pdfRows = E.parsePdfTable([pdfPage]);
+  assert.strictEqual(pdfRows.length, 2, "two transaction rows recovered from the columnar page");
+  const [wd, dep] = pdfRows;
+  assert.deepStrictEqual(
+    [wd.date, wd.amount, wd.type],
+    ["2025-06-02", 1250, "out"],
+    "amount column position (not the trailing balance Cr) decides direction"
+  );
+  assert.ok(/AMAZON/.test(wd.note) && /REF9988776655/.test(wd.note), "note stitches the before+after wrapped narration lines, got: " + wd.note);
+  assert.deepStrictEqual([dep.date, dep.amount, dep.type], ["2025-06-03", 80000, "in"], "deposit column recognised despite balance also saying Cr");
+  assert.ok(/SALARY/.test(dep.note) && /HDFC0001234/.test(dep.note), "note stitches wrapped narration for the deposit row too, got: " + dep.note);
+
   // Keyword coder + learning keyword extraction.
   const ruleDb = { codingRules: [{ match: "swiggy", head: "Food out" }] };
   assert.strictEqual(E.suggestHead(ruleDb, "UPI-SWIGGY BANGALORE"), "Food out");
