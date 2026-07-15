@@ -73,13 +73,18 @@ function parseNseEquityList(text) {
 // Column layout: TckrSymb, ..., ClsPric, ... (varies by exact report; keyed
 // by header name below rather than a fixed index so a column reorder
 // doesn't silently produce wrong prices).
+// Column names differ between NSE's report variants (the UDIFF full-market
+// dump uses TckrSymb/ClsPric/TradDt; the older "sec_bhavdata_full" plain-CSV
+// report uses SYMBOL/CLOSE_PRICE/DATE1) — try both rather than betting on
+// exactly one, since NSE has changed which one is reachable before.
 function parseBhavcopy(text) {
   const lines = text.split(/\r?\n/).filter(Boolean);
   if (!lines.length) return {};
   const header = lines[0].split(",").map((h) => h.trim());
-  const symbolIdx = header.indexOf("TckrSymb");
-  const closeIdx = header.indexOf("ClsPric");
-  const dateIdx = header.indexOf("TradDt");
+  const findCol = (...names) => names.map((n) => header.indexOf(n)).find((i) => i !== -1) ?? -1;
+  const symbolIdx = findCol("TckrSymb", "SYMBOL");
+  const closeIdx = findCol("ClsPric", "CLOSE_PRICE");
+  const dateIdx = findCol("TradDt", "DATE1");
   if (symbolIdx === -1 || closeIdx === -1) return {};
   const prices = {};
   for (let i = 1; i < lines.length; i++) {
@@ -92,7 +97,29 @@ function parseBhavcopy(text) {
   return prices;
 }
 
+// Temporary diagnostic: a first attempt at all three data URLs came back
+// 404 across the board (both AMFI and NSE, two unrelated domains) — that
+// pattern is consistent with the runner's IP being geo/IP-blocked by these
+// India-only financial sites (a known thing they do to cloud-datacenter
+// ranges) rather than three coincidentally-wrong paths. Fetching each
+// site's plain homepage tells us which it is: a 200 on the homepage but
+// 404 on the data path means the path is wrong; a block on the homepage
+// too means no URL fix here will help and a different hosting approach is
+// needed for the fetch step.
+async function diagnose(url) {
+  try {
+    const res = await fetch(url, { headers: { "User-Agent": BROWSER_UA } });
+    console.log(`DIAGNOSTIC ${url} -> HTTP ${res.status}`);
+  } catch (e) {
+    console.log(`DIAGNOSTIC ${url} -> ${e.message}`);
+  }
+}
+
 async function main() {
+  await diagnose("https://www.amfiindia.com/");
+  await diagnose("https://www.nseindia.com/");
+  await diagnose("https://nsearchives.nseindia.com/");
+
   const instruments = { mf: [], stock: [] };
   const prices = {};
   const errors = [];
@@ -108,7 +135,7 @@ async function main() {
   }
 
   try {
-    const listText = await fetchText("https://archives.nseindia.com/content/equity/EQUITY_L.csv");
+    const listText = await fetchText("https://nsearchives.nseindia.com/content/equity/EQUITY_L.csv");
     instruments.stock = parseNseEquityList(listText);
     console.log(`NSE symbol list: ${instruments.stock.length} equities`);
   } catch (e) {
@@ -120,7 +147,9 @@ async function main() {
     const dd = String(today.getUTCDate()).padStart(2, "0");
     const mm = String(today.getUTCMonth() + 1).padStart(2, "0");
     const yyyy = today.getUTCFullYear();
-    const bhavUrl = `https://nsearchives.nseindia.com/content/cm/BhavCopy_NSE_CM_0_0_0_${yyyy}${mm}${dd}_F_0000.csv`;
+    // Try the plain-CSV "full bhavdata" report (DDMMYYYY, no separators)
+    // first — it doesn't require zip extraction, unlike the UDIFF dump.
+    const bhavUrl = `https://nsearchives.nseindia.com/products/content/sec_bhavdata_full_${dd}${mm}${yyyy}.csv`;
     const bhavText = await fetchText(bhavUrl, { Referer: "https://www.nseindia.com/" });
     const stockPrices = parseBhavcopy(bhavText);
     Object.assign(prices, stockPrices);
