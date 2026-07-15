@@ -97,15 +97,11 @@ function parseBhavcopy(text) {
   return prices;
 }
 
-// Temporary diagnostic: a first attempt at all three data URLs came back
-// 404 across the board (both AMFI and NSE, two unrelated domains) — that
-// pattern is consistent with the runner's IP being geo/IP-blocked by these
-// India-only financial sites (a known thing they do to cloud-datacenter
-// ranges) rather than three coincidentally-wrong paths. Fetching each
-// site's plain homepage tells us which it is: a 200 on the homepage but
-// 404 on the data path means the path is wrong; a block on the homepage
-// too means no URL fix here will help and a different hosting approach is
-// needed for the fetch step.
+// Logs the HTTP status of each candidate URL before fetching the first
+// working one — both AMFI and NSE have moved these paths before (confirmed:
+// AMFI's canonical file moved from /spider/ to /spages/, NSE's equity list
+// lives under /content/equities/ not /content/equity/), so this makes the
+// next path change fast to diagnose from the Action's own logs.
 async function diagnose(url) {
   try {
     const res = await fetch(url, { headers: { "User-Agent": BROWSER_UA } });
@@ -135,12 +131,10 @@ async function main() {
 
   try {
     const navText = await fetchFirstWorking([
+      "https://www.amfiindia.com/spages/NAVAll.txt",
       "https://www.amfiindia.com/spider/NAVAll.txt",
+      "https://portal.amfiindia.com/spages/NAVAll.txt",
       "https://portal.amfiindia.com/spider/NAVAll.txt",
-      "https://www.amfiindia.com/spider/NavAll.txt",
-      "https://www.amfiindia.com/nav-history-download/NAVAll.txt",
-      "https://www.amfiindia.com/net-asset-value/nav-history",
-      "https://www.amfiindia.com/research-information/net-asset-value",
     ]);
     const { mf, prices: mfPrices } = parseAmfiNav(navText);
     instruments.mf = mf;
@@ -152,10 +146,9 @@ async function main() {
 
   try {
     const listText = await fetchFirstWorking([
+      "https://nsearchives.nseindia.com/content/equities/EQUITY_L.csv",
+      "https://archives.nseindia.com/content/equities/EQUITY_L.csv",
       "https://nsearchives.nseindia.com/content/equity/EQUITY_L.csv",
-      "https://archives.nseindia.com/content/equity/EQUITY_L.csv",
-      "https://nsearchives.nseindia.com/products/content/EQUITY_L.csv",
-      "https://nsearchives.nseindia.com/market-data/securities-available-for-trading",
     ]);
     instruments.stock = parseNseEquityList(listText);
     console.log(`NSE symbol list: ${instruments.stock.length} equities`);
