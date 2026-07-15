@@ -878,6 +878,10 @@ function entryLabel(book, e) {
     return e.dir === "out"
       ? `Paid ${partyName(book, e.partyId)}`
       : `From ${partyName(book, e.partyId)}`;
+  if (e.type === "holding") {
+    const h = (book.holdings || []).find((x) => x.id === e.holdingId);
+    return `${e.dir === "sell" ? "Sold" : "Bought"} ${h ? h.label : "holding"}`;
+  }
   return e.head;
 }
 
@@ -913,10 +917,24 @@ function strHash(s) {
 // one shown on Owed); everything else matches a curated category icon or
 // falls back to a deterministic colored-letter Avatar for an unmatched
 // head/account, so every row always shows something meaningful.
+// icon + color per holding kind — reused by entryVisual and InvestmentsPage
+// row/orb rendering so a fund/stock/gold holding always reads the same way
+// wherever it appears in the app.
+const HOLDING_VISUALS = {
+  mf: { icon: "clock", color: "#a78bfa" },
+  stock: { icon: "bars", color: "#34d399" },
+  gold: { icon: "coins", color: "#fbbf24" },
+};
+
 function entryVisual(book, e) {
   if (e.type === "party") {
     const idx = book.parties.findIndex((p) => p.id === e.partyId);
     return { kind: "avatar", name: partyName(book, e.partyId), index: idx < 0 ? 0 : idx };
+  }
+  if (e.type === "holding") {
+    const h = (book.holdings || []).find((x) => x.id === e.holdingId);
+    const v = HOLDING_VISUALS[h ? h.kind : "mf"];
+    return { kind: "icon", icon: v.icon, color: v.color };
   }
   if ((e.type === "in" || e.type === "out") && e.head === "Suspense") {
     return { kind: "icon", icon: "tag", color: C.faint };
@@ -991,6 +1009,14 @@ function Ic({ name, size = 15, stroke = "#fff", sw = 2.2 }) {
     briefcase: <><rect x="2.5" y="7" width="19" height="13" rx="2" /><path d="M8 7V5a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" /><line x1="2.5" y1="12.5" x2="21.5" y2="12.5" /></>,
     wrench: <><path d="M14.7 6.3a4 4 0 0 0-5.4 5.4L3 18l3 3 6.3-6.3a4 4 0 0 0 5.4-5.4l-2.8 2.8-2-2z" /></>,
     repeat: <><path d="M21 12a9 9 0 1 1-3-6.7" /><polyline points="21 3 21 9 15 9" /></>,
+    close: <><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></>,
+    dots: <><circle cx="5" cy="12" r="1.6" /><circle cx="12" cy="12" r="1.6" /><circle cx="19" cy="12" r="1.6" /></>,
+    refresh: <><polyline points="1 4 1 10 7 10" /><polyline points="23 20 23 14 17 14" /><path d="M20.5 9A9 9 0 0 0 4.6 5.6L1 10m22 4-3.6 4.4A9 9 0 0 1 3.5 15" /></>,
+    chevronDown: <><polyline points="6 9 12 15 18 9" /></>,
+    clock: <><circle cx="12" cy="12" r="9" /><polyline points="12 7 12 12 15.5 14" /></>,
+    bars: <><line x1="5" y1="20" x2="5" y2="13" /><line x1="12" y1="20" x2="12" y2="8" /><line x1="19" y1="20" x2="19" y2="4" /></>,
+    eye: <><path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7-11-7-11-7z" /><circle cx="12" cy="12" r="3" /></>,
+    eyeOff: <><path d="M17.9 17.9A10.6 10.6 0 0 1 12 20c-7 0-11-8-11-8a19 19 0 0 1 5-5.6M9.9 4.2A10.4 10.4 0 0 1 12 4c7 0 11 8 11 8a18.7 18.7 0 0 1-2.4 3.5" /><path d="M9.5 9.7a3 3 0 0 0 4.2 4.2" /><line x1="2" y1="2" x2="22" y2="22" /></>,
   }[name];
   return (
     <svg viewBox="0 0 24 24" width={size} height={size} fill="none" stroke={stroke}
@@ -1524,8 +1550,8 @@ function Donut({ slices, size = 120, thickness = 14, centerLabel, centerValue })
 }
 
 /* asset / liability slices from the balance sheet */
-function bsSlices(book, asOf) {
-  const bs = computeBS(book, asOf || today());
+function bsSlices(book, asOf, prices) {
+  const bs = computeBS(book, asOf || today(), prices);
   const mk = (rows) => {
     const pos = rows.filter((r) => r.amount > 0);
     const total = pos.reduce((s, r) => s + r.amount, 0) || 1;
@@ -1540,21 +1566,46 @@ function bsSlices(book, asOf) {
 }
 
 /* net worth history: equity at each month end */
-function equitySeries(book, months) {
+function equitySeries(book, months, prices) {
   const t = today();
   const out = [];
   const start = new Date(t.slice(0, 7) + "-01T00:00:00");
   for (let i = months - 1; i >= 0; i--) {
     const d = new Date(start.getFullYear(), start.getMonth() - i + 1, 0);
     const iso = `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
-    out.push({ label: monthShort(iso.slice(0, 7) + "-01"), value: computeBS(book, iso > t ? t : iso).totalEquity });
+    out.push({ label: monthShort(iso.slice(0, 7) + "-01"), value: computeBS(book, iso > t ? t : iso, prices).totalEquity });
+  }
+  return out;
+}
+
+// Holdings-only value history, same month-end walk as equitySeries. Like
+// equitySeries, past points are valued at today's price snapshot (there's
+// no historical price archive) — this shows how the position SIZE grew,
+// not real historical price movement; consistent with how net worth's own
+// sparkline already treats holdings.
+function holdingsValueSeries(book, months, prices) {
+  const t = today();
+  const out = [];
+  const start = new Date(t.slice(0, 7) + "-01T00:00:00");
+  for (let i = months - 1; i >= 0; i--) {
+    const d = new Date(start.getFullYear(), start.getMonth() - i + 1, 0);
+    const iso = `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
+    const asOf = iso > t ? t : iso;
+    const value = holdingsAsOf(book, asOf)
+      .filter((h) => h.units > 0.0001 || Math.abs(h.costBasis) > 0.0001)
+      .reduce((s, h) => s + holdingsValue(h, prices), 0);
+    out.push({ label: monthShort(iso.slice(0, 7) + "-01"), value });
   }
   return out;
 }
 /* ────────────────────────── Dashboard ────────────────────────── */
-function StatOrb({ grad, shadow, icon, value, label, sub }) {
+function StatOrb({ grad, shadow, icon, value, label, sub, onClick }) {
   return (
-    <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+    <div
+      className={onClick ? "cb-press" : undefined}
+      onClick={onClick}
+      style={{ display: "flex", alignItems: "center", gap: 10, cursor: onClick ? "pointer" : undefined }}
+    >
       <Orb grad={grad} shadow={shadow}><Ic name={icon} size={20} /></Orb>
       <div style={{ minWidth: 0 }}>
         <div style={{ fontSize: 16, fontWeight: 800, color: "#fff" }}>{value}</div>
@@ -1578,14 +1629,14 @@ function QuickAction({ grad, shadow, icon, l1, l2, onClick }) {
   );
 }
 
-function DashHome({ book, go, onImport, onAdd, setTab }) {
+function DashHome({ book, go, onImport, onAdd, setTab, prices, onOpenInvestments }) {
   const t = today();
   const monthStart = t.slice(0, 8) + "01";
-  const { bs } = bsSlices(book, t);
+  const { bs } = bsSlices(book, t, prices);
   const netWorth = bs.totalEquity;
   const shownNw = useCountUp(netWorth);
   const prevEnd = addDays(monthStart, -1);
-  const nwPrev = computeBS(book, prevEnd).totalEquity;
+  const nwPrev = computeBS(book, prevEnd, prices).totalEquity;
   const nwDiff = netWorth - nwPrev;
   const nwPct = nwPrev !== 0 ? Math.round((nwDiff / Math.abs(nwPrev)) * 100) : null;
 
@@ -1600,6 +1651,7 @@ function DashHome({ book, go, onImport, onAdd, setTab }) {
       const a = book.bsAccounts.find((x) => x.name === e.account);
       if (a && a.kind === "asset") invested += e.amount;
     }
+    if (e.type === "holding" && e.dir === "buy") invested += e.amount - (e.charge || 0);
   }
 
   const accounts = accountModels(book);
@@ -1692,7 +1744,7 @@ function DashHome({ book, go, onImport, onAdd, setTab }) {
           <StatOrb grad={C.greenGrad} shadow="0 6px 14px -4px rgba(4,120,87,.7)" icon="trend" value={compactMoney(book, pl.totalIncome)} label="Income" sub="This Month" />
           <StatOrb grad={C.redGrad} shadow="0 6px 14px -4px rgba(159,18,57,.7)" icon="wallet" value={compactMoney(book, pl.totalExpense)} label="Expenses" sub="This Month" />
           <StatOrb grad={C.grad} shadow="0 6px 14px -4px rgba(109,40,217,.6)" icon="coins" value={compactMoney(book, pl.net)} label="Savings" sub="This Month" />
-          <StatOrb grad={C.amberGrad} shadow="0 6px 14px -4px rgba(180,83,9,.7)" icon="pie" value={compactMoney(book, invested)} label="Invested" sub="This Month" />
+          <StatOrb grad={C.amberGrad} shadow="0 6px 14px -4px rgba(180,83,9,.7)" icon="pie" value={compactMoney(book, invested)} label="Invested" sub="This Month" onClick={onOpenInvestments} />
         </div>
       </div>
 
@@ -1772,12 +1824,12 @@ function DashHome({ book, go, onImport, onAdd, setTab }) {
 }
 
 /* ────────────────────────── Net worth + breakdowns ────────────────────────── */
-function NetWorthPage({ book, go }) {
+function NetWorthPage({ book, go, prices }) {
   const [months, setMonths] = useState(6);
   const t = today();
-  const { bs, assets, liabilities } = bsSlices(book, t);
-  const series = useMemo(() => equitySeries(book, months), [book, months]);
-  const prev = computeBS(book, addDays(t.slice(0, 8) + "01", -1)).totalEquity;
+  const { bs, assets, liabilities } = bsSlices(book, t, prices);
+  const series = useMemo(() => equitySeries(book, months, prices), [book, months, prices]);
+  const prev = computeBS(book, addDays(t.slice(0, 8) + "01", -1), prices).totalEquity;
   const diff = bs.totalEquity - prev;
   const pct = prev !== 0 ? Math.round((diff / Math.abs(prev)) * 100) : null;
 
@@ -1879,9 +1931,241 @@ function NetWorthPage({ book, go }) {
   );
 }
 
-function AllocationPage({ book, kind }) {
+/* ────────────────────────── Investments ────────────────────────── */
+const INVEST_KIND_LABEL = { mf: "Mutual Fund", stock: "Stock", gold: "Gold" };
+
+function investDetailLine(book, r) {
+  const unit = r.price != null ? r.price : (r.units ? r.costBasis / r.units : 0);
+  if (r.kind === "mf") return `Units ${r.units.toFixed(3)} · NAV ${money(book, unit)}`;
+  if (r.kind === "stock") return `Qty ${r.units.toFixed(0)} · Avg ${money(book, r.units ? r.costBasis / r.units : 0)} · CMP ${money(book, unit)}`;
+  return `${r.units.toFixed(2)}g · ${money(book, unit)}/g`;
+}
+
+function InvestmentsPage({ book, prices, instruments, onClose, onAdd, onEdit, onManage, onRefresh }) {
+  const [months, setMonths] = useState(3);
+  const [valueMode, setValueMode] = useState("market"); // market | invested
+  const [filterKind, setFilterKind] = useState("all"); // all | mf | stock | gold
+  const [sortBy, setSortBy] = useState("value"); // value | name | gain
+  const [hidden, setHidden] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
+
   const t = today();
-  const { assets, liabilities } = bsSlices(book, t);
+  const holdings = holdingsAsOf(book, t).filter((h) => h.units > 0.0001 || Math.abs(h.costBasis) > 0.0001);
+  const rows = holdings.map((h) => {
+    const value = holdingsValue(h, prices);
+    const gain = value - h.costBasis;
+    const gainPct = h.costBasis ? Math.round((gain / h.costBasis) * 1000) / 10 : 0;
+    const p = prices && prices[h.instrumentId];
+    return { ...h, value, gain, gainPct, price: p && p.price != null ? p.price : null, asOf: p && p.asOf };
+  });
+  const marketTotal = rows.reduce((s, r) => s + r.value, 0);
+  const investedTotal = rows.reduce((s, r) => s + r.costBasis, 0);
+  const totalGain = marketTotal - investedTotal;
+  const totalGainPct = investedTotal ? Math.round((totalGain / investedTotal) * 1000) / 10 : 0;
+  const heroValue = valueMode === "market" ? marketTotal : investedTotal;
+
+  const series = useMemo(() => holdingsValueSeries(book, months, prices), [book, months, prices]);
+  const seriesDiff = series.length >= 2 ? series[series.length - 1].value - series[series.length - 2].value : 0;
+  const seriesPct = series.length >= 2 && series[series.length - 2].value
+    ? Math.round((seriesDiff / Math.abs(series[series.length - 2].value)) * 1000) / 10 : null;
+
+  const filtered = rows.filter((r) => filterKind === "all" || r.kind === filterKind);
+  const sorted = [...filtered].sort((a, b) =>
+    sortBy === "name" ? a.label.localeCompare(b.label)
+    : sortBy === "gain" ? b.gainPct - a.gainPct
+    : b.value - a.value
+  );
+
+  const latestAsOf = Object.values(prices || {}).reduce((max, p) => (p && p.asOf && p.asOf > max ? p.asOf : max), "");
+
+  const refreshAll = async () => {
+    setRefreshing(true);
+    try {
+      const [pRes, iRes] = await Promise.all([
+        fetch("prices.json", { cache: "no-store" }),
+        fetch("instruments.json", { cache: "no-store" }),
+      ]);
+      const [newPrices, newInstruments] = await Promise.all([pRes.json(), iRes.json()]);
+      onRefresh(newPrices, newInstruments);
+    } catch {
+      // offline or no network — the last-loaded snapshot just stays as-is.
+    } finally {
+      setRefreshing(false);
+    }
+  };
+
+  const mask = (s) => (hidden ? "••••••" : s);
+
+  return (
+    <div
+      onClick={onClose}
+      className="cb-sheet-overlay"
+      style={{ position: "fixed", inset: 0, background: "rgba(3,2,6,.65)", backdropFilter: "blur(4px)", WebkitBackdropFilter: "blur(4px)", display: "flex", alignItems: "flex-end", zIndex: 30 }}
+    >
+      <div
+        onClick={(e) => e.stopPropagation()}
+        className="cb-sheet"
+        style={{
+          width: "100%", maxWidth: 480, margin: "0 auto", maxHeight: "94vh",
+          overflowY: "auto", boxSizing: "border-box", background: C.sheetBg,
+          border: C.border, borderTop: "1px solid rgba(255,255,255,.22)",
+          borderRadius: "24px 24px 0 0", padding: "10px 18px calc(22px + env(safe-area-inset-bottom))",
+        }}
+      >
+        <div style={{ width: 40, height: 4, borderRadius: 999, background: "rgba(255,255,255,.2)", margin: "0 auto 12px" }} />
+        <div style={{ display: "flex", alignItems: "center", marginBottom: 14 }}>
+          <RoundBtn aria-label="Close" onClick={onClose}><Ic name="close" size={14} stroke={C.soft} /></RoundBtn>
+          <div style={{ flex: 1, textAlign: "center", fontSize: 18, fontWeight: 800, color: C.ink }}>Investments</div>
+          <RoundBtn aria-label="Manage holdings" onClick={onManage}><Ic name="dots" size={16} stroke={C.soft} /></RoundBtn>
+        </div>
+
+        <div style={{ ...glass(22), padding: "18px 18px 16px" }}>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
+            <button className="cb-press" onClick={() => setHidden((x) => !x)} style={{ display: "flex", alignItems: "center", gap: 6, border: "none", background: "none", padding: 0, cursor: "pointer", fontSize: 13, fontWeight: 700, color: "#e2d6fb" }}>
+              Total Investment Value
+              <Ic name={hidden ? "eyeOff" : "eye"} size={13} stroke={C.faint} />
+            </button>
+            <select
+              value={valueMode}
+              onChange={(e) => setValueMode(e.target.value)}
+              style={{
+                padding: "6px 12px", borderRadius: 999, border: "1px solid rgba(255,255,255,.16)",
+                background: "rgba(255,255,255,.06)", color: "#e2d6fb", fontSize: 12, fontWeight: 700,
+                fontFamily: F.sans, cursor: "pointer",
+              }}
+            >
+              <option value="market">Market Value</option>
+              <option value="invested">Invested Amount</option>
+            </select>
+          </div>
+          <div style={{ display: "flex", alignItems: "flex-end", gap: 12, marginTop: 14 }}>
+            <div style={{ fontSize: 30, fontWeight: 800, color: "#fff", fontVariantNumeric: "tabular-nums" }}>
+              {mask(money(book, heroValue))}
+            </div>
+          </div>
+          {!hidden && (
+            <div style={{ fontSize: 12, fontWeight: 700, color: seriesDiff >= 0 ? C.green : C.red, marginTop: 5 }}>
+              {seriesDiff >= 0 ? "▲" : "▼"} {money(book, Math.abs(seriesDiff))}{seriesPct !== null ? ` (${Math.abs(seriesPct)}%)` : ""} vs last month
+            </div>
+          )}
+
+          <div style={{ marginTop: 14 }}>
+            <Sparkline points={series.map((s) => s.value)} color="#a78bfa" />
+          </div>
+          <div style={{ display: "flex", gap: 6, marginTop: 4, paddingBottom: 2 }}>
+            {[["3M", 3], ["6M", 6], ["1Y", 12], ["All", 24]].map(([label, m]) => (
+              <button
+                key={label}
+                className="cb-press"
+                onClick={() => setMonths(m)}
+                style={{
+                  padding: "7px 14px", borderRadius: 999, fontSize: 12, fontWeight: 800,
+                  fontFamily: F.sans, cursor: "pointer",
+                  border: `1px solid ${months === m ? "rgba(167,139,250,.5)" : "rgba(255,255,255,.14)"}`,
+                  background: months === m ? "rgba(167,139,250,.18)" : "rgba(255,255,255,.05)",
+                  color: months === m ? C.accentText : C.muted,
+                }}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+
+          <div style={{ display: "flex", borderTop: `1px solid ${C.line}`, marginTop: 14, paddingTop: 12, gap: 10 }}>
+            <div style={{ flex: 1 }}>
+              <div style={{ fontSize: 10, fontWeight: 700, color: C.faint, textTransform: "uppercase", letterSpacing: ".04em" }}>Invested Amount</div>
+              <div style={{ fontSize: 15, fontWeight: 800, color: "#fff", marginTop: 4 }}>{mask(money(book, investedTotal))}</div>
+            </div>
+            <div style={{ flex: 1 }}>
+              <div style={{ fontSize: 10, fontWeight: 700, color: C.faint, textTransform: "uppercase", letterSpacing: ".04em" }}>Total Returns</div>
+              <div style={{ fontSize: 15, fontWeight: 800, color: totalGain >= 0 ? C.green : C.red, marginTop: 4 }}>
+                {mask(`${totalGain >= 0 ? "+" : ""}${money(book, totalGain)} (${totalGainPct}%)`)}
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div className="cb-carousel" style={{ display: "flex", gap: 8, marginTop: 14, overflowX: "auto" }}>
+          {[["all", "All"], ["mf", "Mutual Funds"], ["stock", "Stocks"], ["gold", "Gold"]].map(([v, label]) => (
+            <FilterChip key={v} label={label} active={filterKind === v} onClick={() => setFilterKind(v)} />
+          ))}
+        </div>
+
+        <div style={{ display: "flex", alignItems: "center", marginTop: 16, marginBottom: 4 }}>
+          <div style={{ flex: 1, fontSize: 15, fontWeight: 800, color: C.ink }}>All Investments ({sorted.length})</div>
+          <select
+            value={sortBy}
+            onChange={(e) => setSortBy(e.target.value)}
+            style={{ border: "none", background: "none", color: C.accentText, fontSize: 12, fontWeight: 700, fontFamily: F.sans, cursor: "pointer" }}
+          >
+            <option value="value">Sort: Value</option>
+            <option value="name">Sort: Name</option>
+            <option value="gain">Sort: Gain %</option>
+          </select>
+        </div>
+
+        <div style={{ ...glass(18), overflow: "hidden", background: C.glassSoft, border: C.borderSoft }}>
+          {sorted.map((r, i) => {
+            const v = HOLDING_VISUALS[r.kind];
+            return (
+              <div
+                key={r.id}
+                className="cb-press"
+                onClick={() => onEdit(r)}
+                style={{ display: "flex", alignItems: "center", gap: 10, padding: "13px 16px", borderTop: i === 0 ? "none" : `1px solid ${C.line}`, cursor: "pointer" }}
+              >
+                <Orb size={38} radius={999} grad={`linear-gradient(135deg, ${v.color}, ${v.color}99)`}><Ic name={v.icon} size={16} /></Orb>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: 14, fontWeight: 700, color: C.ink, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{r.label}</div>
+                  <div style={{ fontSize: 11, color: C.muted, marginTop: 1 }}>{INVEST_KIND_LABEL[r.kind]}</div>
+                  <div style={{ fontSize: 11, color: C.faint, marginTop: 1 }}>{investDetailLine(book, r)}</div>
+                </div>
+                <div style={{ textAlign: "right" }}>
+                  <div style={{ fontSize: 14, fontWeight: 800, color: "#fff" }}>{mask(money(book, r.value))}</div>
+                  <div style={{ fontSize: 11, fontWeight: 700, color: r.gain >= 0 ? C.green : C.red, marginTop: 2 }}>
+                    {mask(`${r.gain >= 0 ? "+" : ""}${money(book, r.gain)} (${r.gainPct}%)`)}
+                  </div>
+                  <div style={{ fontSize: 10.5, color: C.faint, marginTop: 1 }}>Invested {mask(money(book, r.costBasis))}</div>
+                </div>
+              </div>
+            );
+          })}
+          {sorted.length === 0 && (
+            <div style={{ padding: "20px 16px", fontSize: 13, color: C.muted, textAlign: "center" }}>
+              No investments {filterKind !== "all" ? `in ${INVEST_KIND_LABEL[filterKind]}` : "yet"} — tap Add Investment to start tracking.
+            </div>
+          )}
+        </div>
+
+        <div style={{ display: "flex", ...glass(18), marginTop: 14, padding: "14px 16px", gap: 10 }}>
+          <div style={{ flex: 1 }}>
+            <div style={{ fontSize: 10, fontWeight: 700, color: C.faint, textTransform: "uppercase", letterSpacing: ".04em" }}>Unrealized Returns</div>
+            <div style={{ fontSize: 14, fontWeight: 800, color: totalGain >= 0 ? C.green : C.red, marginTop: 4 }}>
+              {mask(`${totalGain >= 0 ? "+" : ""}${money(book, totalGain)} (${totalGainPct}%)`)}
+            </div>
+          </div>
+        </div>
+
+        <button className="cb-press" onClick={onAdd} style={{ width: "100%", marginTop: 14, padding: "13px 0", border: "1px dashed rgba(167,139,250,.4)", borderRadius: 14, background: "rgba(167,139,250,.08)", color: C.accentText, fontWeight: 800, fontSize: 13.5, fontFamily: F.sans, cursor: "pointer" }}>
+          + Add Investment
+        </button>
+
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, marginTop: 12, padding: "0 2px" }}>
+          <div style={{ fontSize: 10.5, color: C.faint }}>
+            {latestAsOf ? `Prices & NAVs as of ${latestAsOf}` : "No live prices loaded yet"}
+          </div>
+          <button className="cb-press" disabled={refreshing} onClick={refreshAll} style={{ display: "flex", alignItems: "center", gap: 4, border: "none", background: "none", color: C.accentText, fontSize: 11, fontWeight: 700, fontFamily: F.sans, cursor: "pointer", opacity: refreshing ? 0.5 : 1 }}>
+            <Ic name="refresh" size={12} stroke={C.accentText} /> {refreshing ? "Refreshing…" : "Refresh All"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function AllocationPage({ book, kind, prices }) {
+  const t = today();
+  const { assets, liabilities } = bsSlices(book, t, prices);
   const slices = kind === "assets" ? assets : liabilities;
   const total = slices.reduce((s, x) => s + x.value, 0);
   return (
@@ -2737,20 +3021,22 @@ function Variance({ book, current, prev, goodWhenUp }) {
   );
 }
 
-function ReportsHub({ book, go }) {
+function ReportsHub({ book, go, prices, onOpenInvestments }) {
   const t = today();
   const monthStart = t.slice(0, 8) + "01";
   const pl = computePL(book, monthStart, t);
   const bud = budgetStatus(book);
-  const { bs } = bsSlices(book, t);
-  const prevNw = computeBS(book, addDays(monthStart, -1)).totalEquity;
+  const { bs } = bsSlices(book, t, prices);
+  const prevNw = computeBS(book, addDays(monthStart, -1), prices).totalEquity;
   const nwPct = prevNw !== 0 ? Math.round(((bs.totalEquity - prevNw) / Math.abs(prevNw)) * 100) : null;
   const accounts = accountModels(book);
   const bankTotal = accounts.filter((a) => a.kind !== "liability").reduce((s, a) => s + a.balance, 0);
   const budPct = bud.totalBudget ? Math.round((bud.totalSpent / bud.totalBudget) * 100) : null;
+  const holdings = holdingsAsOf(book, t).filter((h) => h.units > 0.0001);
+  const holdingsTotal = holdings.reduce((s, h) => s + holdingsValue(h, prices), 0);
 
-  const Card = ({ title, big, bigColor, sub, sub2, page, children }) => (
-    <div className="cb-press" onClick={() => go(page)} style={{ ...glass(20), padding: 16, cursor: "pointer" }}>
+  const Card = ({ title, big, bigColor, sub, sub2, page, onClick, children }) => (
+    <div className="cb-press" onClick={onClick || (() => go(page))} style={{ ...glass(20), padding: 16, cursor: "pointer" }}>
       <div style={{ fontSize: 12, fontWeight: 700, color: C.soft }}>{title}</div>
       {children}
       {big != null && <div style={{ fontSize: 18, fontWeight: 800, color: bigColor || "#fff", marginTop: 10 }}>{big}</div>}
@@ -2791,6 +3077,9 @@ function ReportsHub({ book, go }) {
           big={compactMoney(book, bs.totalAssets)}
           sub={`Assets · ${compactMoney(book, bs.totalLiabilities)} liabilities`}
           sub2={bs.balanced ? "✓ balanced" : "✗ out of balance"} />
+        <Card title="Investments" onClick={onOpenInvestments}
+          big={holdings.length ? compactMoney(book, holdingsTotal) : "Get started"}
+          sub={holdings.length ? `${holdings.length} holding${holdings.length === 1 ? "" : "s"}` : "Track funds, stocks & gold"} />
       </div>
       <div style={{ height: 10 }} />
     </div>
@@ -3337,6 +3626,7 @@ function SetupHub({ book, go }) {
         <SetupRow last={0} grad={C.skyGrad} icon="bank" title="Accounts" sub={`${book.bsAccounts.length + 1} linked`} onClick={() => go("setupAccounts")} />
         <SetupRow grad={C.grad} icon="tag" title="Categories" sub={`${cats} categories`} onClick={() => go("setupCategories")} />
         <SetupRow grad={C.tealGrad} icon="people" title="Parties" sub={`${book.parties.length} people`} onClick={() => go("setupParties")} />
+        <SetupRow grad={C.amberGrad} icon="coins" title="Holdings" sub={`${(book.holdings || []).length} tracked`} onClick={() => go("setupHoldings")} />
       </div>
       <div style={st.eyebrow}>Preferences</div>
       <div style={{ ...glass(18), marginBottom: 18, overflow: "hidden", background: C.glassSoft, border: C.borderSoft }}>
@@ -3523,6 +3813,60 @@ function SetupAccountsPage({ book, up }) {
           <div style={{ fontSize: 11, color: C.faint, marginTop: 1 }}>Computed so the balance sheet always foots</div>
         </div>
         <div style={{ fontSize: 15, fontWeight: 800, color: C.accentText }}>{money(book, openingCapital)}</div>
+      </div>
+    </div>
+  );
+}
+
+function SetupHoldingsPage({ book, up }) {
+  const [confirmDel, setConfirmDel] = useState("");
+  const rows = holdingsAsOf(book, today());
+
+  const renameHolding = (id, newLabel) =>
+    up((b) => {
+      const h = b.holdings.find((x) => x.id === id);
+      if (h) h.label = newLabel;
+      return b;
+    });
+  const removeHolding = (id) =>
+    up((b) => {
+      b.holdings = b.holdings.filter((x) => x.id !== id);
+      return b;
+    });
+
+  return (
+    <div className="cb-stagger">
+      {confirmDel && (
+        <div className="cb-view" style={{ background: "rgba(251,113,133,.1)", border: "1px solid rgba(251,113,133,.3)", borderRadius: 16, padding: 14, marginBottom: 14 }}>
+          <div style={{ fontSize: 13, fontWeight: 700, color: C.red }}>Remove this holding?</div>
+          <div style={{ fontSize: 12, color: C.soft, marginTop: 4 }}>
+            Only zero-unit holdings can be removed — past buy/sell entries keep their history either way.
+          </div>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginTop: 12 }}>
+            <GhostBtn style={{ padding: "10px 0" }} onClick={() => setConfirmDel("")}>Cancel</GhostBtn>
+            <PrimaryBtn danger style={{ padding: "10px 0" }} onClick={() => { removeHolding(confirmDel); setConfirmDel(""); }}>Remove</PrimaryBtn>
+          </div>
+        </div>
+      )}
+      <div style={{ fontSize: 12.5, color: C.muted, marginBottom: 12 }}>
+        New holdings are added from the Invest entry kind when you buy something for the first time — this list is for renaming or removing ones you no longer hold.
+      </div>
+      <div style={{ ...glass(18), overflow: "hidden", background: C.glassSoft, border: C.borderSoft }}>
+        {rows.map((h, i) => {
+          const v = HOLDING_VISUALS[h.kind];
+          const removable = h.units <= 0.0001 && Math.abs(h.costBasis) <= 0.0001;
+          return (
+            <div key={h.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "13px 16px", borderTop: i === 0 ? "none" : `1px solid ${C.line}` }}>
+              <Orb size={38} radius={11} grad={`linear-gradient(135deg, ${v.color}, ${v.color}99)`}><Ic name={v.icon} size={16} /></Orb>
+              <NameEditor value={h.label} onCommit={(n) => renameHolding(h.id, n)} />
+              <span style={{ fontSize: 11, color: C.muted, flexShrink: 0 }}>{INVEST_KIND_LABEL[h.kind]}</span>
+              <RoundBtn style={{ width: 30, height: 30, opacity: removable ? 1 : 0.35 }} aria-label={`Remove ${h.label}`} disabled={!removable} onClick={() => removable && setConfirmDel(h.id)}>
+                <Ic name="trash" size={13} stroke={C.red} />
+              </RoundBtn>
+            </div>
+          );
+        })}
+        {rows.length === 0 && <div style={{ padding: "20px 16px", fontSize: 13, color: C.muted, textAlign: "center" }}>No holdings yet.</div>}
       </div>
     </div>
   );
@@ -3921,11 +4265,11 @@ function NotificationsPage({ book }) {
   );
 }
 /* ────────────────────── add / edit entry sheet ────────────────────── */
-function EntrySheet({ book, initial, onSave, onSaveSplit, onClose, onDelete }) {
+function EntrySheet({ book, initial, instruments, onSave, onSaveSplit, onClose, onDelete }) {
   const editing = !!(initial && initial.id);
   const deletable = editing && initial.head === "Suspense";
   const [confirmDelete, setConfirmDelete] = useState(false);
-  const [type, setType] = useState(initial?.type || "out");
+  const [type, setType] = useState(initial?.type === "holding" ? "invest" : (initial?.type || "out"));
   const [amount, setAmount] = useState(initial?.amount ? String(initial.amount) : "");
   const [head, setHead] = useState(initial?.head || "");
   const [refund, setRefund] = useState(false);
@@ -3936,17 +4280,59 @@ function EntrySheet({ book, initial, onSave, onSaveSplit, onClose, onDelete }) {
   const [date, setDate] = useState(initial?.date || today());
   const [participants, setParticipants] = useState([{ key: uid(), partyId: (book.parties[0] || {}).id || "", newName: "", amount: "" }]);
 
+  const editingHolding = initial?.type === "holding" ? (book.holdings || []).find((h) => h.id === initial.holdingId) : null;
+  const [investDir, setInvestDir] = useState(initial?.dir === "sell" ? "sell" : "buy");
+  const [investKind, setInvestKind] = useState(editingHolding?.kind || "mf");
+  const [selectedHoldingId, setSelectedHoldingId] = useState(initial?.holdingId || "");
+  const [investQuery, setInvestQuery] = useState(editingHolding?.label || "");
+  const [investInstrumentId, setInvestInstrumentId] = useState(editingHolding?.instrumentId || "");
+  const [investLabel, setInvestLabel] = useState(editingHolding?.label || "");
+  const [investUnits, setInvestUnits] = useState(initial?.units != null && initial?.type === "holding" ? String(initial.units) : "");
+  const [investCharge, setInvestCharge] = useState(initial?.charge ? String(initial.charge) : "");
+
   const heads = (type === "in" && !refund) ? book.heads.income : book.heads.expense;
   const effHead = head && heads.includes(head) ? head : heads[0] || "";
   const amt = parseAmount(amount);
+  const investUnitsNum = parseFloat(investUnits);
   const valid =
     !isNaN(amt) && amt > 0 && date &&
-    (type === "transfer" ? !!account : type === "party" ? !!partyId : !!effHead);
+    (type === "transfer" ? !!account
+      : type === "party" ? !!partyId
+      : type === "invest" ? (investUnitsNum > 0 && (selectedHoldingId || (investKind === "gold" ? investLabel.trim() : investInstrumentId)))
+      : !!effHead);
+
+  const holdingsOfKind = (book.holdings || []).filter((h) => h.kind === investKind);
+  const instrumentList = investKind === "mf" ? (instruments?.mf || []) : (instruments?.stock || []);
+  const instrumentIdKey = investKind === "mf" ? "code" : "symbol";
+  const searchResults = useMemo(() => {
+    if (investKind === "gold" || investQuery.trim().length < 2) return [];
+    const q = investQuery.trim().toLowerCase();
+    const out = [];
+    for (const item of instrumentList) {
+      if (item.name.toLowerCase().includes(q)) {
+        out.push({ id: item[instrumentIdKey], name: item.name });
+        if (out.length >= 25) break;
+      }
+    }
+    return out;
+  }, [investKind, investQuery, instrumentList, instrumentIdKey]);
 
   const save = (overrides = {}) => {
     const e = { id: editing ? initial.id : uid(), date, amount: amt, type, note: note.trim() };
     if (type === "transfer") { e.account = account; e.dir = dir; }
     else if (type === "party") { e.partyId = partyId; e.dir = dir; }
+    else if (type === "invest") {
+      e.type = "holding";
+      e.dir = investDir;
+      e.units = investUnitsNum || 0;
+      e.charge = investDir === "buy" ? (parseAmount(investCharge) || 0) : 0;
+      if (selectedHoldingId) e.holdingId = selectedHoldingId;
+      else {
+        e.newHolding = investKind === "gold"
+          ? { kind: "gold", instrumentId: "gold:" + uid(), label: investLabel.trim() || "Gold" }
+          : { kind: investKind, instrumentId: investInstrumentId, label: investLabel.trim() };
+      }
+    }
     else e.head = effHead;
     onSave({ ...e, ...overrides });
   };
@@ -4009,6 +4395,7 @@ function EntrySheet({ book, initial, onSave, onSaveSplit, onClose, onDelete }) {
           { v: "in", label: "In" },
           { v: "transfer", label: "Transfer" },
           { v: "party", label: "Party" },
+          { v: "invest", label: "Invest" },
           ...(editing ? [] : [{ v: "split", label: "Split" }]),
         ]}
       />
@@ -4108,6 +4495,82 @@ function EntrySheet({ book, initial, onSave, onSaveSplit, onClose, onDelete }) {
           <div style={{ fontSize: 12, color: C.muted, marginTop: 6 }}>
             Party entries update Owed automatically and never touch the P&L.
           </div>
+        </>
+      )}
+      {type === "invest" && (
+        <>
+          <label style={st.label}>Buy or Sell</label>
+          <Seg value={investDir} onChange={setInvestDir} options={[{ v: "buy", label: "Buy" }, { v: "sell", label: "Sell" }]} />
+          <label style={st.label}>Instrument Type</label>
+          <Seg
+            value={investKind}
+            onChange={(v) => { setInvestKind(v); setSelectedHoldingId(""); setInvestQuery(""); setInvestInstrumentId(""); setInvestLabel(""); }}
+            options={[{ v: "mf", label: "Mutual Fund" }, { v: "stock", label: "Stock" }, { v: "gold", label: "Gold" }]}
+          />
+          <label style={st.label}>Holding</label>
+          {holdingsOfKind.length > 0 && (
+            <select
+              style={st.input}
+              value={selectedHoldingId}
+              onChange={(e) => { setSelectedHoldingId(e.target.value); setInvestQuery(""); setInvestInstrumentId(""); setInvestLabel(""); }}
+            >
+              <option value="">+ New holding…</option>
+              {holdingsOfKind.map((h) => (
+                <option key={h.id} value={h.id}>{h.label}</option>
+              ))}
+            </select>
+          )}
+          {!selectedHoldingId && investKind === "gold" && (
+            <input
+              style={{ ...st.input, marginTop: holdingsOfKind.length > 0 ? 8 : 0 }}
+              value={investLabel}
+              placeholder="e.g. Gold Coins, SGB 2023"
+              onChange={(e) => setInvestLabel(e.target.value)}
+            />
+          )}
+          {!selectedHoldingId && investKind !== "gold" && (
+            <div style={{ marginTop: holdingsOfKind.length > 0 ? 8 : 0 }}>
+              <input
+                style={st.input}
+                value={investQuery}
+                placeholder={`Search ${investKind === "mf" ? "mutual funds" : "stocks"} by name…`}
+                onChange={(e) => { setInvestQuery(e.target.value); setInvestInstrumentId(""); }}
+              />
+              {investQuery.trim().length >= 2 && (
+                <div style={{ maxHeight: 200, overflowY: "auto", border: C.borderSoft, borderRadius: 12, marginTop: 6 }}>
+                  {searchResults.map((r) => (
+                    <button
+                      key={r.id}
+                      className="cb-press"
+                      onClick={() => { setInvestInstrumentId(r.id); setInvestLabel(r.name); setInvestQuery(r.name); }}
+                      style={{
+                        display: "block", width: "100%", textAlign: "left", padding: "9px 12px",
+                        border: "none", borderBottom: `1px solid ${C.line}`, fontFamily: F.sans,
+                        background: investInstrumentId === r.id ? "rgba(167,139,250,.14)" : "none",
+                        color: C.soft, fontSize: 12.5, cursor: "pointer",
+                      }}
+                    >
+                      {r.name}
+                    </button>
+                  ))}
+                  {searchResults.length === 0 && (
+                    <div style={{ padding: "9px 12px", fontSize: 12, color: C.faint }}>No matches</div>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
+          <label style={st.label}>{investKind === "gold" ? "Grams" : investKind === "stock" ? "Quantity" : "Units"}</label>
+          <input style={st.input} inputMode="decimal" value={investUnits} placeholder="0" onChange={(e) => setInvestUnits(e.target.value)} />
+          {investDir === "buy" && (
+            <>
+              <label style={st.label}>Charges (optional)</label>
+              <AmountField book={book} value={investCharge} onChange={setInvestCharge} />
+              <div style={{ fontSize: 12, color: C.muted, marginTop: 4 }}>
+                Stamp duty, transaction fees — posted to Finance charges, not counted as invested.
+              </div>
+            </>
+          )}
         </>
       )}
       <label style={st.label}>Note</label>
@@ -4478,6 +4941,7 @@ const PAGE_TITLES = {
   setupNotifs: "Notifications",
   setupSecurity: "Security",
   setupData: "Backup & Data",
+  setupHoldings: "Holdings",
 };
 
 export default function CashBook() {
@@ -4488,8 +4952,11 @@ export default function CashBook() {
   const [entrySheet, setEntrySheet] = useState(null);
   const [memoSheet, setMemoSheet] = useState(null); // {party?, presetKind?}
   const [importOpen, setImportOpen] = useState(false);
+  const [investmentsOpen, setInvestmentsOpen] = useState(false);
   const [splash, setSplash] = useState("on");
   const [locked, setLocked] = useState(false);
+  const [prices, setPrices] = useState({});
+  const [instruments, setInstruments] = useState({ mf: [], stock: [] });
   const skipSave = useRef(true);
 
   useEffect(() => {
@@ -4502,6 +4969,16 @@ export default function CashBook() {
     const t1 = setTimeout(() => setSplash("leaving"), min);
     const t2 = setTimeout(() => setSplash("done"), min + 400);
     return () => { clearTimeout(t1); clearTimeout(t2); };
+  }, []);
+
+  // Live price/instrument snapshot — fetched once on load (the service
+  // worker's network-first rule keeps it fresh on subsequent visits; a
+  // failed fetch here just leaves prices empty, and holdingsValue already
+  // treats a missing price as "value at cost," never a crash).
+  useEffect(() => {
+    if (typeof fetch !== "function") return; // jsdom test harness has no fetch
+    fetch("prices.json").then((r) => r.json()).then(setPrices).catch(() => {});
+    fetch("instruments.json").then((r) => r.json()).then(setInstruments).catch(() => {});
   }, []);
   useEffect(() => {
     if (!book) return;
@@ -4542,8 +5019,18 @@ export default function CashBook() {
 
   const saveEntry = (e) => {
     up((b) => {
-      const i = b.entries.findIndex((x) => x.id === e.id);
       const cleaned = JSON.parse(JSON.stringify(e));
+      // A fresh holding picked via search/label in EntrySheet's Invest kind
+      // arrives as `newHolding` instead of an existing `holdingId` — create
+      // it in the maintained list first, same as a new party is created
+      // inline the first time a split names someone new.
+      if (cleaned.newHolding) {
+        const h = { id: uid(), units: 0, costBasis: 0, ...cleaned.newHolding };
+        b.holdings.push(h);
+        cleaned.holdingId = h.id;
+        delete cleaned.newHolding;
+      }
+      const i = b.entries.findIndex((x) => x.id === cleaned.id);
       if (i >= 0) b.entries[i] = cleaned;
       else b.entries.push(cleaned);
       return b;
@@ -4613,9 +5100,9 @@ export default function CashBook() {
     });
 
   const pageEl = page && (
-    page.name === "networth" ? <NetWorthPage book={book} go={go} />
-    : page.name === "assets" ? <AllocationPage book={book} kind="assets" />
-    : page.name === "liabilities" ? <AllocationPage book={book} kind="liabilities" />
+    page.name === "networth" ? <NetWorthPage book={book} go={go} prices={prices} />
+    : page.name === "assets" ? <AllocationPage book={book} kind="assets" prices={prices} />
+    : page.name === "liabilities" ? <AllocationPage book={book} kind="liabilities" prices={prices} />
     : page.name === "party" ? (
       <PartyProfilePage
         book={book} partyId={page.arg} up={up}
@@ -4642,6 +5129,7 @@ export default function CashBook() {
     : page.name === "setupNotifs" ? <SetupNotifsPage book={book} up={up} />
     : page.name === "setupSecurity" ? <SetupSecurityPage book={book} up={up} />
     : page.name === "setupData" ? <SetupDataPage book={book} up={up} />
+    : page.name === "setupHoldings" ? <SetupHoldingsPage book={book} up={up} />
     : null
   );
 
@@ -4715,6 +5203,8 @@ export default function CashBook() {
                 onImport={() => setImportOpen(true)}
                 onAdd={() => setEntrySheet({ initial: null })}
                 setTab={switchTab}
+                prices={prices}
+                onOpenInvestments={() => setInvestmentsOpen(true)}
               />
             )
             : tab === "owed" ? (
@@ -4727,7 +5217,7 @@ export default function CashBook() {
             : tab === "tx" ? (
               <TxView book={book} up={up} onEdit={(e) => setEntrySheet({ initial: e })} initialFilter={txFilter} />
             )
-            : tab === "reports" ? <ReportsHub book={book} go={go} />
+            : tab === "reports" ? <ReportsHub book={book} go={go} prices={prices} onOpenInvestments={() => setInvestmentsOpen(true)} />
             : <SetupHub book={book} go={go} />
           )}
         </div>
@@ -4781,9 +5271,20 @@ export default function CashBook() {
 
       {entrySheet && (
         <EntrySheet
-          book={book} initial={entrySheet.initial} onSave={saveEntry} onClose={() => setEntrySheet(null)}
+          book={book} initial={entrySheet.initial} instruments={instruments}
+          onSave={saveEntry} onClose={() => setEntrySheet(null)}
           onDelete={(id) => { deleteEntries([id]); setEntrySheet(null); }}
           onSaveSplit={saveSplitExpense}
+        />
+      )}
+      {investmentsOpen && (
+        <InvestmentsPage
+          book={book} prices={prices} instruments={instruments}
+          onClose={() => setInvestmentsOpen(false)}
+          onAdd={() => { setInvestmentsOpen(false); setEntrySheet({ initial: { type: "holding", dir: "buy", date: today() } }); }}
+          onEdit={(h) => { setInvestmentsOpen(false); setEntrySheet({ initial: { type: "holding", holdingId: h.id, dir: "buy", date: today() } }); }}
+          onManage={() => { setInvestmentsOpen(false); go("setupHoldings"); }}
+          onRefresh={(p, i) => { setPrices(p); setInstruments(i); }}
         />
       )}
       {memoSheet && (
