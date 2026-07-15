@@ -253,6 +253,50 @@ export function isRefund(db, e) {
   return isExplained(e) && e.type === "in" && !!(db.heads && db.heads.expense || []).includes(e.head);
 }
 
+// Walks type:"holding" entries in date order, tracking each holding's
+// running units + average cost basis, and the realized gain/loss on every
+// sell as it happens. This has to walk from the very beginning every time
+// (not just whatever window is being reported on) because average cost
+// basis is cumulative — a sell's realized gain depends on every buy that
+// came before it.
+function walkHoldings(db, uptoDate) {
+  const state = {};
+  const realized = [];
+  const rows = (db.entries || [])
+    .filter((e) => e.type === "holding" && e.date <= uptoDate && isExplained(e))
+    .sort((a, b) => a.date.localeCompare(b.date) || (a.id > b.id ? 1 : -1));
+  for (const e of rows) {
+    const s = state[e.holdingId] || (state[e.holdingId] = { units: 0, costBasis: 0 });
+    if (e.dir === "buy") {
+      s.units += e.units;
+      s.costBasis += e.amount - (e.charge || 0);
+    } else {
+      const removed = s.units > 0 ? s.costBasis * (e.units / s.units) : 0;
+      s.costBasis -= removed;
+      s.units -= e.units;
+      realized.push({ date: e.date, holdingId: e.holdingId, amount: e.amount - removed });
+    }
+  }
+  return { state, realized };
+}
+
+// Each holding's units + cost basis as of a date. Cost basis is net of any
+// buy-side charges (stamp duty etc — those post to P&L separately) and net
+// of the proportional cost removed by any sells (average-cost method).
+export function holdingsAsOf(db, asOf) {
+  const { state } = walkHoldings(db, asOf);
+  return (db.holdings || []).map((h) => ({ ...h, ...(state[h.id] || { units: 0, costBasis: 0 }) }));
+}
+
+// Market value of one holding. `prices` is an optional live snapshot
+// ({instrumentId: {price, asOf}}); with no snapshot for this instrument
+// (gold always, or anything before the first price fetch), value is its
+// cost basis — the fallback IS "at cost," no special-casing needed.
+export function holdingsValue(holding, prices) {
+  const p = prices && prices[holding.instrumentId];
+  return p && p.price != null ? holding.units * p.price : holding.costBasis;
+}
+
 export function computePL(db, from, to) {
   const income = {}, expense = {};
   for (const e of db.entries) {
@@ -266,6 +310,22 @@ export function computePL(db, from, to) {
       const bag = e.type === "in" ? income : expense;
       bag[e.head] = (bag[e.head] || 0) + e.amount;
     }
+  }
+  // A holding buy's charge (stamp duty, transaction fees — the slice of the
+  // payment that wasn't actually invested) is a normal expense.
+  for (const e of db.entries) {
+    if (e.type !== "holding" || !isExplained(e)) continue;
+    if (e.date < from || e.date > to) continue;
+    if (e.dir === "buy" && e.charge) {
+      expense["Finance charges"] = (expense["Finance charges"] || 0) + e.charge;
+    }
+  }
+  // A sell's gain/loss vs. its average cost basis realizes into income here
+  // (can be negative — a loss just reduces net, same as isRefund above).
+  const { realized } = walkHoldings(db, to);
+  for (const r of realized) {
+    if (r.date < from || r.date > to) continue;
+    income["Capital gains"] = (income["Capital gains"] || 0) + r.amount;
   }
   const sum = (o) => Object.values(o).reduce((a, b) => a + b, 0);
   const totalIncome = sum(income), totalExpense = sum(expense);
@@ -293,6 +353,8 @@ export function balancesAsOf(db, asOf) {
       post(e.account, e.dir, e.amount);
     } else if (e.type === "party") {
       bank += e.dir === "in" ? e.amount : -e.amount;
+    } else if (e.type === "holding") {
+      bank += e.dir === "sell" ? e.amount : -e.amount;
     } else {
       bank += e.type === "in" ? e.amount : -e.amount;
       const acct = db.headClass && db.headClass[e.head];
@@ -325,10 +387,16 @@ export function owedAsOf(db, asOf) {
   return { perParty, debtors, creditors, memoNet };
 }
 
-export function computeBS(db, asOf) {
+// `prices` is optional — an in-memory-only snapshot ({instrumentId:
+// {price, asOf}}) fetched at runtime, never persisted in `db` (see
+// holdingsValue). Omit it and every holding values at cost, which is
+// always correct even before the first price fetch — never zero, never
+// wrong, just not yet marked-to-market.
+export function computeBS(db, asOf, prices) {
   const bal = balancesAsOf(db, asOf);
   const owed = owedAsOf(db, asOf);
   const pl = computePL(db, "0000-01-01", asOf);
+  const holdings = holdingsAsOf(db, asOf).filter((h) => h.units > 0.0001 || Math.abs(h.costBasis) > 0.0001);
 
   const assets = [{ name: "Bank", amount: bal.bank }];
   const liabilities = [];
@@ -341,6 +409,13 @@ export function computeBS(db, asOf) {
   assets.push({ name: "Debtors", amount: owed.debtors });
   liabilities.push({ name: "Creditors", amount: owed.creditors });
 
+  let holdingsValueTotal = 0, holdingsCostTotal = 0;
+  for (const h of holdings) {
+    holdingsValueTotal += holdingsValue(h, prices);
+    holdingsCostTotal += h.costBasis;
+  }
+  if (holdings.length) assets.push({ name: "Investments (holdings)", amount: holdingsValueTotal });
+
   // Opening capital is derived — never user-set — so the sheet always foots.
   let openingCapital = (db.opening && db.opening.bank) || 0;
   for (const a of db.bsAccounts) {
@@ -349,10 +424,16 @@ export function computeBS(db, asOf) {
   }
   // Accruals reserve offsets only the memo component: cash lent/borrowed is an
   // asset swap with Bank, but memos must stay off the cash-basis P&L.
+  // Unrealized gain/(loss) offsets the gap between a holding's market value
+  // (which moves with each new price snapshot) and its cost basis (which
+  // only moves on a buy/sell) — cash-basis P&L only recognizes a gain once
+  // it's realized on a sell, so this plug is what keeps the sheet footing
+  // as prices fluctuate in between.
   const equity = [
     { name: "Opening capital", amount: openingCapital },
     { name: "Retained surplus", amount: pl.net },
     { name: "Accruals reserve", amount: owed.memoNet },
+    ...(holdings.length ? [{ name: "Unrealized gain/(loss)", amount: holdingsValueTotal - holdingsCostTotal }] : []),
   ];
 
   const sum = (rows) => rows.reduce((s, r) => s + r.amount, 0);
@@ -373,9 +454,9 @@ export function defaultBook() {
   return {
     entries: [],
     heads: {
-      income: ["Salary", "Interest", "Other income"],
+      income: ["Salary", "Interest", "Other income", "Capital gains"],
       expense: ["Rent", "Groceries", "Food out", "Transport", "Utilities",
-                "Shopping", "Health", "SIP", "Suspense"],
+                "Shopping", "Health", "SIP", "Finance charges", "Suspense"],
     },
     headClass: { SIP: "Investments" },
     bsAccounts: [
@@ -398,6 +479,7 @@ export function defaultBook() {
     },
     budgets: {},
     partyNotes: [],
+    holdings: [],
   };
 }
 
@@ -405,9 +487,11 @@ function normalizeBook(j) {
   const d = defaultBook();
   const b = { ...d, ...j };
   b.heads = { ...d.heads, ...(j.heads || {}) };
+  if (!b.heads.expense.includes("Finance charges")) b.heads.expense.push("Finance charges");
+  if (!b.heads.income.includes("Capital gains")) b.heads.income.push("Capital gains");
   b.opening = { ...d.opening, ...(j.opening || {}) };
   if (!b.opening.accounts) b.opening.accounts = {};
-  for (const k of ["entries", "bsAccounts", "parties", "owedMemos", "codingRules", "partyNotes"]) {
+  for (const k of ["entries", "bsAccounts", "parties", "owedMemos", "codingRules", "partyNotes", "holdings"]) {
     if (!Array.isArray(b[k])) b[k] = d[k];
   }
   if (!b.headClass) b.headClass = {};
@@ -690,7 +774,7 @@ if (typeof window !== "undefined") {
     inr, parseAmount, fyOf, quarterOf, fyRange, monthRange,
     computePL, balancesAsOf, owedAsOf, computeBS, defaultBook,
     parseStatementText, suggestHead, keywordOf, parseBankSms, parsePdfTable,
-    isExplained, isRefund, entryVisual,
+    isExplained, isRefund, entryVisual, holdingsAsOf, holdingsValue,
   };
 }
 

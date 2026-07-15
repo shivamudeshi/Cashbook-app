@@ -90,6 +90,17 @@ const MIGRATIONS = [
     if (!book.partyNotes) book.partyNotes = [];
     return book;
   },
+  // v5: investment holdings (mutual funds / stocks / gold), tracked by units
+  // + cost basis rather than a flat balance. "Finance charges" is the head
+  // a holding purchase's non-invested slice (stamp duty, transaction fees)
+  // posts to; "Capital gains" is where a sell's realized gain/loss posts —
+  // both added as normal, renameable/removable heads.
+  (book) => {
+    if (!book.holdings) book.holdings = [];
+    if (!book.heads.expense.includes("Finance charges")) book.heads.expense.push("Finance charges");
+    if (!book.heads.income.includes("Capital gains")) book.heads.income.push("Capital gains");
+    return book;
+  },
 ];
 
 // Starter keywords for the local importer; the review screen adds to these
