@@ -8,11 +8,11 @@ import { chromium } from "playwright-core";
 import { readFileSync, mkdirSync } from "node:fs";
 
 const exe = process.argv[2] || "/opt/pw-browsers/chromium-1194/chrome-linux/chrome";
-const font = readFileSync("public/fonts/space-grotesk-latin-700-normal.woff2").toString("base64");
+const font = readFileSync("public/fonts/plus-jakarta-sans-latin-800-normal.woff2").toString("base64");
 
 const page_html = (maskable) => `<!doctype html><html><head><style>
   @font-face {
-    font-family: SG; font-weight: 700;
+    font-family: PJS; font-weight: 800;
     src: url(data:font/woff2;base64,${font}) format("woff2");
   }
   html, body { margin: 0; }
@@ -20,23 +20,23 @@ const page_html = (maskable) => `<!doctype html><html><head><style>
     width: 512px; height: 512px; position: relative; overflow: hidden;
     display: flex; align-items: center; justify-content: center;
     background:
-      radial-gradient(90% 70% at 30% 20%, rgba(52,211,153,.32), transparent 60%),
-      linear-gradient(140deg, #14432f 0%, #0d2b1e 55%, #081911 100%);
+      radial-gradient(90% 70% at 30% 20%, rgba(167,139,250,.4), transparent 60%),
+      linear-gradient(140deg, #6d28d9 0%, #3b1584 55%, #12071f 100%);
     border-radius: ${maskable ? 0 : 96}px;
   }
   .lines {
     position: absolute; left: 0; right: 0; top: 0; bottom: 0;
     background: repeating-linear-gradient(
-      to bottom, transparent 0 82px, rgba(167,243,208,.10) 82px 84px);
+      to bottom, transparent 0 82px, rgba(196,166,255,.12) 82px 84px);
   }
   .glyph {
-    font-family: SG; font-weight: 700; font-size: ${maskable ? 250 : 300}px;
-    color: #34d399; line-height: 1; position: relative; top: -6px;
-    text-shadow: 0 10px 40px rgba(52,211,153,.35);
+    font-family: PJS; font-weight: 800; font-size: ${maskable ? 250 : 300}px;
+    color: #ffffff; line-height: 1; position: relative; top: -6px;
+    text-shadow: 0 10px 40px rgba(167,139,250,.5);
   }
   .tick {
     position: absolute; bottom: ${maskable ? 118 : 92}px; right: ${maskable ? 128 : 104}px;
-    width: 74px; height: 10px; border-radius: 5px; background: #a7f3d0;
+    width: 74px; height: 10px; border-radius: 5px; background: #c4a6ff;
     transform: rotate(-8deg); opacity: .9;
   }
 </style></head><body>

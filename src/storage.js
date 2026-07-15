@@ -75,6 +75,21 @@ const MIGRATIONS = [
     if (!book.codingRules) book.codingRules = DEFAULT_CODING_RULES.map((r) => ({ ...r }));
     return book;
   },
+  // v4: display prefs, per-head monthly budgets, and party notes (the violet
+  // redesign). All additive — nothing existing is touched.
+  (book) => {
+    if (!book.prefs) {
+      book.prefs = {
+        currency: "₹",
+        dateFmt: "dmy",
+        notifs: { backup: true, suspense: true, dues: true },
+        lock: { on: false, pin: "" },
+      };
+    }
+    if (!book.budgets) book.budgets = {};
+    if (!book.partyNotes) book.partyNotes = [];
+    return book;
+  },
 ];
 
 // Starter keywords for the local importer; the review screen adds to these
