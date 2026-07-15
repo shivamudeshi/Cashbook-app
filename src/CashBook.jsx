@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import * as XLSX from "xlsx";
 import { loadBook, saveBook, DEFAULT_CODING_RULES } from "./storage.js";
 
@@ -249,7 +250,7 @@ export function isExplained(e) {
 // an EXPENSE head instead of an income head — computePL nets it against
 // that head's spend rather than counting it as unrelated income.
 export function isRefund(db, e) {
-  return e.type === "in" && !!(db.heads && db.heads.expense || []).includes(e.head);
+  return isExplained(e) && e.type === "in" && !!(db.heads && db.heads.expense || []).includes(e.head);
 }
 
 export function computePL(db, from, to) {
@@ -1807,11 +1808,14 @@ function TxView({ book, up, onEdit, initialFilter }) {
   const [selectMode, setSelectMode] = useState(false);
   const [selected, setSelected] = useState(() => new Set());
   const [bulkPicker, setBulkPicker] = useState(false);
+  const [bulkDest, setBulkDest] = useState("head"); // head | transfer | party
+  const [bulkAccount, setBulkAccount] = useState((book.bsAccounts[0] || {}).name || "");
+  const [bulkParty, setBulkParty] = useState((book.parties[0] || {}).id || "");
   const [confirmBulkDelete, setConfirmBulkDelete] = useState(false);
 
   const unexplained = book.entries.filter((e) => e.head === "Suspense").length;
 
-  const exitSelectMode = () => { setSelectMode(false); setSelected(new Set()); setBulkPicker(false); setConfirmBulkDelete(false); };
+  const exitSelectMode = () => { setSelectMode(false); setSelected(new Set()); setBulkPicker(false); setBulkDest("head"); setConfirmBulkDelete(false); };
   const toggleSelected = (id) => setSelected((s) => {
     const next = new Set(s);
     next.has(id) ? next.delete(id) : next.add(id);
@@ -1819,19 +1823,35 @@ function TxView({ book, up, onEdit, initialFilter }) {
   });
   const selectedEntries = book.entries.filter((e) => selected.has(e.id));
   const selectedTypes = new Set(selectedEntries.map((e) => e.type));
-  const bulkRecodeable = selectedEntries.length > 0 && selectedTypes.size === 1 && (selectedTypes.has("in") || selectedTypes.has("out"));
+  // Any in/out entry can be re-coded into a head, a transfer, or a party —
+  // transfer/party don't care whether the selection mixes money in and out
+  // since each entry's own original type already implies its direction.
+  const bulkEligible = selectedEntries.length > 0 && selectedEntries.every((e) => e.type === "in" || e.type === "out");
+  const bulkHeadEligible = bulkEligible && selectedTypes.size === 1;
   const bulkDeletable = selectedEntries.length > 0 && selectedEntries.every((e) => e.head === "Suspense");
-  const bulkHeads = bulkRecodeable ? (selectedTypes.has("in") ? book.heads.income : book.heads.expense) : [];
+  const bulkHeads = bulkHeadEligible ? (selectedTypes.has("in") ? book.heads.income : book.heads.expense) : [];
 
-  const applyBulkHead = (h) => {
+  // A selected entry's own original "in"/"out" already tells you which way
+  // the money moved, so it doubles as the implied direction when it becomes
+  // a transfer or party entry — no separate direction picker needed.
+  const applyBulkRecode = (h) => {
     const ids = new Set(selectedEntries.map((e) => e.id));
     up((b) => {
       const learned = {};
       for (const e of b.entries) {
         if (!ids.has(e.id)) continue;
-        e.head = h;
-        const kw = keywordOf(e.note);
-        if (kw) learned[kw] = h;
+        const originalType = e.type;
+        if (bulkDest === "transfer") {
+          e.type = "transfer"; e.account = bulkAccount; e.dir = originalType;
+          delete e.head;
+        } else if (bulkDest === "party") {
+          e.type = "party"; e.partyId = bulkParty; e.dir = originalType;
+          delete e.head;
+        } else {
+          e.head = h;
+          const kw = keywordOf(e.note);
+          if (kw) learned[kw] = h;
+        }
       }
       for (const [match, hd] of Object.entries(learned)) {
         const ex = b.codingRules.find((x) => x.match === match);
@@ -1882,6 +1902,7 @@ function TxView({ book, up, onEdit, initialFilter }) {
       ? (a, b) => b.amount - a.amount
       : (a, b) => b.date.localeCompare(a.date) || (b.id > a.id ? 1 : -1)
   );
+  const allFilteredSelected = filtered.length > 0 && filtered.every((e) => selected.has(e.id));
   const groups = [];
   if (!sortAmt) {
     for (const e of filtered) {
@@ -2032,6 +2053,15 @@ function TxView({ book, up, onEdit, initialFilter }) {
         <div style={{ fontSize: 12, color: filtersActive ? C.accentText : C.faint, flex: 1 }}>
           {filtered.length} of {book.entries.length} entries
         </div>
+        {selectMode && filtered.length > 0 && (
+          <button
+            className="cb-press"
+            onClick={() => setSelected(allFilteredSelected ? new Set() : new Set(filtered.map((e) => e.id)))}
+            style={{ border: "none", background: "none", color: C.accentText, fontSize: 12, fontWeight: 700, cursor: "pointer", marginRight: filtersActive ? 12 : 0 }}
+          >
+            {allFilteredSelected ? "Deselect all" : `Select all ${filtered.length}`}
+          </button>
+        )}
         {filtersActive && (
           <button
             className="cb-press"
@@ -2066,10 +2096,10 @@ function TxView({ book, up, onEdit, initialFilter }) {
           {filtered.map((e) => <Row key={e.id} e={e} showDate />)}
         </div>
       )}
-      {selectMode && selected.size > 0 && <div style={{ height: 76 }} />}
-      {selectMode && selected.size > 0 && (
+      {selectMode && selected.size > 0 && <div style={{ height: 140 }} />}
+      {selectMode && selected.size > 0 && createPortal(
         <div style={{
-          position: "fixed", left: 0, right: 0, bottom: "calc(64px + env(safe-area-inset-bottom, 0px))",
+          position: "fixed", left: 0, right: 0, bottom: "calc(92px + env(safe-area-inset-bottom, 0px))",
           zIndex: 25, display: "flex", justifyContent: "center", padding: "0 14px",
         }}>
           <div style={{
@@ -2083,27 +2113,88 @@ function TxView({ book, up, onEdit, initialFilter }) {
               </GhostBtn>
             )}
             <PrimaryBtn
-              disabled={!bulkRecodeable}
-              style={{ padding: "9px 14px", fontSize: 12.5, opacity: bulkRecodeable ? 1 : 0.5 }}
-              onClick={() => bulkRecodeable && setBulkPicker(true)}
-              title={bulkRecodeable ? "" : "Select entries of one type (all money in, or all money out) to bulk re-code"}
+              disabled={!bulkEligible}
+              style={{ padding: "9px 14px", fontSize: 12.5, opacity: bulkEligible ? 1 : 0.5 }}
+              onClick={() => bulkEligible && setBulkPicker(true)}
+              title={bulkEligible ? "" : "Only unconverted money-in/money-out entries can be bulk re-coded"}
             >
-              Set category
+              Re-code
             </PrimaryBtn>
           </div>
-        </div>
+        </div>,
+        document.body
       )}
-      {bulkPicker && (
-        <Sheet title={`Set category for ${selected.size} ${selected.size === 1 ? "entry" : "entries"}`} onClose={() => setBulkPicker(false)}>
-          <Chips
-            options={bulkHeads}
-            value=""
-            onChange={(h) => applyBulkHead(h)}
-            render={(h) => (book.headClass[h] ? `${h} → ${book.headClass[h]}` : h)}
+      {bulkPicker && createPortal(
+        <Sheet title={`Re-code ${selected.size} ${selected.size === 1 ? "entry" : "entries"}`} onClose={() => setBulkPicker(false)}>
+          <Seg
+            value={bulkDest}
+            onChange={setBulkDest}
+            options={[
+              { v: "head", label: "Category" },
+              { v: "transfer", label: "Transfer" },
+              { v: "party", label: "Party" },
+            ]}
           />
-        </Sheet>
+          {bulkDest === "head" && (
+            <div style={{ marginTop: 14 }}>
+              {bulkHeadEligible ? (
+                <Chips
+                  options={bulkHeads}
+                  value=""
+                  onChange={(h) => applyBulkRecode(h)}
+                  render={(h) => (book.headClass[h] ? `${h} → ${book.headClass[h]}` : h)}
+                />
+              ) : (
+                <div style={{ fontSize: 12.5, color: C.muted }}>
+                  The selection mixes money in and money out — a category can only be applied to entries of one type at a time. Select only money-in or only money-out entries, or use Transfer/Party instead.
+                </div>
+              )}
+            </div>
+          )}
+          {bulkDest === "transfer" && (
+            <div style={{ marginTop: 14 }}>
+              <label style={st.label}>Account</label>
+              <select style={st.input} value={bulkAccount} onChange={(e) => setBulkAccount(e.target.value)}>
+                {book.bsAccounts.map((a) => (
+                  <option key={a.name} value={a.name}>{a.name} ({a.kind})</option>
+                ))}
+              </select>
+              <div style={{ fontSize: 12, color: C.muted, marginTop: 8 }}>
+                Each entry's own money-in/money-out direction carries over as its transfer direction.
+              </div>
+              <PrimaryBtn
+                disabled={!book.bsAccounts.length}
+                style={{ width: "100%", marginTop: 14, opacity: book.bsAccounts.length ? 1 : 0.5 }}
+                onClick={() => book.bsAccounts.length && applyBulkRecode()}
+              >
+                Apply
+              </PrimaryBtn>
+            </div>
+          )}
+          {bulkDest === "party" && (
+            <div style={{ marginTop: 14 }}>
+              <label style={st.label}>Party</label>
+              <select style={st.input} value={bulkParty} onChange={(e) => setBulkParty(e.target.value)}>
+                {book.parties.map((p) => (
+                  <option key={p.id} value={p.id}>{p.name}</option>
+                ))}
+              </select>
+              <div style={{ fontSize: 12, color: C.muted, marginTop: 8 }}>
+                Each entry's own money-in/money-out direction carries over ("Paid them" / "They paid me"), and these entries update Owed instead of the P&L.
+              </div>
+              <PrimaryBtn
+                disabled={!book.parties.length}
+                style={{ width: "100%", marginTop: 14, opacity: book.parties.length ? 1 : 0.5 }}
+                onClick={() => book.parties.length && applyBulkRecode()}
+              >
+                Apply
+              </PrimaryBtn>
+            </div>
+          )}
+        </Sheet>,
+        document.body
       )}
-      {confirmBulkDelete && (
+      {confirmBulkDelete && createPortal(
         <Sheet title="Delete entries?" onClose={() => setConfirmBulkDelete(false)}>
           <div style={{ fontSize: 13, color: C.soft }}>
             {selected.size} unexplained {selected.size === 1 ? "entry" : "entries"} will be removed. Explained
@@ -2113,7 +2204,8 @@ function TxView({ book, up, onEdit, initialFilter }) {
             <GhostBtn style={{ padding: "10px 0" }} onClick={() => setConfirmBulkDelete(false)}>Cancel</GhostBtn>
             <PrimaryBtn danger style={{ padding: "10px 0" }} onClick={applyBulkDelete}>Delete</PrimaryBtn>
           </div>
-        </Sheet>
+        </Sheet>,
+        document.body
       )}
     </div>
   );
