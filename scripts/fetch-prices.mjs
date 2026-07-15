@@ -73,13 +73,18 @@ function parseNseEquityList(text) {
 // Column layout: TckrSymb, ..., ClsPric, ... (varies by exact report; keyed
 // by header name below rather than a fixed index so a column reorder
 // doesn't silently produce wrong prices).
+// Column names differ between NSE's report variants (the UDIFF full-market
+// dump uses TckrSymb/ClsPric/TradDt; the older "sec_bhavdata_full" plain-CSV
+// report uses SYMBOL/CLOSE_PRICE/DATE1) — try both rather than betting on
+// exactly one, since NSE has changed which one is reachable before.
 function parseBhavcopy(text) {
   const lines = text.split(/\r?\n/).filter(Boolean);
   if (!lines.length) return {};
   const header = lines[0].split(",").map((h) => h.trim());
-  const symbolIdx = header.indexOf("TckrSymb");
-  const closeIdx = header.indexOf("ClsPric");
-  const dateIdx = header.indexOf("TradDt");
+  const findCol = (...names) => names.map((n) => header.indexOf(n)).find((i) => i !== -1) ?? -1;
+  const symbolIdx = findCol("TckrSymb", "SYMBOL");
+  const closeIdx = findCol("ClsPric", "CLOSE_PRICE");
+  const dateIdx = findCol("TradDt", "DATE1");
   if (symbolIdx === -1 || closeIdx === -1) return {};
   const prices = {};
   for (let i = 1; i < lines.length; i++) {
@@ -92,13 +97,45 @@ function parseBhavcopy(text) {
   return prices;
 }
 
+// Logs the HTTP status of each candidate URL before fetching the first
+// working one — both AMFI and NSE have moved these paths before (confirmed:
+// AMFI's canonical file moved from /spider/ to /spages/, NSE's equity list
+// lives under /content/equities/ not /content/equity/), so this makes the
+// next path change fast to diagnose from the Action's own logs.
+async function diagnose(url) {
+  try {
+    const res = await fetch(url, { headers: { "User-Agent": BROWSER_UA } });
+    console.log(`DIAGNOSTIC ${url} -> HTTP ${res.status}`);
+    return res.status;
+  } catch (e) {
+    console.log(`DIAGNOSTIC ${url} -> ${e.message}`);
+    return null;
+  }
+}
+
+// Try each candidate URL in turn, return the text of the first one that
+// returns 200. Both AMFI and NSE have changed these paths before, so this
+// converges on whichever is current rather than betting on exactly one.
+async function fetchFirstWorking(urls) {
+  for (const url of urls) {
+    const status = await diagnose(url);
+    if (status === 200) return fetchText(url);
+  }
+  throw new Error(`none of ${urls.length} candidate URLs returned 200`);
+}
+
 async function main() {
   const instruments = { mf: [], stock: [] };
   const prices = {};
   const errors = [];
 
   try {
-    const navText = await fetchText("https://www.amfiindia.com/spider/NAVAll.txt");
+    const navText = await fetchFirstWorking([
+      "https://www.amfiindia.com/spages/NAVAll.txt",
+      "https://www.amfiindia.com/spider/NAVAll.txt",
+      "https://portal.amfiindia.com/spages/NAVAll.txt",
+      "https://portal.amfiindia.com/spider/NAVAll.txt",
+    ]);
     const { mf, prices: mfPrices } = parseAmfiNav(navText);
     instruments.mf = mf;
     Object.assign(prices, mfPrices);
@@ -108,7 +145,11 @@ async function main() {
   }
 
   try {
-    const listText = await fetchText("https://archives.nseindia.com/content/equity/EQUITY_L.csv");
+    const listText = await fetchFirstWorking([
+      "https://nsearchives.nseindia.com/content/equities/EQUITY_L.csv",
+      "https://archives.nseindia.com/content/equities/EQUITY_L.csv",
+      "https://nsearchives.nseindia.com/content/equity/EQUITY_L.csv",
+    ]);
     instruments.stock = parseNseEquityList(listText);
     console.log(`NSE symbol list: ${instruments.stock.length} equities`);
   } catch (e) {
@@ -120,7 +161,9 @@ async function main() {
     const dd = String(today.getUTCDate()).padStart(2, "0");
     const mm = String(today.getUTCMonth() + 1).padStart(2, "0");
     const yyyy = today.getUTCFullYear();
-    const bhavUrl = `https://nsearchives.nseindia.com/content/cm/BhavCopy_NSE_CM_0_0_0_${yyyy}${mm}${dd}_F_0000.csv`;
+    // Try the plain-CSV "full bhavdata" report (DDMMYYYY, no separators)
+    // first — it doesn't require zip extraction, unlike the UDIFF dump.
+    const bhavUrl = `https://nsearchives.nseindia.com/products/content/sec_bhavdata_full_${dd}${mm}${yyyy}.csv`;
     const bhavText = await fetchText(bhavUrl, { Referer: "https://www.nseindia.com/" });
     const stockPrices = parseBhavcopy(bhavText);
     Object.assign(prices, stockPrices);
