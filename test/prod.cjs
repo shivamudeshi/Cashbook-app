@@ -27,7 +27,7 @@ async function main() {
   await new Promise((r) => setTimeout(r, 400));
 
   const text = window.document.body.textContent;
-  for (const expected of ["Cash Book", "Book", "Owed", "Reports", "Setup", "Bank balance", "Import", "All transactions"]) {
+  for (const expected of ["Cash Book", "Dashboard", "Owed", "Transactions", "Reports", "Setup", "Net Worth", "Quick Actions"]) {
     assert.ok(text.includes(expected), `rendered app should contain "${expected}"`);
   }
 

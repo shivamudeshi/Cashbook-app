@@ -3,7 +3,9 @@
 A personal cash book PWA — React + esbuild, no framework, no backend. Runs
 installed on an Android phone; all data lives on-device in IndexedDB.
 
-Olive-green classic ledger, mobile-first, used one-handed.
+Violet glass design (implemented from the owner's Claude Design project),
+mobile-first, used one-handed. Five tabs: Dashboard · Owed · Transactions ·
+Reports · Setup.
 
 ## Commands
 

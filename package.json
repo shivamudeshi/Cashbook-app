@@ -16,6 +16,7 @@
   },
   "devDependencies": {
     "@fontsource/inter": "^5.2.8",
+    "@fontsource/plus-jakarta-sans": "^5.2.8",
     "@fontsource/space-grotesk": "^5.2.10",
     "@tesseract.js-data/eng": "^1.0.0",
     "esbuild": "^0.24.0",

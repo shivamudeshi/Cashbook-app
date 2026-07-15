@@ -4,8 +4,8 @@
   "description": "Personal cash book — cash-basis ledger, data stays on this device",
   "start_url": ".",
   "display": "standalone",
-  "background_color": "#0e1210",
-  "theme_color": "#0e1210",
+  "background_color": "#050308",
+  "theme_color": "#050308",
   "share_target": {
     "action": ".",
     "method": "GET",
