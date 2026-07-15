@@ -90,6 +90,45 @@ async function main() {
   const capital = bs.equity.find((r) => r.name === "Opening capital");
   assert.strictEqual(capital.amount, 140000, "opening capital is derived");
 
+  // Unexplained (Suspense) entries are excluded from Bank/P&L/Owed until
+  // re-coded; a refund (type "in" tagged with an EXPENSE head) nets against
+  // that head instead of counting as unrelated income — and the balance
+  // sheet must still foot with a mix of all of this in one book.
+  const db2 = {
+    entries: [
+      { id: "x1", date: "2025-05-01", amount: 1000, type: "out", head: "Rent" }, // explained spend
+      { id: "x2", date: "2025-05-02", amount: 2000, type: "out", head: "Suspense" }, // unexplained — must not count
+      { id: "x3", date: "2025-05-03", amount: 400, type: "in", head: "Rent" }, // refund against Rent
+      { id: "x4", date: "2025-05-04", amount: 500, type: "in", head: "Suspense" }, // unexplained — must not count
+    ],
+    heads: { income: ["Salary"], expense: ["Rent", "Suspense"] },
+    headClass: {},
+    bsAccounts: [],
+    parties: [],
+    opening: { asOf: "2025-05-01", bank: 10000, accounts: {} },
+    owedMemos: [],
+  };
+  const asOf2 = "2025-05-31";
+
+  assert.strictEqual(E.isExplained(db2.entries[0]), true, "real head is explained");
+  assert.strictEqual(E.isExplained(db2.entries[1]), false, "Suspense out is unexplained");
+  assert.strictEqual(E.isExplained(db2.entries[2]), true, "refund with a real head is explained");
+  assert.strictEqual(E.isExplained(db2.entries[3]), false, "Suspense in is unexplained");
+  assert.strictEqual(E.isRefund(db2, db2.entries[2]), true, "an 'in' entry tagged with an expense head is a refund");
+  assert.strictEqual(E.isRefund(db2, db2.entries[0]), false, "an 'out' entry is never a refund");
+
+  const bal2 = E.balancesAsOf(db2, asOf2);
+  assert.strictEqual(bal2.bank, 9400, "bank only moves for explained entries: 10000 - 1000 + 400");
+
+  const pl2 = E.computePL(db2, "2025-05-01", asOf2);
+  assert.strictEqual(pl2.expense.Rent, 600, "refund nets against Rent: 1000 spent - 400 refunded");
+  assert.strictEqual(pl2.totalIncome, 0, "the refund never lands in income");
+  assert.strictEqual(pl2.net, -600, "net matches the true cash effect of the explained entries");
+
+  const bs2 = E.computeBS(db2, asOf2);
+  assert.ok(bs2.balanced, "balance sheet still foots with unexplained + refund entries mixed in");
+  assert.strictEqual(bs2.totalAssets, 9400, "assets reflect only the explained bank movement");
+
   // Helpers.
   assert.strictEqual(E.parseAmount("2k"), 2000);
   assert.strictEqual(E.parseAmount("1.2L"), 120000);

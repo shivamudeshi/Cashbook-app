@@ -236,14 +236,35 @@ export function today() {
    is a P&L head, a balance-sheet account (transfer / classed head), or a
    party (lend/borrow — never P&L). Invariant: Assets = Liabilities + Equity. */
 
+// A freshly-imported (or manually parked) entry sits in the reserved
+// "Suspense" head until the user confirms a real category for it — until
+// then it's "unexplained" and stays out of every balance/report. Transfer
+// and party entries never carry a head, so they're always explained.
+export function isExplained(e) {
+  if (e.type === "in" || e.type === "out") return e.head !== "Suspense";
+  return true;
+}
+
+// Money received back for something already paid (a refund) is tagged with
+// an EXPENSE head instead of an income head — computePL nets it against
+// that head's spend rather than counting it as unrelated income.
+export function isRefund(db, e) {
+  return e.type === "in" && !!(db.heads && db.heads.expense || []).includes(e.head);
+}
+
 export function computePL(db, from, to) {
   const income = {}, expense = {};
   for (const e of db.entries) {
     if (e.type !== "in" && e.type !== "out") continue;
+    if (!isExplained(e)) continue;
     if (e.date < from || e.date > to) continue;
     if (db.headClass && db.headClass[e.head]) continue; // posts to a BS account
-    const bag = e.type === "in" ? income : expense;
-    bag[e.head] = (bag[e.head] || 0) + e.amount;
+    if (isRefund(db, e)) {
+      expense[e.head] = (expense[e.head] || 0) - e.amount;
+    } else {
+      const bag = e.type === "in" ? income : expense;
+      bag[e.head] = (bag[e.head] || 0) + e.amount;
+    }
   }
   const sum = (o) => Object.values(o).reduce((a, b) => a + b, 0);
   const totalIncome = sum(income), totalExpense = sum(expense);
@@ -265,6 +286,7 @@ export function balancesAsOf(db, asOf) {
   };
   for (const e of db.entries) {
     if (e.date > asOf) continue;
+    if (!isExplained(e)) continue;
     if (e.type === "transfer") {
       bank += e.dir === "in" ? e.amount : -e.amount;
       post(e.account, e.dir, e.amount);
@@ -287,7 +309,7 @@ export function owedAsOf(db, asOf) {
   const perParty = (db.parties || []).map((p) => {
     let cash = 0, memo = 0;
     for (const e of db.entries) {
-      if (e.type === "party" && e.partyId === p.id && e.date <= asOf) {
+      if (e.type === "party" && e.partyId === p.id && e.date <= asOf && isExplained(e)) {
         cash += e.dir === "out" ? e.amount : -e.amount;
       }
     }
@@ -667,6 +689,7 @@ if (typeof window !== "undefined") {
     inr, parseAmount, fyOf, quarterOf, fyRange, monthRange,
     computePL, balancesAsOf, owedAsOf, computeBS, defaultBook,
     parseStatementText, suggestHead, keywordOf, parseBankSms, parsePdfTable,
+    isExplained, isRefund,
   };
 }
 
@@ -1097,6 +1120,7 @@ function accountModels(book) {
   for (const a of book.bsAccounts) acctFlow[a.name] = { in: 0, out: 0 };
   for (const e of book.entries) {
     if (e.date < monthStart || e.date > t) continue;
+    if (!isExplained(e)) continue;
     entrySign(e) > 0 ? (bIn += e.amount) : (bOut += e.amount);
     if (e.type === "transfer" && acctFlow[e.account]) {
       // money moving INTO the account is a transfer out of the bank
@@ -1147,6 +1171,22 @@ function computeNotifs(book) {
   return list;
 }
 
+// Net Bank effect of entries still sitting in Suspense, as of today — what
+// the balance would move by once they're all explained. Backs the "pending"
+// indicator so the displayed balance doesn't silently look wrong.
+function pendingSummary(book) {
+  const t = today();
+  let amount = 0, count = 0;
+  for (const e of book.entries) {
+    if (e.date > t) continue;
+    if ((e.type === "in" || e.type === "out") && e.head === "Suspense") {
+      amount += e.type === "in" ? e.amount : -e.amount;
+      count++;
+    }
+  }
+  return { count, amount };
+}
+
 /* budgets: spent this month per expense head */
 function budgetStatus(book) {
   const t = today();
@@ -1160,7 +1200,7 @@ function budgetStatus(book) {
 }
 
 /* ────────────────────── account card (flip) ────────────────────── */
-function AccountCard({ book, acc, active, onImport, onTransactions }) {
+function AccountCard({ book, acc, active, onImport, onTransactions, pending, onViewPending }) {
   const [flipped, setFlipped] = useState(false);
   const shown = useCountUp(acc.balance, 700);
   const isCard = acc.type === "credit_card";
@@ -1222,10 +1262,23 @@ function AccountCard({ book, acc, active, onImport, onTransactions }) {
             <div style={{ fontSize: 30, fontWeight: 800, color: "#fff", marginTop: 6, fontVariantNumeric: "tabular-nums", lineHeight: 1.1 }}>
               {money(book, shown)}
             </div>
-            <div style={{ display: "flex", alignItems: "center", gap: 5, marginTop: 9 }}>
-              <span style={{ width: 6, height: 6, borderRadius: 999, background: "#6ee7b7", flexShrink: 0 }} />
-              <span style={{ fontSize: 11, color: "#c7c3ba", fontWeight: 600 }}>Live from your book</span>
-            </div>
+            {pending && pending.count > 0 ? (
+              <div
+                className="cb-press"
+                onClick={(e) => { e.stopPropagation(); onViewPending && onViewPending(); }}
+                style={{ display: "flex", alignItems: "center", gap: 5, marginTop: 9, cursor: "pointer" }}
+              >
+                <span style={{ width: 6, height: 6, borderRadius: 999, background: C.amber, flexShrink: 0 }} />
+                <span style={{ fontSize: 11, color: "#f1d9a8", fontWeight: 700 }}>
+                  {money(book, Math.abs(pending.amount))} pending in {pending.count} unexplained ›
+                </span>
+              </div>
+            ) : (
+              <div style={{ display: "flex", alignItems: "center", gap: 5, marginTop: 9 }}>
+                <span style={{ width: 6, height: 6, borderRadius: 999, background: "#6ee7b7", flexShrink: 0 }} />
+                <span style={{ fontSize: 11, color: "#c7c3ba", fontWeight: 600 }}>Live from your book</span>
+              </div>
+            )}
           </div>
         </div>
 
@@ -1409,6 +1462,7 @@ function DashHome({ book, go, onImport, onAdd, setTab }) {
   }
 
   const accounts = accountModels(book);
+  const pending = pendingSummary(book);
   const scrollRef = useRef(null);
   const [cardIdx, setCardIdx] = useState(0);
   const onCarouselScroll = () => {
@@ -1473,6 +1527,8 @@ function DashHome({ book, go, onImport, onAdd, setTab }) {
                 book={book} acc={acc} active={i === cardIdx}
                 onImport={onImport}
                 onTransactions={() => { setTab("tx", { account: acc.id }); }}
+                pending={acc.id === "bank" ? pending : null}
+                onViewPending={() => setTab("tx", { seg: "unexplained" })}
               />
             </div>
           ))}
@@ -1736,9 +1792,9 @@ function AllocationPage({ book, kind }) {
 }
 
 /* ────────────────────────── Transactions ────────────────────────── */
-function TxView({ book, onEdit, initialFilter }) {
+function TxView({ book, up, onEdit, initialFilter }) {
   const t = today();
-  const [seg, setSeg] = useState("explained");
+  const [seg, setSeg] = useState((initialFilter && initialFilter.seg) || "explained");
   const [q, setQ] = useState("");
   const [period, setPeriod] = useState("all"); // all | month | 90d | fy | custom
   const [customFrom, setCustomFrom] = useState(t.slice(0, 8) + "01");
@@ -1748,8 +1804,52 @@ function TxView({ book, onEdit, initialFilter }) {
   const [head, setHead] = useState("all");
   const [sortAmt, setSortAmt] = useState(false);
   const [popover, setPopover] = useState(""); // "" | period | type | account | head
+  const [selectMode, setSelectMode] = useState(false);
+  const [selected, setSelected] = useState(() => new Set());
+  const [bulkPicker, setBulkPicker] = useState(false);
+  const [confirmBulkDelete, setConfirmBulkDelete] = useState(false);
 
   const unexplained = book.entries.filter((e) => e.head === "Suspense").length;
+
+  const exitSelectMode = () => { setSelectMode(false); setSelected(new Set()); setBulkPicker(false); setConfirmBulkDelete(false); };
+  const toggleSelected = (id) => setSelected((s) => {
+    const next = new Set(s);
+    next.has(id) ? next.delete(id) : next.add(id);
+    return next;
+  });
+  const selectedEntries = book.entries.filter((e) => selected.has(e.id));
+  const selectedTypes = new Set(selectedEntries.map((e) => e.type));
+  const bulkRecodeable = selectedEntries.length > 0 && selectedTypes.size === 1 && (selectedTypes.has("in") || selectedTypes.has("out"));
+  const bulkDeletable = selectedEntries.length > 0 && selectedEntries.every((e) => e.head === "Suspense");
+  const bulkHeads = bulkRecodeable ? (selectedTypes.has("in") ? book.heads.income : book.heads.expense) : [];
+
+  const applyBulkHead = (h) => {
+    const ids = new Set(selectedEntries.map((e) => e.id));
+    up((b) => {
+      const learned = {};
+      for (const e of b.entries) {
+        if (!ids.has(e.id)) continue;
+        e.head = h;
+        const kw = keywordOf(e.note);
+        if (kw) learned[kw] = h;
+      }
+      for (const [match, hd] of Object.entries(learned)) {
+        const ex = b.codingRules.find((x) => x.match === match);
+        if (ex) ex.head = hd;
+        else b.codingRules.push({ match, head: hd });
+      }
+      return b;
+    });
+    exitSelectMode();
+  };
+  const applyBulkDelete = () => {
+    const ids = new Set(selectedEntries.map((e) => e.id));
+    up((b) => {
+      b.entries = b.entries.filter((x) => !(ids.has(x.id) && x.head === "Suspense"));
+      return b;
+    });
+    exitSelectMode();
+  };
 
   const [from, to] =
     period === "month" ? [t.slice(0, 8) + "01", t]
@@ -1811,9 +1911,19 @@ function TxView({ book, onEdit, initialFilter }) {
   const Row = ({ e, showDate }) => (
     <div
       className="cb-row cb-press"
-      onClick={() => onEdit(e)}
+      onClick={() => (selectMode ? toggleSelected(e.id) : onEdit(e))}
       style={{ display: "flex", alignItems: "center", gap: 10, padding: "11px 16px", borderTop: `1px solid ${C.line}`, cursor: "pointer" }}
     >
+      {selectMode && (
+        <div style={{
+          width: 20, height: 20, borderRadius: 999, flexShrink: 0,
+          border: `1.5px solid ${selected.has(e.id) ? C.accent : "rgba(255,255,255,.3)"}`,
+          background: selected.has(e.id) ? C.grad : "transparent",
+          display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12, color: "#fff",
+        }}>
+          {selected.has(e.id) && "✓"}
+        </div>
+      )}
       {showDate && (
         <div style={{ width: 46, fontSize: 11, color: C.faint, fontWeight: 600, flexShrink: 0 }}>
           {prettyDate(e.date).replace(/^\w+, /, "")}
@@ -1823,6 +1933,7 @@ function TxView({ book, onEdit, initialFilter }) {
         <div style={{ fontSize: 14, fontWeight: 600, color: C.ink }}>
           {entryLabel(book, e)}
           {e.head === "Suspense" && <span style={{ color: C.amber, fontSize: 11, marginLeft: 6, fontWeight: 700 }}>● re-code</span>}
+          {isRefund(book, e) && <span style={{ color: C.accentText, fontSize: 11, marginLeft: 6, fontWeight: 700 }}>↩ refund</span>}
         </div>
         {e.note && (
           <div style={{ fontSize: 12, color: C.muted, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{e.note}</div>
@@ -1836,8 +1947,19 @@ function TxView({ book, onEdit, initialFilter }) {
 
   return (
     <div>
-      <div style={st.h1}>Transactions</div>
-      <div style={st.sub}>Every entry, explained and coded</div>
+      <div style={{ display: "flex", alignItems: "flex-start" }}>
+        <div style={{ flex: 1 }}>
+          <div style={st.h1}>Transactions</div>
+          <div style={st.sub}>Every entry, explained and coded</div>
+        </div>
+        <button
+          className="cb-press"
+          onClick={() => (selectMode ? exitSelectMode() : setSelectMode(true))}
+          style={{ border: "none", background: "none", color: C.accentText, fontSize: 13, fontWeight: 700, cursor: "pointer", padding: "4px 2px" }}
+        >
+          {selectMode ? "Cancel" : "Select"}
+        </button>
+      </div>
       <Seg
         value={seg}
         onChange={setSeg}
@@ -1943,6 +2065,55 @@ function TxView({ book, onEdit, initialFilter }) {
         <div style={{ ...glass(18), overflow: "hidden", marginTop: 16 }}>
           {filtered.map((e) => <Row key={e.id} e={e} showDate />)}
         </div>
+      )}
+      {selectMode && selected.size > 0 && <div style={{ height: 76 }} />}
+      {selectMode && selected.size > 0 && (
+        <div style={{
+          position: "fixed", left: 0, right: 0, bottom: "calc(64px + env(safe-area-inset-bottom, 0px))",
+          zIndex: 25, display: "flex", justifyContent: "center", padding: "0 14px",
+        }}>
+          <div style={{
+            ...glass(18), width: "100%", maxWidth: 460, padding: "10px 12px",
+            display: "flex", alignItems: "center", gap: 8, boxShadow: "0 12px 30px -8px rgba(0,0,0,.6)",
+          }}>
+            <div style={{ fontSize: 13, fontWeight: 700, color: C.ink, flex: 1 }}>{selected.size} selected</div>
+            {bulkDeletable && (
+              <GhostBtn style={{ padding: "9px 12px", fontSize: 12.5, color: C.red }} onClick={() => setConfirmBulkDelete(true)}>
+                Delete
+              </GhostBtn>
+            )}
+            <PrimaryBtn
+              disabled={!bulkRecodeable}
+              style={{ padding: "9px 14px", fontSize: 12.5, opacity: bulkRecodeable ? 1 : 0.5 }}
+              onClick={() => bulkRecodeable && setBulkPicker(true)}
+              title={bulkRecodeable ? "" : "Select entries of one type (all money in, or all money out) to bulk re-code"}
+            >
+              Set category
+            </PrimaryBtn>
+          </div>
+        </div>
+      )}
+      {bulkPicker && (
+        <Sheet title={`Set category for ${selected.size} ${selected.size === 1 ? "entry" : "entries"}`} onClose={() => setBulkPicker(false)}>
+          <Chips
+            options={bulkHeads}
+            value=""
+            onChange={(h) => applyBulkHead(h)}
+            render={(h) => (book.headClass[h] ? `${h} → ${book.headClass[h]}` : h)}
+          />
+        </Sheet>
+      )}
+      {confirmBulkDelete && (
+        <Sheet title="Delete entries?" onClose={() => setConfirmBulkDelete(false)}>
+          <div style={{ fontSize: 13, color: C.soft }}>
+            {selected.size} unexplained {selected.size === 1 ? "entry" : "entries"} will be removed. Explained
+            entries can never be deleted — this only touches Suspense rows.
+          </div>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginTop: 16 }}>
+            <GhostBtn style={{ padding: "10px 0" }} onClick={() => setConfirmBulkDelete(false)}>Cancel</GhostBtn>
+            <PrimaryBtn danger style={{ padding: "10px 0" }} onClick={applyBulkDelete}>Delete</PrimaryBtn>
+          </div>
+        </Sheet>
       )}
     </div>
   );
@@ -2645,7 +2816,7 @@ function CatSpendPage({ book }) {
     : fyRange(fyOf(t));
   const pl = computePL(book, from, to);
   const rows = Object.entries(pl.expense).sort((a, b) => b[1] - a[1]);
-  const max = rows.length ? rows[0][1] : 0;
+  const max = Math.max(1, rows.length ? rows[0][1] : 0);
   return (
     <div className="cb-stagger">
       <Seg value={span} onChange={setSpan} options={[
@@ -2666,7 +2837,7 @@ function CatSpendPage({ book }) {
               <span style={{ fontWeight: 700, color: "#fff" }}>{money(book, a)}</span>
             </div>
             <div style={{ height: 8, borderRadius: 4, background: "rgba(255,255,255,.06)", overflow: "hidden" }}>
-              <div style={{ height: "100%", borderRadius: 4, background: SLICE_COLORS[i % SLICE_COLORS.length], width: `${Math.max(2, Math.round((a / max) * 100))}%` }} />
+              <div style={{ height: "100%", borderRadius: 4, background: SLICE_COLORS[i % SLICE_COLORS.length], width: `${a > 0 ? Math.max(2, Math.round((a / max) * 100)) : 0}%` }} />
             </div>
           </div>
         ))}
@@ -2688,6 +2859,7 @@ function CashFlowPage({ book }) {
     let mIn = 0, mOut = 0;
     for (const e of book.entries) {
       if (e.date < from || e.date > to) continue;
+      if (!isExplained(e)) continue;
       entrySign(e) > 0 ? (mIn += e.amount) : (mOut += e.amount);
     }
     months.push({ label: monthShort(from), in: mIn, out: mOut, net: mIn - mOut });
@@ -2752,7 +2924,7 @@ function BudgetAmount({ book, value, onCommit }) {
 
 function BudgetPage({ book, up }) {
   const bud = budgetStatus(book);
-  const pct = bud.totalBudget ? Math.min(999, Math.round((bud.totalSpent / bud.totalBudget) * 100)) : 0;
+  const pct = bud.totalBudget ? Math.max(0, Math.min(999, Math.round((bud.totalSpent / bud.totalBudget) * 100))) : 0;
   return (
     <div className="cb-stagger">
       <div style={{ ...glass(20), padding: 16 }}>
@@ -2779,7 +2951,7 @@ function BudgetPage({ book, up }) {
         {book.heads.expense.filter((h) => !book.headClass[h]).map((h) => {
           const budget = book.budgets[h] || 0;
           const spent = bud.expense[h] || 0;
-          const p = budget ? Math.round((spent / budget) * 100) : null;
+          const p = budget ? Math.max(0, Math.round((spent / budget) * 100)) : null;
           return (
             <div key={h} style={{ padding: "10px 0", borderBottom: `1px solid ${C.line}` }}>
               <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
@@ -3501,18 +3673,22 @@ function NotificationsPage({ book }) {
   );
 }
 /* ────────────────────── add / edit entry sheet ────────────────────── */
-function EntrySheet({ book, initial, onSave, onClose }) {
+function EntrySheet({ book, initial, onSave, onSaveSplit, onClose, onDelete }) {
   const editing = !!(initial && initial.id);
+  const deletable = editing && initial.head === "Suspense";
+  const [confirmDelete, setConfirmDelete] = useState(false);
   const [type, setType] = useState(initial?.type || "out");
   const [amount, setAmount] = useState(initial?.amount ? String(initial.amount) : "");
   const [head, setHead] = useState(initial?.head || "");
+  const [refund, setRefund] = useState(false);
   const [account, setAccount] = useState(initial?.account || (book.bsAccounts[0] || {}).name || "");
   const [partyId, setPartyId] = useState(initial?.partyId || (book.parties[0] || {}).id || "");
   const [dir, setDir] = useState(initial?.dir || "out");
   const [note, setNote] = useState(initial?.note || "");
   const [date, setDate] = useState(initial?.date || today());
+  const [participants, setParticipants] = useState([{ key: uid(), partyId: (book.parties[0] || {}).id || "", newName: "", amount: "" }]);
 
-  const heads = type === "in" ? book.heads.income : book.heads.expense;
+  const heads = (type === "in" && !refund) ? book.heads.income : book.heads.expense;
   const effHead = head && heads.includes(head) ? head : heads[0] || "";
   const amt = parseAmount(amount);
   const valid =
@@ -3527,34 +3703,136 @@ function EntrySheet({ book, initial, onSave, onClose }) {
     onSave({ ...e, ...overrides });
   };
 
+  const participantSum = participants.reduce((s, p) => s + (parseAmount(p.amount) || 0), 0);
+  const yourShare = amt - participantSum;
+  const splitValid =
+    !isNaN(amt) && amt > 0 && date && !!effHead && yourShare >= 0 &&
+    participants.length > 0 &&
+    participants.every((p) => (p.partyId || p.newName.trim()) && parseAmount(p.amount) > 0);
+
+  const addParticipant = () => setParticipants((ps) => [...ps, { key: uid(), partyId: "", newName: "", amount: "" }]);
+  const removeParticipant = (key) => setParticipants((ps) => ps.filter((p) => p.key !== key));
+  const updateParticipant = (key, patch) => setParticipants((ps) => ps.map((p) => (p.key === key ? { ...p, ...patch } : p)));
+  const splitEqually = () => {
+    if (!participants.length || isNaN(amt) || amt <= 0) return;
+    const each = Math.floor(amt / (participants.length + 1));
+    setParticipants((ps) => ps.map((p) => ({ ...p, amount: String(each) })));
+  };
+
+  const saveSplit = () => {
+    if (!splitValid) return;
+    onSaveSplit({
+      date, note: note.trim(), head: effHead, yourShare,
+      participants: participants.map((p) => ({
+        partyId: p.partyId || null,
+        newName: p.partyId ? null : p.newName.trim(),
+        amount: parseAmount(p.amount),
+      })),
+    });
+  };
+
   const DirSeg = ({ options }) => (
     <Seg value={dir} onChange={setDir} options={options} />
   );
 
   return (
     <Sheet title={editing ? "Re-code entry" : "New entry"} onClose={onClose}>
-      <label style={st.label}>Amount</label>
+      {confirmDelete && (
+        <div style={{ background: "rgba(251,113,133,.1)", border: "1px solid rgba(251,113,133,.3)", borderRadius: 16, padding: 14, marginBottom: 14 }}>
+          <div style={{ fontSize: 13, fontWeight: 700, color: C.red }}>Delete this entry?</div>
+          <div style={{ fontSize: 12, color: C.soft, marginTop: 4 }}>
+            It's still unexplained (Suspense), so this is the one case entries
+            can be removed. Explained entries can never be deleted.
+          </div>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginTop: 12 }}>
+            <GhostBtn style={{ padding: "10px 0" }} onClick={() => setConfirmDelete(false)}>Cancel</GhostBtn>
+            <PrimaryBtn danger style={{ padding: "10px 0" }} onClick={() => onDelete(initial.id)}>Delete</PrimaryBtn>
+          </div>
+        </div>
+      )}
+      <label style={st.label}>{type === "split" ? "Total amount" : "Amount"}</label>
       <AmountField book={book} value={amount} onChange={setAmount} />
       <label style={st.label}>Kind</label>
       <Seg
         value={type}
-        onChange={setType}
+        onChange={(v) => { setType(v); if (v !== "in") setRefund(false); }}
         options={[
           { v: "out", label: "Out" },
           { v: "in", label: "In" },
           { v: "transfer", label: "Transfer" },
           { v: "party", label: "Party" },
+          ...(editing ? [] : [{ v: "split", label: "Split" }]),
         ]}
       />
-      {(type === "in" || type === "out") && (
+      {type === "in" && (
+        <label style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 10, fontSize: 12.5, color: C.soft, cursor: "pointer" }}>
+          <Toggle on={refund} onChange={setRefund} />
+          This is a refund against something you already spent
+        </label>
+      )}
+      {(type === "in" || type === "out" || type === "split") && (
         <>
-          <label style={st.label}>Head</label>
+          <label style={st.label}>{type === "split" ? "Your share's category" : refund ? "Refund against" : "Head"}</label>
           <Chips
             options={heads}
             value={effHead}
             onChange={setHead}
             render={(h) => (book.headClass[h] ? `${h} → ${book.headClass[h]}` : h)}
           />
+        </>
+      )}
+      {type === "split" && (
+        <>
+          <label style={st.label}>Split with</label>
+          {participants.map((p, i) => (
+            <div key={p.key} style={{ display: "flex", gap: 6, alignItems: "center", marginBottom: 8 }}>
+              {book.parties.length > 0 && (
+                <select
+                  style={{ ...st.input, flex: 1, padding: "9px 10px", fontSize: 13 }}
+                  value={p.partyId}
+                  onChange={(e) => updateParticipant(p.key, { partyId: e.target.value })}
+                >
+                  <option value="">+ New person…</option>
+                  {book.parties.map((party) => (
+                    <option key={party.id} value={party.id}>{party.name}</option>
+                  ))}
+                </select>
+              )}
+              {!p.partyId && (
+                <input
+                  style={{ ...st.input, flex: 1, padding: "9px 10px", fontSize: 13 }}
+                  placeholder="Name"
+                  value={p.newName}
+                  onChange={(e) => updateParticipant(p.key, { newName: e.target.value })}
+                />
+              )}
+              <input
+                style={{ ...st.input, width: 90, textAlign: "right", padding: "9px 10px", fontSize: 13, fontWeight: 700 }}
+                inputMode="decimal"
+                placeholder="Amount"
+                value={p.amount}
+                onChange={(e) => updateParticipant(p.key, { amount: e.target.value })}
+              />
+              {participants.length > 1 && (
+                <button className="cb-press" onClick={() => removeParticipant(p.key)}
+                  style={{ border: "none", background: "none", color: C.faint, fontSize: 18, cursor: "pointer", padding: "0 2px" }}>
+                  ×
+                </button>
+              )}
+            </div>
+          ))}
+          <div style={{ display: "flex", gap: 8, marginTop: 4 }}>
+            <GhostBtn style={{ padding: "8px 12px", fontSize: 12.5 }} onClick={addParticipant}>+ Add person</GhostBtn>
+            <GhostBtn style={{ padding: "8px 12px", fontSize: 12.5 }} onClick={splitEqually}>Split equally</GhostBtn>
+          </div>
+          <div style={{
+            fontSize: 13, fontWeight: 700, marginTop: 12, padding: "10px 12px", borderRadius: 12,
+            background: yourShare < 0 ? "rgba(251,113,133,.12)" : "rgba(255,255,255,.05)",
+            color: yourShare < 0 ? C.red : C.soft,
+          }}>
+            Your share: {money(book, Math.max(0, isNaN(yourShare) ? 0 : yourShare))}
+            {yourShare < 0 && " — participants' shares exceed the total"}
+          </div>
         </>
       )}
       {type === "transfer" && (
@@ -3589,9 +3867,15 @@ function EntrySheet({ book, initial, onSave, onClose }) {
       <label style={st.label}>Date</label>
       <input style={st.input} type="date" value={date} onChange={(e) => setDate(e.target.value)} />
       <div style={{ display: "flex", gap: 10, marginTop: 20 }}>
-        <PrimaryBtn disabled={!valid} style={{ flex: 1, opacity: valid ? 1 : 0.5 }} onClick={() => valid && save()}>
-          {editing ? "Save changes" : "Add entry"}
-        </PrimaryBtn>
+        {type === "split" ? (
+          <PrimaryBtn disabled={!splitValid} style={{ flex: 1, opacity: splitValid ? 1 : 0.5 }} onClick={saveSplit}>
+            Add split
+          </PrimaryBtn>
+        ) : (
+          <PrimaryBtn disabled={!valid} style={{ flex: 1, opacity: valid ? 1 : 0.5 }} onClick={() => valid && save()}>
+            {editing ? "Save changes" : "Add entry"}
+          </PrimaryBtn>
+        )}
         {editing && (
           <GhostBtn
             disabled={!valid}
@@ -3602,7 +3886,7 @@ function EntrySheet({ book, initial, onSave, onClose }) {
             ↻ Repeat
           </GhostBtn>
         )}
-        {editing && (initial.type === "in" || initial.type === "out") && (
+        {editing && !deletable && (initial.type === "in" || initial.type === "out") && (
           <GhostBtn
             style={{ padding: "13px 12px" }}
             onClick={() => save({ head: "Suspense", type: initial.type, account: undefined, partyId: undefined, dir: undefined })}
@@ -3611,10 +3895,21 @@ function EntrySheet({ book, initial, onSave, onClose }) {
             → Suspense
           </GhostBtn>
         )}
+        {deletable && (
+          <GhostBtn
+            style={{ padding: "13px 12px", color: C.red }}
+            onClick={() => setConfirmDelete(true)}
+            title="Unexplained entries can be deleted"
+          >
+            Delete
+          </GhostBtn>
+        )}
       </div>
       {editing && (
         <div style={{ fontSize: 12, color: C.faint, marginTop: 10 }}>
-          Entries are never deleted. Re-code them, or park unexplained ones in Suspense.
+          {deletable
+            ? "This entry is still unexplained, so it can be deleted. Once re-coded, entries can never be deleted."
+            : "Entries are never deleted. Re-code them, or park unexplained ones in Suspense."}
         </div>
       )}
     </Sheet>
@@ -4008,6 +4303,44 @@ export default function CashBook() {
     setEntrySheet(null);
   };
 
+  // Entries are never deleted once explained — this only ever removes
+  // still-Suspense rows (bad imports, duplicates), enforced here as well as
+  // in the UI that offers the button.
+  const deleteEntries = (ids) => {
+    const idSet = new Set(ids);
+    up((b) => {
+      b.entries = b.entries.filter((x) => !(idSet.has(x.id) && x.head === "Suspense"));
+      return b;
+    });
+  };
+
+  // One shared expense: your share posts as a normal expense entry, each
+  // participant's share posts as a party "paid them" entry (money you
+  // fronted for them) — so it hits Owed as a receivable and never touches
+  // your P&L. New-name participants become real parties first.
+  const saveSplitExpense = ({ date, note, head, yourShare, participants }) => {
+    up((b) => {
+      if (yourShare > 0) {
+        b.entries.push({ id: uid(), date, amount: yourShare, type: "out", head, note });
+      }
+      for (const p of participants) {
+        let partyId = p.partyId;
+        if (!partyId && p.newName) {
+          const party = { id: uid(), name: p.newName };
+          b.parties.push(party);
+          partyId = party.id;
+        }
+        if (!partyId) continue;
+        b.entries.push({
+          id: uid(), date, amount: p.amount, type: "party", partyId, dir: "out",
+          note: note ? `${note} — split` : "Split expense",
+        });
+      }
+      return b;
+    });
+    setEntrySheet(null);
+  };
+
   const notifCount = computeNotifs(book).length;
   const showBack = !!page;
   const title = page ? (page.name === "party" ? partyName(book, page.arg) : PAGE_TITLES[page.name] || "Cash Book") : null;
@@ -4144,7 +4477,7 @@ export default function CashBook() {
               />
             )
             : tab === "tx" ? (
-              <TxView book={book} onEdit={(e) => setEntrySheet({ initial: e })} initialFilter={txFilter} />
+              <TxView book={book} up={up} onEdit={(e) => setEntrySheet({ initial: e })} initialFilter={txFilter} />
             )
             : tab === "reports" ? <ReportsHub book={book} go={go} />
             : <SetupHub book={book} go={go} />
@@ -4199,7 +4532,11 @@ export default function CashBook() {
       </div>
 
       {entrySheet && (
-        <EntrySheet book={book} initial={entrySheet.initial} onSave={saveEntry} onClose={() => setEntrySheet(null)} />
+        <EntrySheet
+          book={book} initial={entrySheet.initial} onSave={saveEntry} onClose={() => setEntrySheet(null)}
+          onDelete={(id) => { deleteEntries([id]); setEntrySheet(null); }}
+          onSaveSplit={saveSplitExpense}
+        />
       )}
       {memoSheet && (
         <MemoSheet
