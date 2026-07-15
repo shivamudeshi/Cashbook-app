@@ -1,12 +1,14 @@
 // Bump CACHE whenever the build changes, or installed phones keep serving the
 // stale cached bundle.
-const CACHE = "cashbook-v10";
+const CACHE = "cashbook-v11";
 const SHELL = [
   ".",
   "index.html",
   "app.js",
   "pdf.worker.min.mjs",
   "manifest.json",
+  "instruments.json",
+  "prices.json",
   "icons/icon-192.png",
   "icons/icon-512.png",
   "icons/icon-maskable-192.png",
@@ -42,6 +44,29 @@ self.addEventListener("fetch", (e) => {
   if (e.request.method !== "GET") return;
   const url = new URL(e.request.url);
   if (url.origin !== location.origin) return;
+  // Investment prices refresh daily (a GitHub Action commits a new
+  // snapshot) — unlike the rest of the app shell, prefer the network so an
+  // online phone always sees the latest prices, falling back to whatever
+  // was last cached (or, failing that, an empty snapshot — the engine
+  // already treats a missing price as "value at cost," never a crash).
+  if (url.pathname.endsWith("/prices.json") || url.pathname.endsWith("/instruments.json")) {
+    e.respondWith(
+      fetch(e.request)
+        .then((res) => {
+          if (res.ok) {
+            const copy = res.clone();
+            caches.open(CACHE).then((c) => c.put(e.request, copy));
+          }
+          return res;
+        })
+        .catch(() =>
+          caches
+            .match(e.request, { ignoreSearch: true })
+            .then((hit) => hit || new Response("{}", { headers: { "Content-Type": "application/json" } }))
+        )
+    );
+    return;
+  }
   // OCR assets are big (~9MB) so they aren't precached; cache them the first
   // time they're fetched and OCR works offline from then on.
   if (url.pathname.includes("/ocr/")) {

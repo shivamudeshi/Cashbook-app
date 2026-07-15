@@ -1,0 +1,26 @@
+name: Refresh investment prices
+
+on:
+  schedule:
+    # 21:00 UTC = 2:30am IST — well after both NSE's close (15:30 IST) and
+    # AMFI's NAV publish cutoff (~11pm IST the same evening; this catches
+    # the previous evening's publish reliably).
+    - cron: "0 21 * * 1-5"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: node scripts/fetch-prices.mjs
+      - uses: stefanzweifel/git-auto-commit-action@v5
+        with:
+          commit_message: "Refresh investment price snapshot"
+          file_pattern: "public/instruments.json public/prices.json"

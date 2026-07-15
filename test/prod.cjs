@@ -149,6 +149,51 @@ async function main() {
     "the fallback color is deterministic for the same head"
   );
 
+  // Investment holdings: a buy with a charge splits between cost basis and
+  // the Finance charges expense; a later partial sell realizes a gain
+  // (proceeds vs. the proportional average cost of the units sold) into
+  // Capital gains income; the balance sheet must still foot both with a
+  // live price snapshot (mark-to-market via the Unrealized gain/(loss)
+  // plug) and without one (falls back to cost — the case gold always hits).
+  const db4 = {
+    entries: [
+      { id: "h1", date: "2025-06-01", type: "holding", holdingId: "f1", dir: "buy", units: 80, amount: 10000, charge: 100 },
+      { id: "h2", date: "2025-06-15", type: "holding", holdingId: "f1", dir: "sell", units: 40, amount: 5300 },
+    ],
+    heads: { income: ["Salary", "Capital gains"], expense: ["Rent", "Finance charges", "Suspense"] },
+    headClass: {},
+    bsAccounts: [],
+    parties: [],
+    holdings: [{ id: "f1", kind: "mf", instrumentId: "SCHEME1", label: "Test Fund", units: 0, costBasis: 0 }],
+    opening: { asOf: "2025-06-01", bank: 100000, accounts: {} },
+    owedMemos: [],
+  };
+  const asOf4 = "2025-06-30";
+  const prices4 = { SCHEME1: { price: 130, asOf: asOf4 } };
+
+  const hf1 = E.holdingsAsOf(db4, asOf4).find((h) => h.id === "f1");
+  assert.strictEqual(hf1.units, 40, "80 bought, 40 sold, 40 remain");
+  assert.strictEqual(hf1.costBasis, 4950, "cost basis: (10000-100) then half removed proportionally on the sell");
+
+  assert.strictEqual(E.holdingsValue(hf1, prices4), 5200, "40 units x 130/unit live price");
+  assert.strictEqual(E.holdingsValue(hf1, {}), 4950, "no price snapshot (e.g. gold) falls back to cost basis");
+
+  const pl4 = E.computePL(db4, "2025-06-01", asOf4);
+  assert.strictEqual(pl4.expense["Finance charges"], 100, "the buy's charge posts as a Finance charges expense");
+  assert.strictEqual(pl4.income["Capital gains"], 350, "realized gain: 5300 proceeds - 4950 proportional cost");
+  assert.strictEqual(pl4.net, 250, "net = 350 capital gains - 100 finance charge");
+
+  const bal4 = E.balancesAsOf(db4, asOf4);
+  assert.strictEqual(bal4.bank, 95300, "bank: 100000 - 10000 (buy) + 5300 (sell)");
+
+  const bsWithPrice = E.computeBS(db4, asOf4, prices4);
+  assert.ok(bsWithPrice.balanced, "balance sheet foots with a live price snapshot (mark-to-market)");
+  assert.strictEqual(bsWithPrice.totalAssets, 100500, "bank 95300 + holdings market value 5200");
+
+  const bsAtCost = E.computeBS(db4, asOf4);
+  assert.ok(bsAtCost.balanced, "balance sheet foots with no price snapshot at all (values at cost)");
+  assert.strictEqual(bsAtCost.totalAssets, 100250, "bank 95300 + holdings at cost 4950");
+
   // Helpers.
   assert.strictEqual(E.parseAmount("2k"), 2000);
   assert.strictEqual(E.parseAmount("1.2L"), 120000);
