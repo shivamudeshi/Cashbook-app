@@ -690,7 +690,7 @@ if (typeof window !== "undefined") {
     inr, parseAmount, fyOf, quarterOf, fyRange, monthRange,
     computePL, balancesAsOf, owedAsOf, computeBS, defaultBook,
     parseStatementText, suggestHead, keywordOf, parseBankSms, parsePdfTable,
-    isExplained, isRefund,
+    isExplained, isRefund, entryVisual,
   };
 }
 
@@ -796,6 +796,52 @@ function entryLabel(book, e) {
       : `From ${partyName(book, e.partyId)}`;
   return e.head;
 }
+
+// Curated icon+color per common category, matched by keyword against the
+// head/account name. First match wins.
+const CATEGORY_VISUALS = [
+  { match: /rent/i, icon: "home", color: "#818cf8" },
+  { match: /food/i, icon: "fork", color: "#fb923c" },
+  { match: /grocer/i, icon: "cart", color: "#4ade80" },
+  { match: /transport/i, icon: "car", color: "#60a5fa" },
+  { match: /petrol|fuel/i, icon: "fuel", color: "#fb923c" },
+  { match: /utilit|electric/i, icon: "bolt", color: "#fbbf24" },
+  { match: /shop/i, icon: "bag", color: "#f472b6" },
+  { match: /health|medical/i, icon: "heart", color: "#fb7185" },
+  { match: /invest|sip/i, icon: "trend", color: "#2dd4bf" },
+  { match: /salary/i, icon: "briefcase", color: "#34d399" },
+  { match: /emi|loan/i, icon: "bank", color: "#a78bfa" },
+  { match: /subscription/i, icon: "repeat", color: "#c084fc" },
+  { match: /maintenance/i, icon: "wrench", color: "#94a3b8" },
+];
+
+// Deterministic string -> number, so an unrecognized category still always
+// gets *some* consistent color across renders (same palette as party
+// avatars) instead of nothing.
+function strHash(s) {
+  let h = 0;
+  for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) | 0;
+  return Math.abs(h);
+}
+
+// Row leading icon/avatar — presentation only, purely derived from the
+// entry, never stored. Party entries reuse that party's own Avatar (same
+// one shown on Owed); everything else matches a curated category icon or
+// falls back to a deterministic colored-letter Avatar for an unmatched
+// head/account, so every row always shows something meaningful.
+function entryVisual(book, e) {
+  if (e.type === "party") {
+    const idx = book.parties.findIndex((p) => p.id === e.partyId);
+    return { kind: "avatar", name: partyName(book, e.partyId), index: idx < 0 ? 0 : idx };
+  }
+  if ((e.type === "in" || e.type === "out") && e.head === "Suspense") {
+    return { kind: "icon", icon: "tag", color: C.faint };
+  }
+  const key = e.type === "transfer" ? e.account : e.head;
+  const hit = CATEGORY_VISUALS.find((v) => v.match.test(key || ""));
+  if (hit) return { kind: "icon", icon: hit.icon, color: hit.color };
+  return { kind: "avatar", name: key || "?", index: strHash(key || "") };
+}
 const entrySign = (e) =>
   e.type === "in" || ((e.type === "transfer" || e.type === "party") && e.dir === "in") ? 1 : -1;
 
@@ -851,6 +897,16 @@ function Ic({ name, size = 15, stroke = "#fff", sw = 2.2 }) {
     swap: <><polyline points="7 4 3 8 7 12" /><path d="M3 8h13" /><polyline points="17 12 21 16 17 20" /><path d="M21 16H8" /></>,
     calendar: <><rect x="3" y="4" width="18" height="17" rx="2.5" /><line x1="3" y1="9.5" x2="21" y2="9.5" /><line x1="8" y1="2.5" x2="8" y2="6" /><line x1="16" y1="2.5" x2="16" y2="6" /></>,
     trash: <><polyline points="3 6 5 6 21 6" /><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6" /><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" /></>,
+    fork: <><line x1="7" y1="2" x2="7" y2="9" /><line x1="10" y1="2" x2="10" y2="9" /><line x1="13" y1="2" x2="13" y2="9" /><path d="M7 9c0 2 1.5 3 3 3s3-1 3-3" /><line x1="10" y1="12" x2="10" y2="22" /></>,
+    cart: <><circle cx="9" cy="20" r="1.4" /><circle cx="18" cy="20" r="1.4" /><path d="M2 3h2l2.6 12.4a2 2 0 0 0 2 1.6h8.8a2 2 0 0 0 2-1.6L21 8H6" /></>,
+    car: <><path d="M4 16V11l2-5h12l2 5v5" /><line x1="4" y1="16" x2="20" y2="16" /><circle cx="7.5" cy="17.5" r="1.6" /><circle cx="16.5" cy="17.5" r="1.6" /></>,
+    fuel: <><rect x="3" y="4" width="10" height="17" rx="1.5" /><line x1="3" y1="10" x2="13" y2="10" /><path d="M13 8h3l3 3v7a1.6 1.6 0 0 1-3.2 0v-3a1.5 1.5 0 0 0-1.5-1.5H15" /></>,
+    bolt: <><polygon points="13 2 4 14 11 14 10 22 20 9 13 9 13 2" /></>,
+    bag: <><path d="M8 8V6a4 4 0 1 1 8 0v2" /><rect x="4" y="8" width="16" height="13" rx="2" /></>,
+    heart: <><path d="M12 20s-7-4.4-9.5-9C1 7.8 2.6 4.5 6 4.5c2 0 3.6 1.2 4.5 2.8.9-1.6 2.5-2.8 4.5-2.8 3.4 0 5 3.3 3.5 6.5C19 15.6 12 20 12 20z" /></>,
+    briefcase: <><rect x="2.5" y="7" width="19" height="13" rx="2" /><path d="M8 7V5a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" /><line x1="2.5" y1="12.5" x2="21.5" y2="12.5" /></>,
+    wrench: <><path d="M14.7 6.3a4 4 0 0 0-5.4 5.4L3 18l3 3 6.3-6.3a4 4 0 0 0 5.4-5.4l-2.8 2.8-2-2z" /></>,
+    repeat: <><path d="M21 12a9 9 0 1 1-3-6.7" /><polyline points="21 3 21 9 15 9" /></>,
   }[name];
   return (
     <svg viewBox="0 0 24 24" width={size} height={size} fill="none" stroke={stroke}
@@ -1929,7 +1985,9 @@ function TxView({ book, up, onEdit, initialFilter }) {
     <FilterChip label={label} active={active} onClick={onClick} />
   );
 
-  const Row = ({ e, showDate }) => (
+  const Row = ({ e, showDate }) => {
+    const v = entryVisual(book, e);
+    return (
     <div
       className="cb-row cb-press"
       onClick={() => (selectMode ? toggleSelected(e.id) : onEdit(e))}
@@ -1950,6 +2008,11 @@ function TxView({ book, up, onEdit, initialFilter }) {
           {prettyDate(e.date).replace(/^\w+, /, "")}
         </div>
       )}
+      {v.kind === "icon" ? (
+        <Orb size={34} grad={v.color}><Ic name={v.icon} size={15} /></Orb>
+      ) : (
+        <Avatar name={v.name} index={v.index} size={34} />
+      )}
       <div style={{ flex: 1, minWidth: 0 }}>
         <div style={{ fontSize: 14, fontWeight: 600, color: C.ink }}>
           {entryLabel(book, e)}
@@ -1964,7 +2027,8 @@ function TxView({ book, up, onEdit, initialFilter }) {
         {entrySign(e) > 0 ? "+" : "−"}{money(book, e.amount)}
       </div>
     </div>
-  );
+    );
+  };
 
   return (
     <div>
@@ -3136,10 +3200,17 @@ function AccountDetailPage({ book, accId, onEdit }) {
       </div>
       <div style={{ margin: "16px 0 8px", ...st.section }}>Recent activity</div>
       <div style={{ ...glass(18), overflow: "hidden", marginBottom: 8 }}>
-        {related.map((e, i) => (
+        {related.map((e, i) => {
+          const v = entryVisual(book, e);
+          return (
           <div key={e.id} className="cb-row cb-press" onClick={() => onEdit(e)}
             style={{ display: "flex", alignItems: "center", gap: 10, padding: "11px 16px", borderTop: i ? `1px solid ${C.line}` : "none", cursor: "pointer" }}>
             <div style={{ width: 52, fontSize: 11, color: C.faint, fontWeight: 600, flexShrink: 0 }}>{prettyDate(e.date).replace(/^\w+, /, "")}</div>
+            {v.kind === "icon" ? (
+              <Orb size={32} grad={v.color}><Ic name={v.icon} size={14} /></Orb>
+            ) : (
+              <Avatar name={v.name} index={v.index} size={32} />
+            )}
             <div style={{ flex: 1, minWidth: 0 }}>
               <div style={{ fontSize: 14, fontWeight: 600, color: C.ink }}>{entryLabel(book, e)}</div>
               {e.note && <div style={{ fontSize: 12, color: C.muted, whiteSpace: "nowrap", overflow: "hidden", textOverflowe: "ellipsis" }}>{e.note}</div>}
@@ -3148,7 +3219,8 @@ function AccountDetailPage({ book, accId, onEdit }) {
               {entrySign(e) > 0 ? "+" : "−"}{money(book, e.amount)}
             </div>
           </div>
-        ))}
+          );
+        })}
         {related.length === 0 && <div style={{ fontSize: 13, color: C.muted, padding: 16 }}>No activity yet.</div>}
       </div>
     </div>

@@ -129,6 +129,26 @@ async function main() {
   assert.ok(bs2.balanced, "balance sheet still foots with unexplained + refund entries mixed in");
   assert.strictEqual(bs2.totalAssets, 9400, "assets reflect only the explained bank movement");
 
+  // Row icon/color: curated category, Suspense, transfer, party, and an
+  // unmatched custom head all resolve to something renderable.
+  const db3 = { ...db2, parties: [{ id: "p1", name: "Alex" }], bsAccounts: [{ name: "Investments", kind: "asset" }] };
+  const rentVisual = E.entryVisual(db3, { type: "out", head: "Rent" });
+  assert.deepStrictEqual([rentVisual.kind, rentVisual.icon], ["icon", "home"], "Rent matches the curated home icon");
+  const suspenseVisual = E.entryVisual(db3, { type: "out", head: "Suspense" });
+  assert.strictEqual(suspenseVisual.icon, "tag", "unexplained entries get the neutral tag icon");
+  const partyVisual = E.entryVisual(db3, { type: "party", partyId: "p1", dir: "out" });
+  assert.deepStrictEqual([partyVisual.kind, partyVisual.name], ["avatar", "Alex"], "party entries show that party's own avatar");
+  const transferVisual = E.entryVisual(db3, { type: "transfer", account: "Investments", dir: "out" });
+  assert.deepStrictEqual([transferVisual.kind, transferVisual.icon], ["icon", "trend"], "an Investments transfer matches the curated invest icon");
+  const customVisual = E.entryVisual(db3, { type: "out", head: "Golf Club Dues" });
+  assert.strictEqual(customVisual.kind, "avatar", "an unmatched custom head falls back to a colored-letter avatar");
+  assert.strictEqual(customVisual.name, "Golf Club Dues");
+  assert.strictEqual(
+    E.entryVisual(db3, { type: "out", head: "Golf Club Dues" }).index,
+    customVisual.index,
+    "the fallback color is deterministic for the same head"
+  );
+
   // Helpers.
   assert.strictEqual(E.parseAmount("2k"), 2000);
   assert.strictEqual(E.parseAmount("1.2L"), 120000);
