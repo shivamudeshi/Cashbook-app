@@ -1,6 +1,6 @@
 // Bump CACHE whenever the build changes, or installed phones keep serving the
 // stale cached bundle.
-const CACHE = "cashbook-v13";
+const CACHE = "cashbook-v14";
 const SHELL = [
   ".",
   "index.html",
