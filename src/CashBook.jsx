@@ -91,7 +91,7 @@ export const F = {
    this sheet is injected once at the app root. */
 const ANIM_CSS = `
 html { scroll-behavior: smooth; }
-html, body { overscroll-behavior-x: none; }
+html, body { overscroll-behavior-x: none; -webkit-tap-highlight-color: transparent; touch-action: manipulation; }
 @keyframes cbFadeUp { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: none; } }
 @keyframes cbSlideUp { from { transform: translateY(48px); opacity: .4; } to { transform: none; opacity: 1; } }
 @keyframes cbSlideIn { from { transform: translateX(56px); opacity: 0; } to { transform: none; opacity: 1; } }
@@ -1539,7 +1539,6 @@ function budgetStatus(book) {
 /* ────────────────────── account card (flip) ────────────────────── */
 function AccountCard({ book, acc, active, onImport, onTransactions, pending, onViewPending }) {
   const [flipped, setFlipped] = useState(false);
-  const shown = useCountUp(acc.balance, 700);
   const isCard = acc.type === "credit_card";
   const activeGrad = isCard
     ? "linear-gradient(150deg, rgba(136,19,55,.55) 0%, rgba(88,13,44,.5) 55%, rgba(38,6,17,.55) 100%)"
@@ -1597,7 +1596,7 @@ function AccountCard({ book, acc, active, onImport, onTransactions, pending, onV
               {isCard ? "Outstanding balance" : "Available balance"}
             </div>
             <div style={{ fontSize: 30, fontWeight: 800, color: "#fff", marginTop: 6, fontVariantNumeric: "tabular-nums", lineHeight: 1.1 }}>
-              {money(book, shown)}
+              {money(book, acc.balance)}
             </div>
             {pending && pending.count > 0 ? (
               <div
@@ -1803,7 +1802,6 @@ function DashHome({ book, go, onImport, onAdd, setTab, prices }) {
   const monthStart = t.slice(0, 8) + "01";
   const { bs } = bsSlices(book, t, prices);
   const netWorth = bs.totalEquity;
-  const shownNw = useCountUp(netWorth);
   const prevEnd = addDays(monthStart, -1);
   const nwPrev = computeBS(book, prevEnd, prices).totalEquity;
   const nwDiff = netWorth - nwPrev;
@@ -1871,7 +1869,7 @@ function DashHome({ book, go, onImport, onAdd, setTab, prices }) {
         <div style={{ display: "flex", alignItems: "flex-end", gap: 12, marginTop: 14 }}>
           <div>
             <div style={{ fontSize: 30, fontWeight: 800, color: "#fff", fontVariantNumeric: "tabular-nums" }}>
-              {money(book, shownNw)}
+              {money(book, netWorth)}
             </div>
             <div style={{ fontSize: 12, fontWeight: 700, color: nwDiff >= 0 ? C.green : C.red, marginTop: 5, display: "flex", gap: 4 }}>
               {nwDiff >= 0 ? "▲" : "▼"} {nwPct !== null ? `${Math.abs(nwPct)}%` : money(book, Math.abs(nwDiff))} this month
@@ -5586,7 +5584,19 @@ export default function CashBook() {
       }
     };
     window.addEventListener("popstate", onPopState);
-    return () => window.removeEventListener("popstate", onPopState);
+    // Android can restore a backgrounded/frozen PWA in ways that don't
+    // reliably preserve JS-pushed history entries — re-arm the guard on
+    // resume so the back gesture stays interceptable even after that.
+    const onVisible = () => {
+      if (document.visibilityState === "visible") {
+        window.history.pushState({ cbNav: true }, "", window.location.href);
+      }
+    };
+    document.addEventListener("visibilitychange", onVisible);
+    return () => {
+      window.removeEventListener("popstate", onPopState);
+      document.removeEventListener("visibilitychange", onVisible);
+    };
   }, [!!book, locked]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const confirmExit = () => {
