@@ -129,9 +129,19 @@ html { scroll-behavior: smooth; }
 @keyframes cbCheckPop { 0% { transform: scale(.3); opacity: 0; } 65% { transform: scale(1.1); opacity: 1; } 100% { transform: scale(1); opacity: 1; } }
 @keyframes cbRingPulse { 0% { transform: scale(.8); opacity: .7; } 100% { transform: scale(1.5); opacity: 0; } }
 @keyframes cbShimmer { 0% { background-position: -150% 0; } 100% { background-position: 150% 0; } }
+@keyframes cbShake {
+  10%, 90% { transform: translateX(-1px); } 20%, 80% { transform: translateX(3px); }
+  30%, 50%, 70% { transform: translateX(-7px); } 40%, 60% { transform: translateX(7px); }
+}
+@keyframes cbGlowBreathe {
+  0%, 100% { opacity: .7; transform: translateX(-50%) scale(1); }
+  50% { opacity: 1; transform: translateX(-50%) scale(1.08); }
+}
 .cb-list-in { animation: cbListIn .42s cubic-bezier(.2,.85,.3,1) both; }
 .cb-chip-pop { animation: cbChipPop .22s cubic-bezier(.3,.9,.3,1) both; }
 .cb-check-pop { animation: cbCheckPop .5s cubic-bezier(.3,1.4,.4,1) both; }
+.cb-shake { animation: cbShake .45s cubic-bezier(.36,.07,.19,.97) both; }
+.cb-glow-breathe { animation: cbGlowBreathe 6s ease-in-out infinite; }
 .cb-skeleton {
   background: linear-gradient(90deg, rgba(255,255,255,.06), rgba(255,255,255,.14), rgba(255,255,255,.06));
   background-size: 200% 100%; border-radius: 8px;
@@ -144,7 +154,7 @@ input, select { transition: border-color .18s ease, box-shadow .18s ease; }
 input:focus, select:focus { outline: none; border-color: #a78bfa !important; box-shadow: 0 0 0 3px rgba(167,139,250,.18); }
 @media (prefers-reduced-motion: reduce) {
   .cb-view, .cb-row, .cb-sheet, .cb-sheet-overlay, .cb-subpage, .cb-list-in,
-  .cb-chip-pop, .cb-check-pop, .cb-skeleton,
+  .cb-chip-pop, .cb-check-pop, .cb-skeleton, .cb-shake, .cb-glow-breathe,
   .cb-stagger > *, .cb-splash-glyph, .cb-splash-name { animation: none; }
   .cb-press, .cb-fab, .cb-tab, input, select { transition: none; }
   html { scroll-behavior: auto; }
@@ -1062,6 +1072,8 @@ function Ic({ name, size = 15, stroke = "#fff", sw = 2.2 }) {
     bars: <><line x1="5" y1="20" x2="5" y2="13" /><line x1="12" y1="20" x2="12" y2="8" /><line x1="19" y1="20" x2="19" y2="4" /></>,
     eye: <><path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7-11-7-11-7z" /><circle cx="12" cy="12" r="3" /></>,
     eyeOff: <><path d="M17.9 17.9A10.6 10.6 0 0 1 12 20c-7 0-11-8-11-8a19 19 0 0 1 5-5.6M9.9 4.2A10.4 10.4 0 0 1 12 4c7 0 11 8 11 8a18.7 18.7 0 0 1-2.4 3.5" /><path d="M9.5 9.7a3 3 0 0 0 4.2 4.2" /><line x1="2" y1="2" x2="22" y2="22" /></>,
+    scan: <><path d="M3 7V5a2 2 0 0 1 2-2h2" /><path d="M17 3h2a2 2 0 0 1 2 2v2" /><path d="M21 17v2a2 2 0 0 1-2 2h-2" /><path d="M7 21H5a2 2 0 0 1-2-2v-2" /></>,
+    backspace: <><path d="M9 5h11a1 1 0 0 1 1 1v12a1 1 0 0 1-1 1H9l-6-7 6-7z" /><line x1="13" y1="9.5" x2="18.5" y2="14.5" /><line x1="18.5" y1="9.5" x2="13" y2="14.5" /></>,
   }[name];
   return (
     <svg viewBox="0 0 24 24" width={size} height={size} fill="none" stroke={stroke}
@@ -5301,32 +5313,107 @@ function Splash({ leaving }) {
   );
 }
 
+function lockGreeting() {
+  const h = new Date().getHours();
+  if (h < 12) return "Good morning";
+  if (h < 17) return "Good afternoon";
+  if (h < 21) return "Good evening";
+  return "Good night";
+}
+
+const LOCK_KEY = {
+  aspectRatio: "1", borderRadius: 999,
+  background: "linear-gradient(160deg, rgba(255,255,255,.10), rgba(255,255,255,.03))",
+  border: "1px solid rgba(255,255,255,.12)",
+  display: "flex", alignItems: "center", justifyContent: "center",
+  fontSize: 23, fontWeight: 500, color: C.ink, fontFamily: F.sans, cursor: "pointer",
+};
+const LOCK_KEY_GHOST = {
+  aspectRatio: "1", display: "flex", alignItems: "center", justifyContent: "center",
+  border: "none", background: "none", cursor: "pointer",
+};
+
 function LockScreen({ pin, onUnlock }) {
   const [entered, setEntered] = useState("");
-  const [wrong, setWrong] = useState(false);
-  const tryPin = (v) => {
-    setEntered(v);
-    setWrong(false);
-    if (v.length === 4) {
-      if (v === pin) onUnlock();
-      else { setWrong(true); setEntered(""); }
+  const [status, setStatus] = useState("idle"); // idle | wrong | ok
+  const busy = status !== "idle";
+
+  const press = (d) => {
+    if (busy || entered.length >= 4) return;
+    const next = entered + d;
+    setEntered(next);
+    if (next.length === 4) {
+      if (next === pin) {
+        setStatus("ok");
+        setTimeout(onUnlock, 220);
+      } else {
+        setStatus("wrong");
+        setTimeout(() => { setStatus("idle"); setEntered(""); }, 480);
+      }
     }
   };
+  const backspace = () => { if (!busy) setEntered((e) => e.slice(0, -1)); };
+
   return (
     <div style={{
-      position: "fixed", inset: 0, zIndex: 60, background: C.bg, display: "flex",
-      flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 18, padding: 24,
+      position: "fixed", inset: 0, zIndex: 60, background: C.bg, overflow: "hidden",
+      display: "flex", flexDirection: "column", alignItems: "center",
+      padding: "18vh 28px calc(30px + env(safe-area-inset-bottom))",
     }}>
-      <Orb size={64} radius={18} grad={C.grad}><Ic name="shield" size={26} /></Orb>
-      <div style={{ fontSize: 18, fontWeight: 800, color: C.ink }}>Enter your PIN</div>
-      <input
-        autoFocus
-        style={{ ...st.input, maxWidth: 200, textAlign: "center", fontSize: 26, letterSpacing: 14, fontWeight: 800 }}
-        inputMode="numeric" maxLength={4} type="password"
-        value={entered}
-        onChange={(e) => tryPin(e.target.value.replace(/\D/g, ""))}
-      />
-      {wrong && <div style={{ fontSize: 13, color: C.red, fontWeight: 700 }}>Wrong PIN — try again.</div>}
+      <div className="cb-glow-breathe" style={{
+        position: "absolute", top: -140, left: "50%", width: 420, height: 420, borderRadius: 999,
+        background: "radial-gradient(circle, rgba(167,139,250,.30), rgba(109,40,217,.08) 55%, transparent 72%)",
+        transform: "translateX(-50%)", pointerEvents: "none",
+      }} />
+      <div style={{ textAlign: "center", position: "relative" }}>
+        <div style={{ fontSize: 26, fontWeight: 700, color: C.ink, letterSpacing: "-0.01em" }}>{lockGreeting()}</div>
+        <div style={{ fontSize: 12.5, color: C.muted, fontWeight: 600, marginTop: 6 }}>{prettyDate(today())}</div>
+      </div>
+      <div style={{ marginTop: 22 }}>
+        <Orb size={38} radius={11} grad={C.grad} shadow="0 10px 20px -8px rgba(109,40,217,.6)">
+          <span style={{ fontSize: 16, fontWeight: 800, color: "#fff" }}>₹</span>
+        </Orb>
+      </div>
+      <div style={{ fontSize: 14.5, fontWeight: 700, color: C.soft, marginTop: 14 }}>Enter Passcode</div>
+      <div style={{ fontSize: 12, color: C.red, fontWeight: 700, marginTop: 6, height: 14 }}>
+        {status === "wrong" ? "Wrong passcode, try again" : ""}
+      </div>
+      <div className={status === "wrong" ? "cb-shake" : undefined} style={{ display: "flex", gap: 16, marginTop: 20, position: "relative" }}>
+        {[0, 1, 2, 3].map((i) => {
+          const filled = i < entered.length;
+          const fill = status === "wrong" ? C.red : status === "ok" ? C.green : C.grad;
+          return (
+            <span key={i} style={{
+              width: 13, height: 13, borderRadius: 999,
+              border: filled ? "none" : `1.6px solid ${C.muted}`,
+              background: filled ? fill : "transparent",
+              transform: filled ? "scale(1.05)" : "none",
+              transition: "transform .15s ease",
+            }} />
+          );
+        })}
+      </div>
+      <div style={{
+        position: "relative", marginTop: "auto", width: "100%", maxWidth: 300,
+        display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: "16px 22px", paddingTop: 26,
+      }}>
+        {[1, 2, 3, 4, 5, 6, 7, 8, 9].map((n) => (
+          <button key={n} className="cb-press" disabled={busy} onClick={() => press(String(n))} style={LOCK_KEY}>
+            {n}
+          </button>
+        ))}
+        <div style={LOCK_KEY_GHOST} aria-hidden="true">
+          <Ic name="scan" size={22} stroke={C.accentText} sw={2} />
+        </div>
+        <button className="cb-press" disabled={busy} onClick={() => press("0")} style={LOCK_KEY}>0</button>
+        <button
+          className="cb-press" aria-label="Backspace"
+          disabled={busy || !entered.length} onClick={backspace}
+          style={{ ...LOCK_KEY_GHOST, opacity: entered.length ? 1 : 0.35 }}
+        >
+          <Ic name="backspace" size={20} stroke={C.muted} sw={1.8} />
+        </button>
+      </div>
     </div>
   );
 }
