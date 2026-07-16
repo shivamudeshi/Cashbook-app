@@ -5296,7 +5296,7 @@ function Splash({ leaving }) {
       style={{
         position: "fixed", inset: 0, zIndex: 50, background: C.bg,
         display: "flex", flexDirection: "column", alignItems: "center",
-        justifyContent: "center", gap: 14,
+        justifyContent: "center", gap: 14, fontFamily: F.sans,
       }}
     >
       <div
@@ -5365,6 +5365,7 @@ function LockScreen({ pin, onUnlock }) {
       position: "fixed", inset: 0, zIndex: 60, background: C.bg, overflow: "hidden",
       display: "flex", flexDirection: "column", alignItems: "center",
       padding: "18vh 28px calc(30px + env(safe-area-inset-bottom))",
+      fontFamily: F.sans,
     }}>
       <div className="cb-glow-breathe" style={{
         position: "absolute", top: -140, left: "50%", width: 420, height: 420, borderRadius: 999,
@@ -5424,6 +5425,46 @@ function LockScreen({ pin, onUnlock }) {
   );
 }
 
+function ExitConfirmDialog({ onCancel, onExit }) {
+  return (
+    <div
+      onClick={onCancel}
+      className="cb-sheet-overlay"
+      style={{
+        position: "fixed", inset: 0, zIndex: 70, background: "rgba(3,2,6,.7)",
+        backdropFilter: "blur(4px)", WebkitBackdropFilter: "blur(4px)",
+        display: "flex", alignItems: "center", justifyContent: "center", padding: 24,
+      }}
+    >
+      <div
+        onClick={(e) => e.stopPropagation()}
+        className="cb-chip-pop"
+        style={{ ...glass(22), width: "100%", maxWidth: 320, padding: "22px 20px", textAlign: "center" }}
+      >
+        <Orb size={44} radius={14} grad={C.redGrad} shadow="0 10px 20px -8px rgba(159,18,57,.6)">
+          <Ic name="close" size={18} />
+        </Orb>
+        <div style={{ fontSize: 17, fontWeight: 800, color: C.ink, marginTop: 14, fontFamily: F.sans }}>Exit app?</div>
+        <div style={{ fontSize: 13, color: C.muted, marginTop: 4, fontFamily: F.sans }}>You'll be taken back to your device.</div>
+        <div style={{ display: "flex", gap: 10, marginTop: 18 }}>
+          <button
+            className="cb-press" onClick={onCancel}
+            style={{ flex: 1, padding: "11px 0", border: "1px solid rgba(255,255,255,.16)", borderRadius: 12, background: "rgba(255,255,255,.06)", color: C.ink, fontWeight: 700, fontSize: 14, fontFamily: F.sans, cursor: "pointer" }}
+          >
+            Cancel
+          </button>
+          <button
+            className="cb-press" onClick={onExit}
+            style={{ flex: 1, padding: "11px 0", border: "none", borderRadius: 12, background: C.redGrad, color: "#fff", fontWeight: 700, fontSize: 14, fontFamily: F.sans, cursor: "pointer" }}
+          >
+            Exit
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 /* ────────────────────────── app shell ────────────────────────── */
 const TABS = [
   { id: "dash", label: "Dashboard", icon: "home" },
@@ -5472,7 +5513,11 @@ export default function CashBook() {
   const [prices, setPrices] = useState({});
   const [instruments, setInstruments] = useState({ mf: [], stock: [] });
   const [pricesLoaded, setPricesLoaded] = useState(false);
+  const [exitConfirmOpen, setExitConfirmOpen] = useState(false);
   const skipSave = useRef(true);
+  const skipNextPopRef = useRef(false);
+  const navRef = useRef();
+  navRef.current = { tab, page, entrySheet, memoSheet, importOpen, investmentsOpen };
 
   useEffect(() => {
     loadBook().then((b) => {
@@ -5510,6 +5555,44 @@ export default function CashBook() {
     setPage(null);
     setTxFilter(filter || null);
     window.scrollTo(0, 0);
+  };
+
+  // Intercept the system/browser back gesture once the app is actually
+  // usable (book loaded, not on the lock screen) — by default there's no
+  // browser history for it to step through, so it would otherwise exit the
+  // app immediately. Instead: close an open sheet first if one's up, else
+  // jump straight to the Dashboard from anywhere else, else (already at the
+  // Dashboard root) ask for confirmation before actually exiting.
+  useEffect(() => {
+    if (!book || locked) return;
+    window.history.pushState({ cbNav: true }, "", window.location.href);
+    const onPopState = () => {
+      if (skipNextPopRef.current) {
+        skipNextPopRef.current = false;
+        window.history.back();
+        return;
+      }
+      window.history.pushState({ cbNav: true }, "", window.location.href);
+      const s = navRef.current;
+      if (s.entrySheet || s.memoSheet || s.importOpen || s.investmentsOpen) {
+        setEntrySheet(null);
+        setMemoSheet(null);
+        setImportOpen(false);
+        setInvestmentsOpen(false);
+      } else if (s.tab !== "dash" || s.page) {
+        switchTab("dash");
+      } else {
+        setExitConfirmOpen(true);
+      }
+    };
+    window.addEventListener("popstate", onPopState);
+    return () => window.removeEventListener("popstate", onPopState);
+  }, [!!book, locked]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const confirmExit = () => {
+    setExitConfirmOpen(false);
+    skipNextPopRef.current = true;
+    window.history.back();
   };
 
   // Android share-target: a bank SMS shared to the app arrives as ?text=…
@@ -5841,6 +5924,10 @@ export default function CashBook() {
             });
           }}
         />
+      )}
+
+      {exitConfirmOpen && (
+        <ExitConfirmDialog onCancel={() => setExitConfirmOpen(false)} onExit={confirmExit} />
       )}
 
       {splash !== "done" && <Splash leaving={splash === "leaving"} />}
