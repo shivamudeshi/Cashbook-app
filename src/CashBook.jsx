@@ -91,6 +91,7 @@ export const F = {
    this sheet is injected once at the app root. */
 const ANIM_CSS = `
 html { scroll-behavior: smooth; }
+html, body { overscroll-behavior-x: none; }
 @keyframes cbFadeUp { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: none; } }
 @keyframes cbSlideUp { from { transform: translateY(48px); opacity: .4; } to { transform: none; opacity: 1; } }
 @keyframes cbSlideIn { from { transform: translateX(56px); opacity: 0; } to { transform: none; opacity: 1; } }
@@ -148,7 +149,7 @@ html { scroll-behavior: smooth; }
   animation: cbShimmer 1.4s linear infinite;
 }
 .cb-carousel::-webkit-scrollbar { display: none; }
-.cb-carousel { scrollbar-width: none; }
+.cb-carousel { scrollbar-width: none; overscroll-behavior-x: contain; }
 input::placeholder { color: #7a6f95; }
 input, select { transition: border-color .18s ease, box-shadow .18s ease; }
 input:focus, select:focus { outline: none; border-color: #a78bfa !important; box-shadow: 0 0 0 3px rgba(167,139,250,.18); }
@@ -5663,7 +5664,7 @@ export default function CashBook() {
   return (
     <div style={{
       fontFamily: F.sans, color: C.ink, background: C.bg, minHeight: "100vh",
-      maxWidth: 480, margin: "0 auto",
+      maxWidth: 480, margin: "0 auto", overflowX: "hidden",
       paddingBottom: "calc(112px + env(safe-area-inset-bottom))",
     }}>
       <style>{ANIM_CSS}</style>
