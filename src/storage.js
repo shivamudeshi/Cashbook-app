@@ -101,6 +101,14 @@ const MIGRATIONS = [
     if (!book.heads.income.includes("Capital gains")) book.heads.income.push("Capital gains");
     return book;
   },
+  // v6: opening.holdings — a starting units + cost basis per holding, for
+  // investments bought before the user started tracking them here. Same
+  // shape/spirit as opening.accounts: a single seeded number, not a
+  // transaction, so it never touches bank balances.
+  (book) => {
+    if (!book.opening.holdings) book.opening.holdings = {};
+    return book;
+  },
 ];
 
 // Starter keywords for the local importer; the review screen adds to these
