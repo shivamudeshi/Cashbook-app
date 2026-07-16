@@ -1540,17 +1540,23 @@ function budgetStatus(book) {
 function AccountCard({ book, acc, active, onImport, onTransactions, pending, onViewPending }) {
   const [flipped, setFlipped] = useState(false);
   const isCard = acc.type === "credit_card";
-  const activeGrad = isCard
-    ? "linear-gradient(150deg, rgba(136,19,55,.55) 0%, rgba(88,13,44,.5) 55%, rgba(38,6,17,.55) 100%)"
-    : "linear-gradient(150deg, rgba(59,91,219,.55) 0%, rgba(44,55,150,.5) 55%, rgba(20,20,55,.55) 100%)";
-  const compactGrad = isCard
-    ? "linear-gradient(160deg, rgba(80,20,40,.42) 0%, rgba(20,6,14,.5) 100%)"
-    : "linear-gradient(160deg, rgba(30,41,82,.48) 0%, rgba(10,14,30,.55) 100%)";
-  const shadow = isCard ? "0 24px 50px -20px rgba(70,10,32,.6)" : "0 24px 50px -20px rgba(10,20,50,.6)";
+  // Icon-spotlight glow: a soft radial bloom centered behind the account-type
+  // icon, same near-black card + breathing-glow language as the lock screen —
+  // no colorful gradient fill.
+  const glowBg = isCard
+    ? "radial-gradient(circle, rgba(167,139,250,.42), rgba(109,40,217,.14) 50%, transparent 70%)"
+    : "radial-gradient(circle, rgba(96,165,250,.4), rgba(37,99,235,.12) 50%, transparent 70%)";
+  const glowShadow = isCard
+    ? "0 22px 46px -22px rgba(109,40,217,.4)"
+    : "0 22px 46px -22px rgba(37,99,235,.35)";
+  const grainBg = {
+    backgroundImage: "radial-gradient(rgba(255,255,255,.045) 1px, transparent 1px)",
+    backgroundSize: "3px 3px",
+  };
   const face = {
     position: "absolute", inset: 0, backfaceVisibility: "hidden",
     WebkitBackfaceVisibility: "hidden", borderRadius: 22, boxSizing: "border-box",
-    display: "flex", flexDirection: "column", overflow: "hidden",
+    display: "flex", flexDirection: "column", overflow: "hidden", background: "#0a0712",
   };
   return (
     <div style={{ position: "relative", width: "100%", aspectRatio: "1.85/1", perspective: 1400 }}>
@@ -1564,17 +1570,16 @@ function AccountCard({ book, acc, active, onImport, onTransactions, pending, onV
           onClick={() => setFlipped(true)}
           style={{
             ...face,
-            background: active ? activeGrad : compactGrad,
-            backdropFilter: active ? "blur(22px)" : "blur(8px)",
-            border: active ? "1px solid rgba(255,255,255,.18)" : "1px solid rgba(255,255,255,.09)",
-            boxShadow: `${shadow}, inset 0 1px 0 rgba(255,255,255,.16)`,
+            border: active ? "1px solid rgba(255,255,255,.09)" : "1px solid rgba(255,255,255,.06)",
+            boxShadow: active ? `${glowShadow}, inset 0 1px 0 rgba(255,255,255,.05)` : "0 14px 30px -18px rgba(0,0,0,.6)",
             padding: active ? "18px 20px" : "16px 18px", cursor: "pointer",
           }}
         >
           <div style={{
-            position: "absolute", top: "-60%", left: "-20%", width: "85%", height: "170%",
-            background: "radial-gradient(ellipse, rgba(255,255,255,.12), transparent 70%)", pointerEvents: "none",
+            position: "absolute", width: 170, height: 170, left: 2, top: -64, borderRadius: "50%",
+            filter: "blur(2px)", pointerEvents: "none", background: glowBg, opacity: active ? 1 : 0.35,
           }} />
+          <div style={{ position: "absolute", inset: 0, opacity: 0.5, mixBlendMode: "overlay", pointerEvents: "none", ...grainBg }} />
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", position: "relative" }}>
             <div style={{ display: "flex", alignItems: "center", gap: 9, minWidth: 0 }}>
               <Orb size={32} grad={isCard ? C.grad : C.blueGrad} shadow={isCard ? "0 4px 10px -3px rgba(109,40,217,.6)" : "0 4px 10px -3px rgba(37,99,235,.6)"}>
@@ -1584,7 +1589,7 @@ function AccountCard({ book, acc, active, onImport, onTransactions, pending, onV
                 <div style={{ fontSize: 15, fontWeight: 800, color: "#fff", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", maxWidth: 190 }}>
                   {acc.name}
                 </div>
-                {acc.last4 && <div style={{ fontSize: 11, color: "#c7c3ba", marginTop: 1 }}>•••• {acc.last4}</div>}
+                {acc.last4 && <div style={{ fontSize: 11, color: C.muted, marginTop: 1 }}>•••• {acc.last4}</div>}
               </div>
             </div>
             <RoundBtn style={{ width: 30, height: 30 }} aria-label="Flip card" onClick={(e) => { e.stopPropagation(); setFlipped(true); }}>
@@ -1592,7 +1597,7 @@ function AccountCard({ book, acc, active, onImport, onTransactions, pending, onV
             </RoundBtn>
           </div>
           <div style={{ flex: 1, display: "flex", flexDirection: "column", justifyContent: "center", position: "relative" }}>
-            <div style={{ fontSize: 11, letterSpacing: ".08em", textTransform: "uppercase", color: "#c7c3ba", fontWeight: 700 }}>
+            <div style={{ fontSize: 11, letterSpacing: ".08em", textTransform: "uppercase", color: C.faint, fontWeight: 700 }}>
               {isCard ? "Outstanding balance" : "Available balance"}
             </div>
             <div style={{ fontSize: 30, fontWeight: 800, color: "#fff", marginTop: 6, fontVariantNumeric: "tabular-nums", lineHeight: 1.1 }}>
@@ -1612,7 +1617,7 @@ function AccountCard({ book, acc, active, onImport, onTransactions, pending, onV
             ) : (
               <div style={{ display: "flex", alignItems: "center", gap: 5, marginTop: 9 }}>
                 <span style={{ width: 6, height: 6, borderRadius: 999, background: "#6ee7b7", flexShrink: 0 }} />
-                <span style={{ fontSize: 11, color: "#c7c3ba", fontWeight: 600 }}>Live from your book</span>
+                <span style={{ fontSize: 11, color: C.muted, fontWeight: 600 }}>Live from your book</span>
               </div>
             )}
           </div>
@@ -1620,16 +1625,19 @@ function AccountCard({ book, acc, active, onImport, onTransactions, pending, onV
 
         <div style={{
           ...face, transform: "rotateY(180deg)",
-          background: activeGrad, backdropFilter: "blur(22px)",
-          border: "1px solid rgba(255,255,255,.18)",
-          boxShadow: `${shadow}, inset 0 1px 0 rgba(255,255,255,.2)`,
+          border: "1px solid rgba(255,255,255,.09)",
+          boxShadow: `${glowShadow}, inset 0 1px 0 rgba(255,255,255,.05)`,
         }}>
-          <div style={{ height: 28, background: "#0a0512", marginTop: 16, flexShrink: 0 }} />
-          <div style={{ flex: 1, padding: "12px 18px 16px", display: "flex", flexDirection: "column", justifyContent: "space-between" }}>
+          <div style={{
+            position: "absolute", width: 170, height: 170, left: 2, top: -64, borderRadius: "50%",
+            filter: "blur(2px)", pointerEvents: "none", background: glowBg,
+          }} />
+          <div style={{ position: "absolute", inset: 0, opacity: 0.5, mixBlendMode: "overlay", pointerEvents: "none", ...grainBg }} />
+          <div style={{ flex: 1, padding: "16px 18px", display: "flex", flexDirection: "column", justifyContent: "space-between", position: "relative" }}>
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-              <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: ".05em", color: "#e8defb", textTransform: "uppercase" }}>This month</div>
+              <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: ".05em", color: C.faint, textTransform: "uppercase" }}>This month</div>
               <RoundBtn style={{ width: 28, height: 28 }} aria-label="Flip back" onClick={(e) => { e.stopPropagation(); setFlipped(false); }}>
-                <Ic name="flip" size={14} stroke="#e8defb" />
+                <Ic name="flip" size={14} stroke="#e9e6df" />
               </RoundBtn>
             </div>
             <div style={{ display: "flex", gap: 6, fontSize: 10, flexWrap: "wrap" }}>
