@@ -1553,7 +1553,7 @@ function AccountCard({ book, acc, active, onImport, onTransactions, pending, onV
     display: "flex", flexDirection: "column", overflow: "hidden",
   };
   return (
-    <div style={{ position: "relative", width: "100%", aspectRatio: "1.6/1", perspective: 1400 }}>
+    <div style={{ position: "relative", width: "100%", aspectRatio: "2.2/1", perspective: 1400 }}>
       <div style={{
         position: "relative", width: "100%", height: "100%", transformStyle: "preserve-3d",
         transition: "transform .7s cubic-bezier(.4,.15,.2,1)",
@@ -1768,31 +1768,30 @@ function holdingsValueSeries(book, months, prices) {
   return out;
 }
 /* ────────────────────────── Dashboard ────────────────────────── */
-function StatOrb({ grad, shadow, icon, value, label, sub, onClick }) {
+function StatChip({ grad, value, label, onClick }) {
   return (
     <div
       className={onClick ? "cb-press" : undefined}
       onClick={onClick}
-      style={{ display: "flex", alignItems: "center", gap: 10, cursor: onClick ? "pointer" : undefined }}
+      style={{ display: "flex", alignItems: "center", gap: 6, cursor: onClick ? "pointer" : undefined, minWidth: 0 }}
     >
-      <Orb grad={grad} shadow={shadow}><Ic name={icon} size={20} /></Orb>
+      <span style={{ width: 8, height: 8, borderRadius: 999, background: grad, flexShrink: 0 }} />
       <div style={{ minWidth: 0 }}>
-        <div style={{ fontSize: 16, fontWeight: 800, color: "#fff" }}>{value}</div>
-        <div style={{ fontSize: 12, fontWeight: 700, color: C.soft }}>
-          {label}
-          <span style={{ display: "block", fontSize: 11, fontWeight: 600, color: C.faint }}>{sub}</span>
+        <div style={{ fontSize: 13, fontWeight: 800, color: "#fff", fontVariantNumeric: "tabular-nums", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+          {value}
         </div>
+        <div style={{ fontSize: 9.5, fontWeight: 700, color: C.faint, textTransform: "uppercase", letterSpacing: ".03em" }}>{label}</div>
       </div>
     </div>
   );
 }
 
-function QuickAction({ grad, shadow, icon, l1, l2, onClick }) {
+function QuickAction({ grad, shadow, icon, label, onClick }) {
   return (
     <button className="cb-press" onClick={onClick} style={{ display: "flex", flexDirection: "column", alignItems: "center", border: "none", background: "none", padding: 0, cursor: "pointer", textAlign: "center" }}>
-      <Orb size={50} radius={15} grad={grad} shadow={shadow}><Ic name={icon} size={21} /></Orb>
-      <div style={{ fontSize: 10, fontWeight: 700, color: "#c9bfe0", marginTop: 7, lineHeight: 1.35 }}>
-        {l1}<br />{l2 || " "}
+      <Orb size={38} radius={13} grad={grad} shadow={shadow}><Ic name={icon} size={17} /></Orb>
+      <div style={{ fontSize: 10, fontWeight: 700, color: "#c9bfe0", marginTop: 6, whiteSpace: "nowrap" }}>
+        {label}
       </div>
     </button>
   );
@@ -1810,8 +1809,6 @@ function DashHome({ book, go, onImport, onAdd, setTab, prices, onOpenInvestments
   const nwPct = nwPrev !== 0 ? Math.round((nwDiff / Math.abs(nwPrev)) * 100) : null;
 
   const pl = computePL(book, monthStart, t);
-  const [pFrom, pTo] = [addDays(monthStart, -31).slice(0, 8) + "01", prevEnd];
-  const plPrev = computePL(book, pFrom, pTo);
   let invested = 0;
   for (const e of book.entries) {
     if (e.date < monthStart || e.date > t) continue;
@@ -1834,23 +1831,10 @@ function DashHome({ book, go, onImport, onAdd, setTab, prices, onOpenInvestments
     setCardIdx(Math.min(accounts.length - 1, Math.max(0, Math.round(el.scrollLeft / w))));
   };
 
-  const owed = owedAsOf(book, t);
-  const dues = owed.perParty
-    .filter((p) => p.balance < 0)
-    .sort((a, b) => a.balance - b.balance)
-    .slice(0, 4);
-
-  const expDiffPct = plPrev.totalExpense
-    ? Math.round(((pl.totalExpense - plPrev.totalExpense) / plPrev.totalExpense) * 100)
-    : null;
-  const topCat = Object.entries(pl.expense).sort((a, b) => b[1] - a[1])[0];
   const [statSheet, setStatSheet] = useState(null); // "income" | "expense" | "savings" | null
 
   return (
     <div className="cb-stagger">
-      <div style={st.h1}>Dashboard</div>
-      <div style={st.sub}>Your accounts, spending, and net worth at a glance</div>
-
       <div className="cb-press" onClick={() => go("networth")} style={{ ...glass(22), padding: "18px 18px 16px", cursor: "pointer" }}>
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 14, fontWeight: 700, color: "#e2d6fb" }}>
@@ -1904,91 +1888,25 @@ function DashHome({ book, go, onImport, onAdd, setTab, prices, onOpenInvestments
             }} />
           ))}
         </div>
-        <div style={{ fontSize: 12, color: C.faint, fontWeight: 600, marginTop: 8, textAlign: "center" }}>
-          Swipe to view all accounts
-        </div>
       </div>
 
-      <div style={{ ...glass(24), marginTop: 14, padding: "18px 16px" }}>
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "16px 8px" }}>
-          <StatOrb grad={C.greenGrad} shadow="0 6px 14px -4px rgba(4,120,87,.7)" icon="trend" value={compactMoney(book, pl.totalIncome)} label="Income" sub="This Month" onClick={() => setStatSheet("income")} />
-          <StatOrb grad={C.redGrad} shadow="0 6px 14px -4px rgba(159,18,57,.7)" icon="wallet" value={compactMoney(book, pl.totalExpense)} label="Expenses" sub="This Month" onClick={() => setStatSheet("expense")} />
-          <StatOrb grad={C.grad} shadow="0 6px 14px -4px rgba(109,40,217,.6)" icon="coins" value={compactMoney(book, pl.net)} label="Savings" sub="This Month" onClick={() => setStatSheet("savings")} />
-          <StatOrb grad={C.amberGrad} shadow="0 6px 14px -4px rgba(180,83,9,.7)" icon="pie" value={compactMoney(book, invested)} label="Invested" sub="This Month" onClick={onOpenInvestments} />
-        </div>
+      <div style={{ ...glass(20), marginTop: 14, padding: "12px 14px", display: "flex", justifyContent: "space-between", gap: 4 }}>
+        <StatChip grad={C.greenGrad} value={compactMoney(book, pl.totalIncome)} label="Income" onClick={() => setStatSheet("income")} />
+        <StatChip grad={C.redGrad} value={compactMoney(book, pl.totalExpense)} label="Expenses" onClick={() => setStatSheet("expense")} />
+        <StatChip grad={C.grad} value={compactMoney(book, pl.net)} label="Savings" onClick={() => setStatSheet("savings")} />
+        <StatChip grad={C.amberGrad} value={compactMoney(book, invested)} label="Invested" onClick={onOpenInvestments} />
       </div>
 
-      {dues.length > 0 && (
-        <div style={{ ...glass(24), marginTop: 14, padding: "18px 16px" }}>
-          <div style={{ display: "flex", alignItems: "center", marginBottom: 14 }}>
-            <div style={{ ...st.section, flex: 1 }}>Upcoming Dues</div>
-            <button className="cb-press" onClick={() => setTab("owed")} style={{ border: "none", background: "none", color: C.accentText, fontSize: 13, fontWeight: 700, cursor: "pointer" }}>
-              View All
-            </button>
-          </div>
-          <div className="cb-carousel" style={{ display: "flex", gap: 10, overflowX: "auto" }}>
-            {dues.map((d, i) => (
-              <div key={d.id} className="cb-press" onClick={() => go("party", d.id)} style={{ minWidth: 118, background: C.tile, border: C.borderSoft, borderRadius: 16, padding: 12, textAlign: "center", cursor: "pointer" }}>
-                <div style={{ display: "flex", justifyContent: "center", marginBottom: 6 }}>
-                  <Avatar name={d.name} index={i + 3} size={40} />
-                </div>
-                <div style={{ fontSize: 12, fontWeight: 700, color: C.ink, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{d.name}</div>
-                <div style={{ fontSize: 11, color: C.muted }}>you owe</div>
-                <div style={{ fontSize: 14, fontWeight: 800, color: "#f2a7c8", marginTop: 2 }}>{money(book, Math.abs(d.balance))}</div>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
-      <div style={{ ...glass(24), marginTop: 14, padding: "16px 18px 18px" }}>
-        <div style={{ ...st.section, marginBottom: 14 }}>Quick Actions</div>
+      <div style={{ ...glass(24), marginTop: 14, marginBottom: 8, padding: "14px 16px 16px" }}>
+        <div style={{ ...st.section, marginBottom: 10, fontSize: 13 }}>Quick Actions</div>
         <div style={{ display: "grid", gridTemplateColumns: "repeat(5, 1fr)", gap: 6 }}>
-          <QuickAction grad={C.indigoGrad} shadow="0 6px 14px -4px rgba(67,56,202,.55)" icon="download" l1="Import" l2="Statement" onClick={onImport} />
-          <QuickAction grad={C.skyGrad} shadow="0 6px 14px -4px rgba(3,105,161,.55)" icon="plus" l1="Add" l2="Transaction" onClick={onAdd} />
-          <QuickAction grad={C.grad} shadow="0 6px 14px -4px rgba(109,40,217,.55)" icon="pie" l1="Reports" onClick={() => setTab("reports")} />
-          <QuickAction grad={C.pinkGrad} shadow="0 6px 14px -4px rgba(162,28,175,.55)" icon="tag" l1="Budget" onClick={() => { setTab("reports"); go("budget"); }} />
-          <QuickAction grad={C.tealGrad} shadow="0 6px 14px -4px rgba(15,118,110,.55)" icon="people" l1="Owed" onClick={() => setTab("owed")} />
+          <QuickAction grad={C.indigoGrad} shadow="0 6px 14px -4px rgba(67,56,202,.55)" icon="download" label="Import" onClick={onImport} />
+          <QuickAction grad={C.skyGrad} shadow="0 6px 14px -4px rgba(3,105,161,.55)" icon="plus" label="Add" onClick={onAdd} />
+          <QuickAction grad={C.grad} shadow="0 6px 14px -4px rgba(109,40,217,.55)" icon="pie" label="Reports" onClick={() => setTab("reports")} />
+          <QuickAction grad={C.pinkGrad} shadow="0 6px 14px -4px rgba(162,28,175,.55)" icon="tag" label="Budget" onClick={() => { setTab("reports"); go("budget"); }} />
+          <QuickAction grad={C.tealGrad} shadow="0 6px 14px -4px rgba(15,118,110,.55)" icon="people" label="Owed" onClick={() => setTab("owed")} />
         </div>
       </div>
-
-      {(expDiffPct !== null || topCat) && (
-        <div style={{ ...glass(24), marginTop: 14, marginBottom: 8, padding: "16px 18px 18px" }}>
-          <div style={{ ...st.section, marginBottom: 14 }}>Insights for You</div>
-          <div className="cb-carousel" style={{ display: "flex", gap: 10, overflowX: "auto" }}>
-            {expDiffPct !== null && (
-              <div className="cb-press" onClick={() => setStatSheet("expense")} style={{ minWidth: 210, background: C.tile, border: C.borderSoft, borderRadius: 16, padding: 14, cursor: "pointer" }}>
-                <Orb size={34} grad={C.greenGrad}><Ic name="trend" size={15} /></Orb>
-                <div style={{ fontSize: 13, color: C.soft, marginTop: 10 }}>
-                  You spent{" "}
-                  <span style={{ fontWeight: 800, color: expDiffPct <= 0 ? C.green : C.red }}>
-                    {Math.abs(expDiffPct)}% {expDiffPct <= 0 ? "less" : "more"}
-                  </span>{" "}
-                  than last month.
-                </div>
-                <div style={{ fontSize: 13, fontWeight: 700, color: "#fff", marginTop: 2 }}>
-                  {expDiffPct <= 0 ? "Keep it up!" : "Worth a look."}
-                </div>
-                <div style={{ height: 5, borderRadius: 999, background: "rgba(255,255,255,.1)", marginTop: 12 }}>
-                  <div style={{ height: "100%", width: `${Math.min(100, Math.abs(expDiffPct))}%`, borderRadius: 999, background: expDiffPct <= 0 ? C.greenGrad : C.redGrad }} />
-                </div>
-              </div>
-            )}
-            {topCat && (
-              <div className="cb-press" onClick={() => setStatSheet("expense")} style={{ minWidth: 210, background: C.tile, border: C.borderSoft, borderRadius: 16, padding: 14, cursor: "pointer" }}>
-                <Orb size={34} grad={C.grad}><Ic name="tag" size={15} /></Orb>
-                <div style={{ fontSize: 13, color: C.soft, marginTop: 10 }}>{topCat[0]} is your top expense category.</div>
-                <div style={{ fontSize: 13, fontWeight: 700, color: C.accentText, marginTop: 2 }}>
-                  {money(book, topCat[1])} spent this month
-                </div>
-                <div style={{ height: 5, borderRadius: 999, background: "rgba(255,255,255,.1)", marginTop: 12 }}>
-                  <div style={{ height: "100%", width: `${Math.round((topCat[1] / (pl.totalExpense || 1)) * 100)}%`, borderRadius: 999, background: "linear-gradient(90deg,#a78bfa,#6d28d9)" }} />
-                </div>
-              </div>
-            )}
-          </div>
-        </div>
-      )}
 
       {statSheet && <StatDetailSheet book={book} kind={statSheet} pl={pl} onClose={() => setStatSheet(null)} />}
     </div>
