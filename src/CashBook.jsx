@@ -1076,13 +1076,13 @@ const glass = (r = 24) => ({
 });
 const st = {
   input: {
-    width: "100%", boxSizing: "border-box", padding: "11px 14px",
+    width: "100%", boxSizing: "border-box", padding: "10px 12px",
     borderRadius: 12, border: "1px solid rgba(255,255,255,.16)",
     background: "rgba(255,255,255,.06)", fontSize: 15, fontFamily: F.sans,
     color: C.ink, colorScheme: "dark",
   },
   label: {
-    display: "block", fontSize: 11, color: C.muted, margin: "14px 0 6px",
+    display: "block", fontSize: 11, color: C.muted, margin: "10px 0 5px",
     textTransform: "uppercase", letterSpacing: "0.06em", fontWeight: 700,
   },
   h1: { fontSize: 22, fontWeight: 800, color: C.ink, marginBottom: 2 },
@@ -1338,11 +1338,11 @@ function Sheet({ title, onClose, children }) {
           background: C.sheetBg, border: C.border,
           borderTop: "1px solid rgba(255,255,255,.22)",
           borderRadius: "24px 24px 0 0",
-          padding: "16px 18px calc(22px + env(safe-area-inset-bottom))",
+          padding: "14px 16px calc(18px + env(safe-area-inset-bottom))",
         }}
       >
-        <div style={{ display: "flex", alignItems: "center", marginBottom: 10 }}>
-          <div style={{ fontSize: 18, fontWeight: 800, flex: 1, color: C.ink }}>{title}</div>
+        <div style={{ display: "flex", alignItems: "center", marginBottom: 8 }}>
+          <div style={{ fontSize: 17, fontWeight: 800, flex: 1, color: C.ink }}>{title}</div>
           <button
             className="cb-press"
             onClick={onClose}
@@ -2597,9 +2597,14 @@ function TxView({ book, up, onEdit, onAdd, initialFilter }) {
           <div style={st.sub}>Every entry, explained and coded</div>
         </div>
         {!selectMode && (
-          <RoundBtn aria-label="Add entry" onClick={onAdd} style={{ marginRight: 8 }}>
-            <Ic name="plus" size={15} stroke={C.soft} />
-          </RoundBtn>
+          <button
+            className="cb-press"
+            aria-label="Add entry"
+            onClick={onAdd}
+            style={{ border: "none", background: "none", color: C.accentText, fontSize: 13, fontWeight: 700, cursor: "pointer", padding: "4px 10px 4px 2px", fontFamily: F.sans }}
+          >
+            + Add
+          </button>
         )}
         <button
           className="cb-press"
@@ -4959,18 +4964,24 @@ function EntrySheet({ book, initial, instruments, onSave, onSaveSplit, onClose, 
             <>
               <label style={st.label}>Charges (optional)</label>
               <AmountField book={book} value={investCharge} onChange={setInvestCharge} compact />
-              <div style={{ fontSize: 12, color: C.muted, marginTop: 4 }}>
-                Stamp duty, transaction fees — posted to Finance charges, not counted as invested.
+              <div style={{ fontSize: 11, color: C.faint, marginTop: 3 }}>
+                Stamp duty/fees — not counted as invested.
               </div>
             </>
           )}
         </>
       )}
-      <label style={st.label}>Note</label>
-      <input style={st.input} value={note} placeholder="Optional" onChange={(e) => setNote(e.target.value)} />
-      <label style={st.label}>Date</label>
-      <input style={st.input} type="date" value={date} onChange={(e) => setDate(e.target.value)} />
-      <div style={{ display: "flex", gap: 10, marginTop: 20 }}>
+      <div style={{ display: "flex", gap: 8 }}>
+        <div style={{ flex: 1.3 }}>
+          <label style={st.label}>Note</label>
+          <input style={st.input} value={note} placeholder="Optional" onChange={(e) => setNote(e.target.value)} />
+        </div>
+        <div style={{ flex: 1 }}>
+          <label style={st.label}>Date</label>
+          <input style={st.input} type="date" value={date} onChange={(e) => setDate(e.target.value)} />
+        </div>
+      </div>
+      <div style={{ display: "flex", gap: 10, marginTop: 16 }}>
         {type === "split" ? (
           <PrimaryBtn disabled={!splitValid} style={{ flex: 1, opacity: splitValid ? 1 : 0.5 }} onClick={saveSplit}>
             Add split
