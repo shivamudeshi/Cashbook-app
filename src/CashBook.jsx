@@ -181,14 +181,24 @@ export function parseBankSms(text) {
   return { amount, type, note, date };
 }
 
-/* ────────────────────────── money helpers ────────────────────────── */
+/* ────────────────────────── money helpers ──────────────────────────
+   Amounts round to the nearest paisa (2dp) — the real floor of INR — not
+   the nearest rupee. Rounding to a fixed 2dp (rather than leaving floats
+   unrounded) keeps sums from drifting on ordinary float arithmetic. */
+const toPaise = (n) => Math.round(n * 100) / 100;
+// Whole rupees show with no decimals ("₹500"); anything with a paisa
+// component always shows exactly 2 ("₹500.50", never "₹500.5").
+const rupeeDigits = (v) => (Math.abs(v % 1) > 1e-9 ? 2 : 0);
+
 export function inr(n) {
-  const v = Math.round(n);
-  return (v < 0 ? "−" : "") + "₹" + Math.abs(v).toLocaleString("en-IN");
+  const v = toPaise(n);
+  const d = rupeeDigits(v);
+  const shown = Math.abs(v).toLocaleString("en-IN", { minimumFractionDigits: d, maximumFractionDigits: d });
+  return (v < 0 ? "−" : "") + "₹" + shown;
 }
 
 export function parseAmount(s) {
-  if (typeof s === "number") return Math.round(s);
+  if (typeof s === "number") return toPaise(s);
   if (!s) return NaN;
   const t = String(s).replace(/[₹,\s]/g, "").toLowerCase();
   const m = t.match(/^(\d+(?:\.\d+)?)(k|l|lac|lakh|lakhs|cr|crore)?$/);
@@ -197,7 +207,7 @@ export function parseAmount(s) {
     { k: 1e3, l: 1e5, lac: 1e5, lakh: 1e5, lakhs: 1e5, cr: 1e7, crore: 1e7 }[
       m[2]
     ] || 1;
-  return Math.round(parseFloat(m[1]) * mult);
+  return toPaise(parseFloat(m[1]) * mult);
 }
 
 /* ─────────────────── calendar: Indian FY (Apr–Mar) ─────────────────── */
@@ -258,9 +268,15 @@ export function isRefund(db, e) {
 // sell as it happens. This has to walk from the very beginning every time
 // (not just whatever window is being reported on) because average cost
 // basis is cumulative — a sell's realized gain depends on every buy that
-// came before it.
+// came before it. Each holding's state seeds from opening.holdings — a
+// starting position for investments bought before this book started
+// tracking them, same idea as opening.bank/opening.accounts (a single
+// seeded number, not a transaction, so it never touches bank balances).
 function walkHoldings(db, uptoDate) {
   const state = {};
+  for (const [id, o] of Object.entries((db.opening && db.opening.holdings) || {})) {
+    state[id] = { units: o.units || 0, costBasis: o.costBasis || 0 };
+  }
   const realized = [];
   const rows = (db.entries || [])
     .filter((e) => e.type === "holding" && e.date <= uptoDate && isExplained(e))
@@ -422,6 +438,13 @@ export function computeBS(db, asOf, prices) {
     const o = (db.opening && db.opening.accounts && db.opening.accounts[a.name]) || 0;
     openingCapital += a.kind === "liability" ? -o : o;
   }
+  // An opening holding is an asset seeded before this book existed, same as
+  // an opening account balance — its cost basis has to fold into opening
+  // capital too, or the sheet can't foot (the asset would appear with no
+  // offsetting equity).
+  for (const o of Object.values((db.opening && db.opening.holdings) || {})) {
+    openingCapital += o.costBasis || 0;
+  }
   // Accruals reserve offsets only the memo component: cash lent/borrowed is an
   // asset swap with Bank, but memos must stay off the cash-basis P&L.
   // Unrealized gain/(loss) offsets the gap between a holding's market value
@@ -443,7 +466,9 @@ export function computeBS(db, asOf, prices) {
   return {
     assets, liabilities, equity,
     totalAssets, totalLiabilities, totalEquity,
-    balanced: totalAssets === totalLiabilities + totalEquity,
+    // Epsilon rather than strict equality: paise-precision amounts can
+    // leave a sub-paise float residue after summing many entries.
+    balanced: Math.abs(totalAssets - (totalLiabilities + totalEquity)) < 0.01,
   };
 }
 
@@ -468,7 +493,7 @@ export function defaultBook() {
       { id: uid(), name: "Party 2" },
       { id: uid(), name: "Party 3" },
     ],
-    opening: { asOf: today(), bank: 0, accounts: {} },
+    opening: { asOf: today(), bank: 0, accounts: {}, holdings: {} },
     owedMemos: [],
     codingRules: DEFAULT_CODING_RULES.map((r) => ({ ...r })),
     prefs: {
@@ -491,6 +516,7 @@ function normalizeBook(j) {
   if (!b.heads.income.includes("Capital gains")) b.heads.income.push("Capital gains");
   b.opening = { ...d.opening, ...(j.opening || {}) };
   if (!b.opening.accounts) b.opening.accounts = {};
+  if (!b.opening.holdings) b.opening.holdings = {};
   for (const k of ["entries", "bsAccounts", "parties", "owedMemos", "codingRules", "partyNotes", "holdings"]) {
     if (!Array.isArray(b[k])) b[k] = d[k];
   }
@@ -775,6 +801,7 @@ if (typeof window !== "undefined") {
     computePL, balancesAsOf, owedAsOf, computeBS, defaultBook,
     parseStatementText, suggestHead, keywordOf, parseBankSms, parsePdfTable,
     isExplained, isRefund, entryVisual, holdingsAsOf, holdingsValue,
+    money, navPrice,
   };
 }
 
@@ -840,8 +867,18 @@ export function compareRange(span, fy, from, to, mode) {
 /* display formatting driven by prefs */
 const cur = (book) => (book && book.prefs && book.prefs.currency) || "₹";
 function money(book, n) {
-  const v = Math.round(n || 0);
-  return (v < 0 ? "−" : "") + cur(book) + Math.abs(v).toLocaleString("en-IN");
+  const v = toPaise(n || 0);
+  const d = rupeeDigits(v);
+  const shown = Math.abs(v).toLocaleString("en-IN", { minimumFractionDigits: d, maximumFractionDigits: d });
+  return (v < 0 ? "−" : "") + cur(book) + shown;
+}
+// Per-unit prices (NAV, average cost, CMP, price/gram) need more precision
+// than a currency total — AMFI publishes NAV to 4 decimal places — so this
+// is deliberately separate from money(), which caps at paise for totals.
+function navPrice(book, n) {
+  const v = Math.round((n || 0) * 10000) / 10000;
+  const shown = Math.abs(v).toLocaleString("en-IN", { minimumFractionDigits: 0, maximumFractionDigits: 4 });
+  return (v < 0 ? "−" : "") + cur(book) + shown;
 }
 function compactMoney(book, n) {
   const v = Math.abs(Math.round(n || 0));
@@ -1143,6 +1180,118 @@ function FilterChip({ label, active, onClick, pop }) {
     >
       {label}
     </button>
+  );
+}
+
+// Drop-in replacement for a native <select style={st.input}> — a native
+// select's open state is the OS's own picker, which ignores every bit of
+// this app's styling. This renders a trigger that looks like st.input and
+// expands an inline in-app options panel instead, matching TxView's filter
+// popovers. `options` is [{v, label}]; long lists (roughly >6 options, e.g.
+// a fiscal-year span picker) render as a scrollable vertical list instead
+// of wrapped chips.
+// `style` visually styles the trigger button (fontSize, color, padding,
+// background, border-radius…) same as a native <select style={...}> did.
+// `wrapStyle` sizes the OUTER wrapper within its parent flex row (flex,
+// width, margin…) — kept separate because those two concerns land on
+// different DOM nodes here (button vs. its positioning wrapper), unlike a
+// plain <select> where one style prop covered both.
+function DropdownField({ value, options, onChange, placeholder, style, wrapStyle }) {
+  const [open, setOpen] = useState(false);
+  const [pos, setPos] = useState(null); // {top, left, width} in viewport coords
+  const triggerRef = useRef(null);
+  const panelRef = useRef(null);
+
+  const openPanel = () => {
+    const r = triggerRef.current.getBoundingClientRect();
+    setPos({ top: r.bottom + 6, left: r.left, width: r.width });
+    setOpen(true);
+  };
+
+  // Portaled to document.body (below) so the panel always paints above the
+  // rest of the page — some ancestor along the way (a card with a
+  // fade-in animation, a sticky header) would otherwise trap a merely
+  // locally-high z-index inside its own stacking context and the panel
+  // would render underneath later page content. Closes on scroll rather
+  // than tracking it, since it's fixed-positioned from the trigger's
+  // on-open snapshot, not continuously re-measured.
+  useEffect(() => {
+    if (!open) return;
+    const onDocMouseDown = (e) => {
+      if (triggerRef.current && triggerRef.current.contains(e.target)) return;
+      if (panelRef.current && panelRef.current.contains(e.target)) return;
+      setOpen(false);
+    };
+    const onScroll = () => setOpen(false);
+    document.addEventListener("mousedown", onDocMouseDown);
+    window.addEventListener("scroll", onScroll, true);
+    window.addEventListener("resize", onScroll);
+    return () => {
+      document.removeEventListener("mousedown", onDocMouseDown);
+      window.removeEventListener("scroll", onScroll, true);
+      window.removeEventListener("resize", onScroll);
+    };
+  }, [open]);
+
+  const current = options.find((o) => o.v === value);
+  const long = options.length > 6;
+  return (
+    <div style={{ position: "relative", ...wrapStyle }}>
+      <button
+        ref={triggerRef}
+        type="button"
+        className="cb-press"
+        onClick={() => (open ? setOpen(false) : openPanel())}
+        style={{
+          ...st.input, width: "100%", boxSizing: "border-box", display: "flex", alignItems: "center", justifyContent: "space-between",
+          gap: 8, textAlign: "left", cursor: "pointer", fontFamily: F.sans, color: C.ink, ...style,
+        }}
+      >
+        <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+          {current ? current.label : (placeholder || "Select…")}
+        </span>
+        <Ic name="chevronDown" size={13} stroke={C.faint} />
+      </button>
+      {open && pos && createPortal(
+        <div
+          ref={panelRef}
+          className="cb-view"
+          style={{
+            position: "fixed", zIndex: 40, top: pos.top, left: pos.left,
+            minWidth: pos.width, maxWidth: "calc(100vw - 24px)",
+            background: C.sheetBg, border: C.border, borderRadius: 16, padding: 10, boxShadow: C.shadow,
+          }}
+        >
+          {long ? (
+            <div style={{ maxHeight: 260, overflowY: "auto", display: "grid", gap: 2 }}>
+              {options.map((o) => (
+                <button
+                  key={o.v}
+                  type="button"
+                  className="cb-press"
+                  onClick={() => { onChange(o.v); setOpen(false); }}
+                  style={{
+                    textAlign: "left", padding: "10px 12px", borderRadius: 10, border: "none",
+                    background: o.v === value ? "rgba(167,139,250,.18)" : "none",
+                    color: o.v === value ? C.accentText : C.soft, fontSize: 13.5, fontWeight: 700,
+                    fontFamily: F.sans, cursor: "pointer",
+                  }}
+                >
+                  {o.label}
+                </button>
+              ))}
+            </div>
+          ) : (
+            <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+              {options.map((o) => (
+                <FilterChip key={o.v} label={o.label} active={o.v === value} onClick={() => { onChange(o.v); setOpen(false); }} />
+              ))}
+            </div>
+          )}
+        </div>,
+        document.body
+      )}
+    </div>
   );
 }
 
@@ -1936,9 +2085,9 @@ const INVEST_KIND_LABEL = { mf: "Mutual Fund", stock: "Stock", gold: "Gold" };
 
 function investDetailLine(book, r) {
   const unit = r.price != null ? r.price : (r.units ? r.costBasis / r.units : 0);
-  if (r.kind === "mf") return `Units ${r.units.toFixed(3)} · NAV ${money(book, unit)}`;
-  if (r.kind === "stock") return `Qty ${r.units.toFixed(0)} · Avg ${money(book, r.units ? r.costBasis / r.units : 0)} · CMP ${money(book, unit)}`;
-  return `${r.units.toFixed(2)}g · ${money(book, unit)}/g`;
+  if (r.kind === "mf") return `Units ${r.units.toFixed(3)} · NAV ${navPrice(book, unit)}`;
+  if (r.kind === "stock") return `Qty ${r.units.toFixed(0)} · Avg ${navPrice(book, r.units ? r.costBasis / r.units : 0)} · CMP ${navPrice(book, unit)}`;
+  return `${r.units.toFixed(2)}g · ${navPrice(book, unit)}/g`;
 }
 
 function InvestmentsPage({ book, prices, instruments, onClose, onAdd, onEdit, onManage, onRefresh }) {
@@ -2025,18 +2174,13 @@ function InvestmentsPage({ book, prices, instruments, onClose, onAdd, onEdit, on
               Total Investment Value
               <Ic name={hidden ? "eyeOff" : "eye"} size={13} stroke={C.faint} />
             </button>
-            <select
+            <DropdownField
               value={valueMode}
-              onChange={(e) => setValueMode(e.target.value)}
-              style={{
-                padding: "6px 12px", borderRadius: 999, border: "1px solid rgba(255,255,255,.16)",
-                background: "rgba(255,255,255,.06)", color: "#e2d6fb", fontSize: 12, fontWeight: 700,
-                fontFamily: F.sans, cursor: "pointer",
-              }}
-            >
-              <option value="market">Market Value</option>
-              <option value="invested">Invested Amount</option>
-            </select>
+              onChange={setValueMode}
+              options={[{ v: "market", label: "Market Value" }, { v: "invested", label: "Invested Amount" }]}
+              style={{ padding: "6px 12px", borderRadius: 999, fontSize: 12, color: "#e2d6fb" }}
+              wrapStyle={{ flexShrink: 0 }}
+            />
           </div>
           <div style={{ display: "flex", alignItems: "flex-end", gap: 12, marginTop: 14 }}>
             <div style={{ fontSize: 30, fontWeight: 800, color: "#fff", fontVariantNumeric: "tabular-nums" }}>
@@ -2093,15 +2237,13 @@ function InvestmentsPage({ book, prices, instruments, onClose, onAdd, onEdit, on
 
         <div style={{ display: "flex", alignItems: "center", marginTop: 16, marginBottom: 4 }}>
           <div style={{ flex: 1, fontSize: 15, fontWeight: 800, color: C.ink }}>All Investments ({sorted.length})</div>
-          <select
+          <DropdownField
             value={sortBy}
-            onChange={(e) => setSortBy(e.target.value)}
-            style={{ border: "none", background: "none", color: C.accentText, fontSize: 12, fontWeight: 700, fontFamily: F.sans, cursor: "pointer" }}
-          >
-            <option value="value">Sort: Value</option>
-            <option value="name">Sort: Name</option>
-            <option value="gain">Sort: Gain %</option>
-          </select>
+            onChange={setSortBy}
+            options={[{ v: "value", label: "Sort: Value" }, { v: "name", label: "Sort: Name" }, { v: "gain", label: "Sort: Gain %" }]}
+            style={{ border: "none", background: "none", padding: 0, color: C.accentText, fontSize: 12 }}
+            wrapStyle={{ flexShrink: 0 }}
+          />
         </div>
 
         <div style={{ ...glass(18), overflow: "hidden", background: C.glassSoft, border: C.borderSoft }}>
@@ -2586,11 +2728,11 @@ function TxView({ book, up, onEdit, initialFilter }) {
           {bulkDest === "transfer" && (
             <div style={{ marginTop: 14 }}>
               <label style={st.label}>Account</label>
-              <select style={st.input} value={bulkAccount} onChange={(e) => setBulkAccount(e.target.value)}>
-                {book.bsAccounts.map((a) => (
-                  <option key={a.name} value={a.name}>{a.name} ({a.kind})</option>
-                ))}
-              </select>
+              <DropdownField
+                value={bulkAccount}
+                onChange={setBulkAccount}
+                options={book.bsAccounts.map((a) => ({ v: a.name, label: `${a.name} (${a.kind})` }))}
+              />
               <div style={{ fontSize: 12, color: C.muted, marginTop: 8 }}>
                 Each entry's own money-in/money-out direction carries over as its transfer direction.
               </div>
@@ -2606,11 +2748,11 @@ function TxView({ book, up, onEdit, initialFilter }) {
           {bulkDest === "party" && (
             <div style={{ marginTop: 14 }}>
               <label style={st.label}>Party</label>
-              <select style={st.input} value={bulkParty} onChange={(e) => setBulkParty(e.target.value)}>
-                {book.parties.map((p) => (
-                  <option key={p.id} value={p.id}>{p.name}</option>
-                ))}
-              </select>
+              <DropdownField
+                value={bulkParty}
+                onChange={setBulkParty}
+                options={book.parties.map((p) => ({ v: p.id, label: p.name }))}
+              />
               <div style={{ fontSize: 12, color: C.muted, marginTop: 8 }}>
                 Each entry's own money-in/money-out direction carries over ("Paid them" / "They paid me"), and these entries update Owed instead of the P&L.
               </div>
@@ -3181,18 +3323,26 @@ function PLPage({ book }) {
   return (
     <div className="cb-stagger">
       <div className="cb-noprint" style={{ display: "flex", gap: 8 }}>
-        <select style={{ ...st.input, flex: "0 0 118px" }} value={fy} onChange={(e) => setFy(+e.target.value)}>
-          {fys.map((y) => <option key={y} value={y}>FY {y}–{String(y + 1).slice(2)}</option>)}
-        </select>
-        <select style={st.input} value={span} onChange={(e) => setSpan(e.target.value)}>
-          <option value="year">Full year</option>
-          <option value="q1">Q1 · Apr–Jun</option>
-          <option value="q2">Q2 · Jul–Sep</option>
-          <option value="q3">Q3 · Oct–Dec</option>
-          <option value="q4">Q4 · Jan–Mar</option>
-          {MONTH_NAMES.map((m, i) => <option key={m} value={`m${i}`}>{m} {i < 9 ? fy : fy + 1}</option>)}
-          <option value="custom">Custom range…</option>
-        </select>
+        <DropdownField
+          wrapStyle={{ flex: "0 0 118px" }}
+          value={fy}
+          onChange={(v) => setFy(+v)}
+          options={fys.map((y) => ({ v: y, label: `FY ${y}–${String(y + 1).slice(2)}` }))}
+        />
+        <DropdownField
+          wrapStyle={{ flex: 1 }}
+          value={span}
+          onChange={setSpan}
+          options={[
+            { v: "year", label: "Full year" },
+            { v: "q1", label: "Q1 · Apr–Jun" },
+            { v: "q2", label: "Q2 · Jul–Sep" },
+            { v: "q3", label: "Q3 · Oct–Dec" },
+            { v: "q4", label: "Q4 · Jan–Mar" },
+            ...MONTH_NAMES.map((m, i) => ({ v: `m${i}`, label: `${m} ${i < 9 ? fy : fy + 1}` })),
+            { v: "custom", label: "Custom range…" },
+          ]}
+        />
       </div>
       {span === "custom" && (
         <div className="cb-noprint" style={{ display: "flex", gap: 8, marginTop: 8 }}>
@@ -3679,6 +3829,27 @@ function OpeningAmount({ book, value, onCommit }) {
   );
 }
 
+// Same pattern as OpeningAmount, but a plain unit count (fund units, share
+// quantity, grams) rather than a currency amount — parseFloat, not
+// parseAmount's ₹/k/L shorthand.
+function OpeningUnitsField({ value, onCommit }) {
+  const [v, setV] = useState(String(value || 0));
+  useEffect(() => setV(String(value || 0)), [value]);
+  return (
+    <input
+      style={{ ...st.input, width: 104, textAlign: "right", padding: "9px 10px", fontSize: 13.5, fontWeight: 700 }}
+      inputMode="decimal"
+      value={v}
+      onChange={(e) => setV(e.target.value)}
+      onBlur={() => {
+        const n = parseFloat(v);
+        if (!isNaN(n)) onCommit(n);
+        else setV(String(value || 0));
+      }}
+    />
+  );
+}
+
 function SetupAccountsPage({ book, up }) {
   const [confirmDel, setConfirmDel] = useState("");
   const [adding, setAdding] = useState(false);
@@ -3706,6 +3877,9 @@ function SetupAccountsPage({ book, up }) {
   for (const a of book.bsAccounts) {
     const o = book.opening.accounts[a.name] || 0;
     openingCapital += a.kind === "liability" ? -o : o;
+  }
+  for (const o of Object.values(book.opening.holdings || {})) {
+    openingCapital += o.costBasis || 0;
   }
 
   return (
@@ -3818,8 +3992,10 @@ function SetupAccountsPage({ book, up }) {
   );
 }
 
-function SetupHoldingsPage({ book, up }) {
+function SetupHoldingsPage({ book, up, instruments }) {
   const [confirmDel, setConfirmDel] = useState("");
+  const [adding, setAdding] = useState(false);
+  const [newSel, setNewSel] = useState({ kind: "mf", holdingId: "", instrumentId: "", label: "" });
   const rows = holdingsAsOf(book, today());
 
   const renameHolding = (id, newLabel) =>
@@ -3831,8 +4007,37 @@ function SetupHoldingsPage({ book, up }) {
   const removeHolding = (id) =>
     up((b) => {
       b.holdings = b.holdings.filter((x) => x.id !== id);
+      delete b.opening.holdings[id];
       return b;
     });
+  const setOpeningUnits = (id, units) =>
+    up((b) => {
+      const cur = b.opening.holdings[id] || { units: 0, costBasis: 0 };
+      b.opening.holdings[id] = { ...cur, units };
+      return b;
+    });
+  const setOpeningCost = (id, costBasis) =>
+    up((b) => {
+      const cur = b.opening.holdings[id] || { units: 0, costBasis: 0 };
+      b.opening.holdings[id] = { ...cur, costBasis };
+      return b;
+    });
+
+  const canAddHolding = !newSel.holdingId && (newSel.kind === "gold" ? newSel.label.trim() : newSel.instrumentId);
+  const addHolding = () => {
+    if (!canAddHolding) return;
+    up((b) => {
+      b.holdings.push({
+        id: uid(), kind: newSel.kind,
+        instrumentId: newSel.kind === "gold" ? "gold:" + uid() : newSel.instrumentId,
+        label: newSel.label.trim() || "Gold",
+        units: 0, costBasis: 0,
+      });
+      return b;
+    });
+    setAdding(false);
+    setNewSel({ kind: "mf", holdingId: "", instrumentId: "", label: "" });
+  };
 
   return (
     <div className="cb-stagger">
@@ -3849,25 +4054,60 @@ function SetupHoldingsPage({ book, up }) {
         </div>
       )}
       <div style={{ fontSize: 12.5, color: C.muted, marginBottom: 12 }}>
-        New holdings are added from the Invest entry kind when you buy something for the first time — this list is for renaming or removing ones you no longer hold.
+        Rename or remove holdings here, and set an opening position for
+        anything you already held before using this app — no transaction
+        needed, same as an account's opening balance.
       </div>
       <div style={{ ...glass(18), overflow: "hidden", background: C.glassSoft, border: C.borderSoft }}>
         {rows.map((h, i) => {
           const v = HOLDING_VISUALS[h.kind];
           const removable = h.units <= 0.0001 && Math.abs(h.costBasis) <= 0.0001;
+          const opening = (book.opening.holdings && book.opening.holdings[h.id]) || { units: 0, costBasis: 0 };
           return (
-            <div key={h.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "13px 16px", borderTop: i === 0 ? "none" : `1px solid ${C.line}` }}>
-              <Orb size={38} radius={11} grad={`linear-gradient(135deg, ${v.color}, ${v.color}99)`}><Ic name={v.icon} size={16} /></Orb>
-              <NameEditor value={h.label} onCommit={(n) => renameHolding(h.id, n)} />
-              <span style={{ fontSize: 11, color: C.muted, flexShrink: 0 }}>{INVEST_KIND_LABEL[h.kind]}</span>
-              <RoundBtn style={{ width: 30, height: 30, opacity: removable ? 1 : 0.35 }} aria-label={`Remove ${h.label}`} disabled={!removable} onClick={() => removable && setConfirmDel(h.id)}>
-                <Ic name="trash" size={13} stroke={C.red} />
-              </RoundBtn>
+            <div key={h.id} style={{ padding: "13px 16px", borderTop: i === 0 ? "none" : `1px solid ${C.line}` }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                <Orb size={38} radius={11} grad={`linear-gradient(135deg, ${v.color}, ${v.color}99)`}><Ic name={v.icon} size={16} /></Orb>
+                <NameEditor value={h.label} onCommit={(n) => renameHolding(h.id, n)} />
+                <span style={{ fontSize: 11, color: C.muted, flexShrink: 0 }}>{INVEST_KIND_LABEL[h.kind]}</span>
+                <RoundBtn style={{ width: 30, height: 30, opacity: removable ? 1 : 0.35 }} aria-label={`Remove ${h.label}`} disabled={!removable} onClick={() => removable && setConfirmDel(h.id)}>
+                  <Ic name="trash" size={13} stroke={C.red} />
+                </RoundBtn>
+              </div>
+              <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 8, paddingLeft: 48 }}>
+                <span style={{ flex: 1, fontSize: 11.5, color: C.muted }}>Opening units</span>
+                <OpeningUnitsField value={opening.units} onCommit={(n) => setOpeningUnits(h.id, n)} />
+              </div>
+              <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 6, paddingLeft: 48 }}>
+                <span style={{ flex: 1, fontSize: 11.5, color: C.muted }}>Opening cost</span>
+                <OpeningAmount book={book} value={opening.costBasis} onCommit={(n) => setOpeningCost(h.id, n)} />
+              </div>
             </div>
           );
         })}
         {rows.length === 0 && <div style={{ padding: "20px 16px", fontSize: 13, color: C.muted, textAlign: "center" }}>No holdings yet.</div>}
       </div>
+
+      {!adding ? (
+        <button className="cb-press" onClick={() => setAdding(true)}
+          style={{ width: "100%", marginTop: 14, padding: "13px 0", border: "1px dashed rgba(255,255,255,.25)", borderRadius: 14, background: "rgba(255,255,255,.04)", color: C.accentText, fontWeight: 700, fontSize: 13.5, fontFamily: F.sans, cursor: "pointer" }}>
+          + Add Holding
+        </button>
+      ) : (
+        <div className="cb-view" style={{ ...glass(20), padding: 18, marginTop: 14 }}>
+          <HoldingPicker book={book} instruments={instruments} onChange={setNewSel} />
+          <div style={{ fontSize: 12, color: C.muted, marginTop: 8 }}>
+            Registers the holding with zero units — set its opening
+            position in the list above once it's added.
+          </div>
+          <PrimaryBtn
+            style={{ width: "100%", marginTop: 14, opacity: canAddHolding ? 1 : 0.5 }}
+            disabled={!canAddHolding}
+            onClick={addHolding}
+          >
+            Add Holding
+          </PrimaryBtn>
+        </div>
+      )}
     </div>
   );
 }
@@ -3940,14 +4180,20 @@ function SetupCategoriesPage({ book, up }) {
           Mapped categories (like SIP → Investments) build the balance sheet instead of hitting the P&L.
         </div>
         <div style={{ display: "flex", gap: 8 }}>
-          <select style={{ ...st.input, flex: 1, padding: "9px 10px", fontSize: 13 }} value={mapHead} onChange={(e) => setMapHead(e.target.value)}>
-            <option value="">category…</option>
-            {[...book.heads.expense, ...book.heads.income].map((h) => <option key={h} value={h}>{h}</option>)}
-          </select>
-          <select style={{ ...st.input, flex: 1, padding: "9px 10px", fontSize: 13 }} value={mapAcct} onChange={(e) => setMapAcct(e.target.value)}>
-            <option value="">P&L (none)</option>
-            {book.bsAccounts.map((a) => <option key={a.name} value={a.name}>{a.name}</option>)}
-          </select>
+          <DropdownField
+            wrapStyle={{ flex: 1 }}
+            style={{ padding: "9px 10px", fontSize: 13 }}
+            value={mapHead}
+            onChange={setMapHead}
+            options={[{ v: "", label: "category…" }, ...[...book.heads.expense, ...book.heads.income].map((h) => ({ v: h, label: h }))]}
+          />
+          <DropdownField
+            wrapStyle={{ flex: 1 }}
+            style={{ padding: "9px 10px", fontSize: 13 }}
+            value={mapAcct}
+            onChange={setMapAcct}
+            options={[{ v: "", label: "P&L (none)" }, ...book.bsAccounts.map((a) => ({ v: a.name, label: a.name }))]}
+          />
           <button className="cb-press" disabled={!mapHead}
             onClick={() => up((b) => ((mapAcct ? (b.headClass[mapHead] = mapAcct) : delete b.headClass[mapHead]), b))}
             style={{ padding: "9px 14px", border: "none", borderRadius: 10, background: C.grad, color: "#fff", fontWeight: 700, fontSize: 12.5, fontFamily: F.sans, cursor: "pointer", opacity: mapHead ? 1 : 0.5 }}>
@@ -3975,10 +4221,13 @@ function SetupCategoriesPage({ book, up }) {
         </div>
         <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
           <input style={{ ...st.input, flex: 1, padding: "9px 10px", fontSize: 13 }} placeholder="keyword" value={ruleMatch} onChange={(e) => setRuleMatch(e.target.value)} />
-          <select style={{ ...st.input, flex: 1, padding: "9px 10px", fontSize: 13 }} value={ruleHead} onChange={(e) => setRuleHead(e.target.value)}>
-            <option value="">category…</option>
-            {[...book.heads.expense, ...book.heads.income].map((h) => <option key={h} value={h}>{h}</option>)}
-          </select>
+          <DropdownField
+            wrapStyle={{ flex: 1 }}
+            style={{ padding: "9px 10px", fontSize: 13 }}
+            value={ruleHead}
+            onChange={setRuleHead}
+            options={[{ v: "", label: "category…" }, ...[...book.heads.expense, ...book.heads.income].map((h) => ({ v: h, label: h }))]}
+          />
           <button className="cb-press" disabled={!ruleMatch.trim() || !ruleHead}
             onClick={() => {
               const match = ruleMatch.trim().toLowerCase();
@@ -4264,6 +4513,99 @@ function NotificationsPage({ book }) {
     </div>
   );
 }
+// Kind + holding-search UI shared between EntrySheet's Invest kind (tied
+// to a buy/sell) and SetupHoldingsPage's "+ Add Holding" (registers a
+// holding with no transaction, for opening-position seeding). Owns its own
+// kind/search state; reports the current selection up via onChange
+// whenever it changes — `initial` only seeds the very first render.
+function HoldingPicker({ book, instruments, initial, onChange }) {
+  const [kind, setKind] = useState((initial && initial.kind) || "mf");
+  const [selectedHoldingId, setSelectedHoldingId] = useState((initial && initial.holdingId) || "");
+  const existingHolding = selectedHoldingId ? (book.holdings || []).find((h) => h.id === selectedHoldingId) : null;
+  const [query, setQuery] = useState((existingHolding && existingHolding.label) || "");
+  const [instrumentId, setInstrumentId] = useState((existingHolding && existingHolding.instrumentId) || "");
+  const [label, setLabel] = useState((existingHolding && existingHolding.label) || "");
+
+  const holdingsOfKind = (book.holdings || []).filter((h) => h.kind === kind);
+  const instrumentList = kind === "mf" ? (instruments?.mf || []) : (instruments?.stock || []);
+  const instrumentIdKey = kind === "mf" ? "code" : "symbol";
+  const searchResults = useMemo(() => {
+    if (kind === "gold" || query.trim().length < 2) return [];
+    const q = query.trim().toLowerCase();
+    const out = [];
+    for (const item of instrumentList) {
+      if (item.name.toLowerCase().includes(q)) {
+        out.push({ id: item[instrumentIdKey], name: item.name });
+        if (out.length >= 25) break;
+      }
+    }
+    return out;
+  }, [kind, query, instrumentList, instrumentIdKey]);
+
+  const changeKind = (v) => { setKind(v); setSelectedHoldingId(""); setQuery(""); setInstrumentId(""); setLabel(""); };
+  const changeHolding = (v) => { setSelectedHoldingId(v); setQuery(""); setInstrumentId(""); setLabel(""); };
+
+  useEffect(() => {
+    onChange({ kind, holdingId: selectedHoldingId, instrumentId, label });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [kind, selectedHoldingId, instrumentId, label]);
+
+  return (
+    <>
+      <label style={st.label}>Instrument Type</label>
+      <Seg value={kind} onChange={changeKind} options={[{ v: "mf", label: "Mutual Fund" }, { v: "stock", label: "Stock" }, { v: "gold", label: "Gold" }]} />
+      <label style={st.label}>Holding</label>
+      {holdingsOfKind.length > 0 && (
+        <DropdownField
+          value={selectedHoldingId}
+          onChange={changeHolding}
+          options={[{ v: "", label: "+ New holding…" }, ...holdingsOfKind.map((h) => ({ v: h.id, label: h.label }))]}
+        />
+      )}
+      {!selectedHoldingId && kind === "gold" && (
+        <input
+          style={{ ...st.input, marginTop: holdingsOfKind.length > 0 ? 8 : 0 }}
+          value={label}
+          placeholder="e.g. Gold Coins, SGB 2023"
+          onChange={(e) => setLabel(e.target.value)}
+        />
+      )}
+      {!selectedHoldingId && kind !== "gold" && (
+        <div style={{ marginTop: holdingsOfKind.length > 0 ? 8 : 0 }}>
+          <input
+            style={st.input}
+            value={query}
+            placeholder={`Search ${kind === "mf" ? "mutual funds" : "stocks"} by name…`}
+            onChange={(e) => { setQuery(e.target.value); setInstrumentId(""); }}
+          />
+          {query.trim().length >= 2 && (
+            <div style={{ maxHeight: 200, overflowY: "auto", border: C.borderSoft, borderRadius: 12, marginTop: 6 }}>
+              {searchResults.map((r) => (
+                <button
+                  key={r.id}
+                  className="cb-press"
+                  onClick={() => { setInstrumentId(r.id); setLabel(r.name); setQuery(r.name); }}
+                  style={{
+                    display: "block", width: "100%", textAlign: "left", padding: "9px 12px",
+                    border: "none", borderBottom: `1px solid ${C.line}`, fontFamily: F.sans,
+                    background: instrumentId === r.id ? "rgba(167,139,250,.14)" : "none",
+                    color: C.soft, fontSize: 12.5, cursor: "pointer",
+                  }}
+                >
+                  {r.name}
+                </button>
+              ))}
+              {searchResults.length === 0 && (
+                <div style={{ padding: "9px 12px", fontSize: 12, color: C.faint }}>No matches</div>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+    </>
+  );
+}
+
 /* ────────────────────── add / edit entry sheet ────────────────────── */
 function EntrySheet({ book, initial, instruments, onSave, onSaveSplit, onClose, onDelete }) {
   const editing = !!(initial && initial.id);
@@ -4282,11 +4624,12 @@ function EntrySheet({ book, initial, instruments, onSave, onSaveSplit, onClose, 
 
   const editingHolding = initial?.type === "holding" ? (book.holdings || []).find((h) => h.id === initial.holdingId) : null;
   const [investDir, setInvestDir] = useState(initial?.dir === "sell" ? "sell" : "buy");
-  const [investKind, setInvestKind] = useState(editingHolding?.kind || "mf");
-  const [selectedHoldingId, setSelectedHoldingId] = useState(initial?.holdingId || "");
-  const [investQuery, setInvestQuery] = useState(editingHolding?.label || "");
-  const [investInstrumentId, setInvestInstrumentId] = useState(editingHolding?.instrumentId || "");
-  const [investLabel, setInvestLabel] = useState(editingHolding?.label || "");
+  const [investSel, setInvestSel] = useState({
+    kind: editingHolding?.kind || "mf",
+    holdingId: initial?.holdingId || "",
+    instrumentId: editingHolding?.instrumentId || "",
+    label: editingHolding?.label || "",
+  });
   const [investUnits, setInvestUnits] = useState(initial?.units != null && initial?.type === "holding" ? String(initial.units) : "");
   const [investCharge, setInvestCharge] = useState(initial?.charge ? String(initial.charge) : "");
 
@@ -4298,24 +4641,8 @@ function EntrySheet({ book, initial, instruments, onSave, onSaveSplit, onClose, 
     !isNaN(amt) && amt > 0 && date &&
     (type === "transfer" ? !!account
       : type === "party" ? !!partyId
-      : type === "invest" ? (investUnitsNum > 0 && (selectedHoldingId || (investKind === "gold" ? investLabel.trim() : investInstrumentId)))
+      : type === "invest" ? (investUnitsNum > 0 && (investSel.holdingId || (investSel.kind === "gold" ? investSel.label.trim() : investSel.instrumentId)))
       : !!effHead);
-
-  const holdingsOfKind = (book.holdings || []).filter((h) => h.kind === investKind);
-  const instrumentList = investKind === "mf" ? (instruments?.mf || []) : (instruments?.stock || []);
-  const instrumentIdKey = investKind === "mf" ? "code" : "symbol";
-  const searchResults = useMemo(() => {
-    if (investKind === "gold" || investQuery.trim().length < 2) return [];
-    const q = investQuery.trim().toLowerCase();
-    const out = [];
-    for (const item of instrumentList) {
-      if (item.name.toLowerCase().includes(q)) {
-        out.push({ id: item[instrumentIdKey], name: item.name });
-        if (out.length >= 25) break;
-      }
-    }
-    return out;
-  }, [investKind, investQuery, instrumentList, instrumentIdKey]);
 
   const save = (overrides = {}) => {
     const e = { id: editing ? initial.id : uid(), date, amount: amt, type, note: note.trim() };
@@ -4326,11 +4653,11 @@ function EntrySheet({ book, initial, instruments, onSave, onSaveSplit, onClose, 
       e.dir = investDir;
       e.units = investUnitsNum || 0;
       e.charge = investDir === "buy" ? (parseAmount(investCharge) || 0) : 0;
-      if (selectedHoldingId) e.holdingId = selectedHoldingId;
+      if (investSel.holdingId) e.holdingId = investSel.holdingId;
       else {
-        e.newHolding = investKind === "gold"
-          ? { kind: "gold", instrumentId: "gold:" + uid(), label: investLabel.trim() || "Gold" }
-          : { kind: investKind, instrumentId: investInstrumentId, label: investLabel.trim() };
+        e.newHolding = investSel.kind === "gold"
+          ? { kind: "gold", instrumentId: "gold:" + uid(), label: investSel.label.trim() || "Gold" }
+          : { kind: investSel.kind, instrumentId: investSel.instrumentId, label: investSel.label.trim() };
       }
     }
     else e.head = effHead;
@@ -4422,16 +4749,13 @@ function EntrySheet({ book, initial, instruments, onSave, onSaveSplit, onClose, 
           {participants.map((p, i) => (
             <div key={p.key} style={{ display: "flex", gap: 6, alignItems: "center", marginBottom: 8 }}>
               {book.parties.length > 0 && (
-                <select
-                  style={{ ...st.input, flex: 1, padding: "9px 10px", fontSize: 13 }}
+                <DropdownField
+                  wrapStyle={{ flex: 1 }}
+                  style={{ padding: "9px 10px", fontSize: 13 }}
                   value={p.partyId}
-                  onChange={(e) => updateParticipant(p.key, { partyId: e.target.value })}
-                >
-                  <option value="">+ New person…</option>
-                  {book.parties.map((party) => (
-                    <option key={party.id} value={party.id}>{party.name}</option>
-                  ))}
-                </select>
+                  onChange={(v) => updateParticipant(p.key, { partyId: v })}
+                  options={[{ v: "", label: "+ New person…" }, ...book.parties.map((party) => ({ v: party.id, label: party.name }))]}
+                />
               )}
               {!p.partyId && (
                 <input
@@ -4473,11 +4797,11 @@ function EntrySheet({ book, initial, instruments, onSave, onSaveSplit, onClose, 
       {type === "transfer" && (
         <>
           <label style={st.label}>Account</label>
-          <select style={st.input} value={account} onChange={(e) => setAccount(e.target.value)}>
-            {book.bsAccounts.map((a) => (
-              <option key={a.name} value={a.name}>{a.name} ({a.kind})</option>
-            ))}
-          </select>
+          <DropdownField
+            value={account}
+            onChange={setAccount}
+            options={book.bsAccounts.map((a) => ({ v: a.name, label: `${a.name} (${a.kind})` }))}
+          />
           <label style={st.label}>Direction</label>
           <DirSeg options={[{ v: "out", label: "Out of bank" }, { v: "in", label: "Into bank" }]} />
         </>
@@ -4485,11 +4809,11 @@ function EntrySheet({ book, initial, instruments, onSave, onSaveSplit, onClose, 
       {type === "party" && (
         <>
           <label style={st.label}>Party</label>
-          <select style={st.input} value={partyId} onChange={(e) => setPartyId(e.target.value)}>
-            {book.parties.map((p) => (
-              <option key={p.id} value={p.id}>{p.name}</option>
-            ))}
-          </select>
+          <DropdownField
+            value={partyId}
+            onChange={setPartyId}
+            options={book.parties.map((p) => ({ v: p.id, label: p.name }))}
+          />
           <label style={st.label}>Direction</label>
           <DirSeg options={[{ v: "out", label: "Paid them" }, { v: "in", label: "They paid me" }]} />
           <div style={{ fontSize: 12, color: C.muted, marginTop: 6 }}>
@@ -4501,66 +4825,12 @@ function EntrySheet({ book, initial, instruments, onSave, onSaveSplit, onClose, 
         <>
           <label style={st.label}>Buy or Sell</label>
           <Seg value={investDir} onChange={setInvestDir} options={[{ v: "buy", label: "Buy" }, { v: "sell", label: "Sell" }]} />
-          <label style={st.label}>Instrument Type</label>
-          <Seg
-            value={investKind}
-            onChange={(v) => { setInvestKind(v); setSelectedHoldingId(""); setInvestQuery(""); setInvestInstrumentId(""); setInvestLabel(""); }}
-            options={[{ v: "mf", label: "Mutual Fund" }, { v: "stock", label: "Stock" }, { v: "gold", label: "Gold" }]}
+          <HoldingPicker
+            book={book} instruments={instruments}
+            initial={{ holdingId: initial?.type === "holding" ? initial.holdingId : "", kind: editingHolding?.kind }}
+            onChange={setInvestSel}
           />
-          <label style={st.label}>Holding</label>
-          {holdingsOfKind.length > 0 && (
-            <select
-              style={st.input}
-              value={selectedHoldingId}
-              onChange={(e) => { setSelectedHoldingId(e.target.value); setInvestQuery(""); setInvestInstrumentId(""); setInvestLabel(""); }}
-            >
-              <option value="">+ New holding…</option>
-              {holdingsOfKind.map((h) => (
-                <option key={h.id} value={h.id}>{h.label}</option>
-              ))}
-            </select>
-          )}
-          {!selectedHoldingId && investKind === "gold" && (
-            <input
-              style={{ ...st.input, marginTop: holdingsOfKind.length > 0 ? 8 : 0 }}
-              value={investLabel}
-              placeholder="e.g. Gold Coins, SGB 2023"
-              onChange={(e) => setInvestLabel(e.target.value)}
-            />
-          )}
-          {!selectedHoldingId && investKind !== "gold" && (
-            <div style={{ marginTop: holdingsOfKind.length > 0 ? 8 : 0 }}>
-              <input
-                style={st.input}
-                value={investQuery}
-                placeholder={`Search ${investKind === "mf" ? "mutual funds" : "stocks"} by name…`}
-                onChange={(e) => { setInvestQuery(e.target.value); setInvestInstrumentId(""); }}
-              />
-              {investQuery.trim().length >= 2 && (
-                <div style={{ maxHeight: 200, overflowY: "auto", border: C.borderSoft, borderRadius: 12, marginTop: 6 }}>
-                  {searchResults.map((r) => (
-                    <button
-                      key={r.id}
-                      className="cb-press"
-                      onClick={() => { setInvestInstrumentId(r.id); setInvestLabel(r.name); setInvestQuery(r.name); }}
-                      style={{
-                        display: "block", width: "100%", textAlign: "left", padding: "9px 12px",
-                        border: "none", borderBottom: `1px solid ${C.line}`, fontFamily: F.sans,
-                        background: investInstrumentId === r.id ? "rgba(167,139,250,.14)" : "none",
-                        color: C.soft, fontSize: 12.5, cursor: "pointer",
-                      }}
-                    >
-                      {r.name}
-                    </button>
-                  ))}
-                  {searchResults.length === 0 && (
-                    <div style={{ padding: "9px 12px", fontSize: 12, color: C.faint }}>No matches</div>
-                  )}
-                </div>
-              )}
-            </div>
-          )}
-          <label style={st.label}>{investKind === "gold" ? "Grams" : investKind === "stock" ? "Quantity" : "Units"}</label>
+          <label style={st.label}>{investSel.kind === "gold" ? "Grams" : investSel.kind === "stock" ? "Quantity" : "Units"}</label>
           <input style={st.input} inputMode="decimal" value={investUnits} placeholder="0" onChange={(e) => setInvestUnits(e.target.value)} />
           {investDir === "buy" && (
             <>
@@ -4643,11 +4913,11 @@ function MemoSheet({ book, party, presetKind, onSave, onClose }) {
       {!party && (
         <>
           <label style={st.label}>Party</label>
-          <select style={st.input} value={partyId} onChange={(e) => setPartyId(e.target.value)}>
-            {book.parties.map((p) => (
-              <option key={p.id} value={p.id}>{p.name}</option>
-            ))}
-          </select>
+          <DropdownField
+            value={partyId}
+            onChange={setPartyId}
+            options={book.parties.map((p) => ({ v: p.id, label: p.name }))}
+          />
         </>
       )}
       <label style={st.label}>Which way</label>
@@ -4805,15 +5075,12 @@ function ImportSheet({ book, onDone, onClose }) {
                 </div>
                 <div style={{ display: "flex", gap: 6, alignItems: "center", marginTop: 3 }}>
                   <span style={{ fontSize: 11, color: C.muted }}>{fmtDate(book, r.date)}</span>
-                  <select
-                    style={{ ...st.input, width: "auto", padding: "2px 6px", fontSize: 12 }}
+                  <DropdownField
+                    style={{ padding: "2px 6px", fontSize: 12 }}
                     value={(r.type === "in" ? book.heads.income : book.heads.expense).includes(r.head) ? r.head : "Suspense"}
-                    onChange={(e) => setRow(i, { head: e.target.value })}
-                  >
-                    {(r.type === "in" ? book.heads.income : book.heads.expense).map((h) => (
-                      <option key={h} value={h}>{h}</option>
-                    ))}
-                  </select>
+                    onChange={(v) => setRow(i, { head: v })}
+                    options={(r.type === "in" ? book.heads.income : book.heads.expense).map((h) => ({ v: h, label: h }))}
+                  />
                 </div>
               </div>
               <div style={{ fontWeight: 700, fontSize: 14, color: r.type === "in" ? C.green : C.red, whiteSpace: "nowrap" }}>
@@ -5129,7 +5396,7 @@ export default function CashBook() {
     : page.name === "setupNotifs" ? <SetupNotifsPage book={book} up={up} />
     : page.name === "setupSecurity" ? <SetupSecurityPage book={book} up={up} />
     : page.name === "setupData" ? <SetupDataPage book={book} up={up} />
-    : page.name === "setupHoldings" ? <SetupHoldingsPage book={book} up={up} />
+    : page.name === "setupHoldings" ? <SetupHoldingsPage book={book} up={up} instruments={instruments} />
     : null
   );
 

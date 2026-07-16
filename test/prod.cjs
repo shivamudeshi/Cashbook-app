@@ -194,12 +194,52 @@ async function main() {
   assert.ok(bsAtCost.balanced, "balance sheet foots with no price snapshot at all (values at cost)");
   assert.strictEqual(bsAtCost.totalAssets, 100250, "bank 95300 + holdings at cost 4950");
 
+  // Opening holdings: an investment bought before this book existed, seeded
+  // via opening.holdings the same way opening.accounts seeds a starting
+  // account balance — no transaction entry, so it never touches bank. A
+  // later sell against it must still work off the seeded cost basis.
+  const db5 = {
+    entries: [
+      { id: "s1", date: "2025-07-10", type: "holding", holdingId: "g1", dir: "sell", units: 20, amount: 4500 },
+    ],
+    heads: { income: ["Salary", "Capital gains"], expense: ["Rent", "Finance charges", "Suspense"] },
+    headClass: {},
+    bsAccounts: [],
+    parties: [],
+    holdings: [{ id: "g1", kind: "gold", instrumentId: "gold:seed", label: "Opening Gold", units: 0, costBasis: 0 }],
+    opening: { asOf: "2025-07-01", bank: 50000, accounts: {}, holdings: { g1: { units: 50, costBasis: 8000 } } },
+    owedMemos: [],
+  };
+  const asOf5 = "2025-07-31";
+  const hg1 = E.holdingsAsOf(db5, "2025-07-05").find((h) => h.id === "g1");
+  assert.strictEqual(hg1.units, 50, "opening units apply even with zero transactions before this date");
+  assert.strictEqual(hg1.costBasis, 8000, "opening cost basis applies with zero transactions");
+  const bal5 = E.balancesAsOf(db5, asOf5);
+  assert.strictEqual(bal5.bank, 54500, "opening holdings never move bank — only the sell entry's own amount does (50000 + 4500)");
+  const pl5 = E.computePL(db5, "2025-07-01", asOf5);
+  assert.strictEqual(pl5.income["Capital gains"], 1300, "realized gain off the seeded cost basis: 4500 proceeds - (8000 * 20/50) proportional cost");
+  const bs5 = E.computeBS(db5, asOf5);
+  assert.ok(bs5.balanced, "balance sheet foots with an opening holding position mixed in");
+
   // Helpers.
   assert.strictEqual(E.parseAmount("2k"), 2000);
   assert.strictEqual(E.parseAmount("1.2L"), 120000);
   assert.strictEqual(E.parseAmount("1,250"), 1250);
   assert.ok(isNaN(E.parseAmount("abc")));
   assert.strictEqual(E.inr(120000), "₹1,20,000", "Indian grouping");
+
+  // Decimal/paise precision: amounts round to the nearest paisa (not the
+  // nearest rupee), and money() shows exactly 2 decimals when there's a
+  // fractional part but none for a whole-rupee amount — so a fractional
+  // stamp-duty charge is preserved exactly and NAV-scale figures don't get
+  // silently rounded away.
+  assert.strictEqual(E.parseAmount("12.5"), 12.5, "fractional charges are no longer rounded to the nearest rupee");
+  assert.strictEqual(E.parseAmount("12.3456"), 12.35, "parseAmount still rounds to the nearest paisa, not unbounded float precision");
+  assert.strictEqual(E.money({}, 500), "₹500", "a whole-rupee amount shows no decimals");
+  assert.strictEqual(E.money({}, 12.5), "₹12.50", "a fractional amount always shows exactly 2 decimals");
+  assert.strictEqual(E.money({}, -12.5), "−₹12.50", "sign handled for fractional amounts too");
+  assert.strictEqual(E.navPrice({}, 13.0697), "₹13.0697", "NAV keeps up to 4 decimal places, matching AMFI's own precision");
+  assert.strictEqual(E.navPrice({}, 96), "₹96", "a whole NAV shows no decimals");
   assert.strictEqual(E.fyOf("2026-03-31"), 2025, "March belongs to previous FY");
   assert.strictEqual(E.fyOf("2026-04-01"), 2026);
   assert.strictEqual(E.quarterOf("2026-07-09"), 2, "Jul = Q2");
