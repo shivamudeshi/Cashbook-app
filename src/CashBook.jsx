@@ -1553,7 +1553,7 @@ function AccountCard({ book, acc, active, onImport, onTransactions, pending, onV
     display: "flex", flexDirection: "column", overflow: "hidden",
   };
   return (
-    <div style={{ position: "relative", width: "100%", aspectRatio: "2.2/1", perspective: 1400 }}>
+    <div style={{ position: "relative", width: "100%", aspectRatio: "1.85/1", perspective: 1400 }}>
       <div style={{
         position: "relative", width: "100%", height: "100%", transformStyle: "preserve-3d",
         transition: "transform .7s cubic-bezier(.4,.15,.2,1)",
@@ -1797,7 +1797,7 @@ function QuickAction({ grad, shadow, icon, label, onClick }) {
   );
 }
 
-function DashHome({ book, go, onImport, onAdd, setTab, prices, onOpenInvestments }) {
+function DashHome({ book, go, onImport, onAdd, setTab, prices }) {
   const t = today();
   const monthStart = t.slice(0, 8) + "01";
   const { bs } = bsSlices(book, t, prices);
@@ -1809,15 +1809,33 @@ function DashHome({ book, go, onImport, onAdd, setTab, prices, onOpenInvestments
   const nwPct = nwPrev !== 0 ? Math.round((nwDiff / Math.abs(nwPrev)) * 100) : null;
 
   const pl = computePL(book, monthStart, t);
+  const pFrom = addDays(monthStart, -31).slice(0, 8) + "01";
+  const plPrev = computePL(book, pFrom, prevEnd);
+  const expDiffPct = plPrev.totalExpense
+    ? Math.round(((pl.totalExpense - plPrev.totalExpense) / plPrev.totalExpense) * 100)
+    : null;
+  const topCat = Object.entries(pl.expense).sort((a, b) => b[1] - a[1])[0];
   let invested = 0;
+  const investedBag = {}; // label (holding / account / head) -> amount, for the Invested detail sheet
   for (const e of book.entries) {
     if (e.date < monthStart || e.date > t) continue;
-    if (e.type === "out" && book.headClass[e.head]) invested += e.amount;
+    if (e.type === "out" && book.headClass[e.head]) {
+      invested += e.amount;
+      investedBag[e.head] = (investedBag[e.head] || 0) + e.amount;
+    }
     if (e.type === "transfer" && e.dir === "out") {
       const a = book.bsAccounts.find((x) => x.name === e.account);
-      if (a && a.kind === "asset") invested += e.amount;
+      if (a && a.kind === "asset") {
+        invested += e.amount;
+        investedBag[e.account] = (investedBag[e.account] || 0) + e.amount;
+      }
     }
-    if (e.type === "holding" && e.dir === "buy") invested += e.amount - (e.charge || 0);
+    if (e.type === "holding" && e.dir === "buy") {
+      const amt = e.amount - (e.charge || 0);
+      const label = holdingName(book, e.holdingId);
+      invested += amt;
+      investedBag[label] = (investedBag[label] || 0) + amt;
+    }
   }
 
   const accounts = accountModels(book);
@@ -1894,10 +1912,10 @@ function DashHome({ book, go, onImport, onAdd, setTab, prices, onOpenInvestments
         <StatChip grad={C.greenGrad} value={compactMoney(book, pl.totalIncome)} label="Income" onClick={() => setStatSheet("income")} />
         <StatChip grad={C.redGrad} value={compactMoney(book, pl.totalExpense)} label="Expenses" onClick={() => setStatSheet("expense")} />
         <StatChip grad={C.grad} value={compactMoney(book, pl.net)} label="Savings" onClick={() => setStatSheet("savings")} />
-        <StatChip grad={C.amberGrad} value={compactMoney(book, invested)} label="Invested" onClick={onOpenInvestments} />
+        <StatChip grad={C.amberGrad} value={compactMoney(book, invested)} label="Invested" onClick={() => setStatSheet("invested")} />
       </div>
 
-      <div style={{ ...glass(24), marginTop: 14, marginBottom: 8, padding: "14px 16px 16px" }}>
+      <div style={{ ...glass(24), marginTop: 14, padding: "14px 16px 16px" }}>
         <div style={{ ...st.section, marginBottom: 10, fontSize: 13 }}>Quick Actions</div>
         <div style={{ display: "grid", gridTemplateColumns: "repeat(5, 1fr)", gap: 6 }}>
           <QuickAction grad={C.indigoGrad} shadow="0 6px 14px -4px rgba(67,56,202,.55)" icon="download" label="Import" onClick={onImport} />
@@ -1908,12 +1926,78 @@ function DashHome({ book, go, onImport, onAdd, setTab, prices, onOpenInvestments
         </div>
       </div>
 
-      {statSheet && <StatDetailSheet book={book} kind={statSheet} pl={pl} onClose={() => setStatSheet(null)} />}
+      {(expDiffPct !== null || topCat) && (
+        <div
+          className="cb-press"
+          onClick={() => setStatSheet("insights")}
+          style={{ ...glass(20), marginTop: 14, marginBottom: 8, padding: "14px 16px", display: "flex", alignItems: "center", gap: 12, cursor: "pointer" }}
+        >
+          <Orb size={34} grad={C.grad}><Ic name="trend" size={15} /></Orb>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ fontSize: 11, fontWeight: 700, color: C.faint, textTransform: "uppercase", letterSpacing: ".04em" }}>Insights</div>
+            <div style={{ fontSize: 13, fontWeight: 700, color: C.soft, marginTop: 2, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+              {expDiffPct !== null ? (
+                <>You spent <span style={{ color: expDiffPct <= 0 ? C.green : C.red, fontWeight: 800 }}>{Math.abs(expDiffPct)}% {expDiffPct <= 0 ? "less" : "more"}</span> than last month</>
+              ) : (
+                <>{topCat[0]} is your top expense category</>
+              )}
+            </div>
+          </div>
+          <span style={{ fontSize: 15, color: C.faint, fontWeight: 700, flexShrink: 0 }}>›</span>
+        </div>
+      )}
+
+      {statSheet && (
+        <StatDetailSheet
+          book={book} kind={statSheet} pl={pl}
+          invested={invested} investedBag={investedBag}
+          expDiffPct={expDiffPct} topCat={topCat}
+          onClose={() => setStatSheet(null)}
+        />
+      )}
     </div>
   );
 }
 
-function StatDetailSheet({ book, kind, pl, onClose }) {
+function StatDetailSheet({ book, kind, pl, invested, investedBag, expDiffPct, topCat, onClose }) {
+  if (kind === "insights") {
+    return (
+      <Sheet title="Insights — This Month" onClose={onClose}>
+        <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+          {expDiffPct !== null && (
+            <div style={{ ...glass(18), padding: 14 }}>
+              <Orb size={34} grad={C.greenGrad}><Ic name="trend" size={15} /></Orb>
+              <div style={{ fontSize: 13, color: C.soft, marginTop: 10 }}>
+                You spent{" "}
+                <span style={{ fontWeight: 800, color: expDiffPct <= 0 ? C.green : C.red }}>
+                  {Math.abs(expDiffPct)}% {expDiffPct <= 0 ? "less" : "more"}
+                </span>{" "}
+                than last month.
+              </div>
+              <div style={{ fontSize: 13, fontWeight: 700, color: "#fff", marginTop: 2 }}>
+                {expDiffPct <= 0 ? "Keep it up!" : "Worth a look."}
+              </div>
+              <div style={{ height: 5, borderRadius: 999, background: "rgba(255,255,255,.1)", marginTop: 12 }}>
+                <div style={{ height: "100%", width: `${Math.min(100, Math.abs(expDiffPct))}%`, borderRadius: 999, background: expDiffPct <= 0 ? C.greenGrad : C.redGrad }} />
+              </div>
+            </div>
+          )}
+          {topCat && (
+            <div style={{ ...glass(18), padding: 14 }}>
+              <Orb size={34} grad={C.grad}><Ic name="tag" size={15} /></Orb>
+              <div style={{ fontSize: 13, color: C.soft, marginTop: 10 }}>{topCat[0]} is your top expense category.</div>
+              <div style={{ fontSize: 13, fontWeight: 700, color: C.accentText, marginTop: 2 }}>
+                {money(book, topCat[1])} spent this month
+              </div>
+              <div style={{ height: 5, borderRadius: 999, background: "rgba(255,255,255,.1)", marginTop: 12 }}>
+                <div style={{ height: "100%", width: `${Math.round((topCat[1] / (pl.totalExpense || 1)) * 100)}%`, borderRadius: 999, background: "linear-gradient(90deg,#a78bfa,#6d28d9)" }} />
+              </div>
+            </div>
+          )}
+        </div>
+      </Sheet>
+    );
+  }
   if (kind === "savings") {
     return (
       <Sheet title="Savings — This Month" onClose={onClose}>
@@ -1933,13 +2017,16 @@ function StatDetailSheet({ book, kind, pl, onClose }) {
     );
   }
   const isIncome = kind === "income";
-  const bag = isIncome ? pl.income : pl.expense;
-  const total = isIncome ? pl.totalIncome : pl.totalExpense;
+  const isInvested = kind === "invested";
+  const bag = isInvested ? (investedBag || {}) : isIncome ? pl.income : pl.expense;
+  const total = isInvested ? (invested || 0) : isIncome ? pl.totalIncome : pl.totalExpense;
+  const title = isInvested ? "Invested" : isIncome ? "Income" : "Expenses";
+  const color = isInvested ? C.amber : isIncome ? C.green : C.red;
   const rows = Object.entries(bag).sort((a, b) => b[1] - a[1]);
   return (
-    <Sheet title={`${isIncome ? "Income" : "Expenses"} — This Month`} onClose={onClose}>
-      <div style={{ fontSize: 30, fontWeight: 800, color: isIncome ? C.green : C.red, fontVariantNumeric: "tabular-nums" }}>{money(book, total)}</div>
-      <div style={{ fontSize: 12, color: C.muted, marginTop: 2, marginBottom: 16 }}>By category</div>
+    <Sheet title={`${title} — This Month`} onClose={onClose}>
+      <div style={{ fontSize: 30, fontWeight: 800, color, fontVariantNumeric: "tabular-nums" }}>{money(book, total)}</div>
+      <div style={{ fontSize: 12, color: C.muted, marginTop: 2, marginBottom: 16 }}>{isInvested ? "By destination" : "By category"}</div>
       <div style={{ ...glass(18), overflow: "hidden", fontVariantNumeric: "tabular-nums" }}>
         {rows.map(([h, a], i) => (
           <div key={h} style={{ display: "flex", alignItems: "center", padding: "12px 16px", borderTop: i ? `1px solid ${C.line}` : "none" }}>
@@ -5644,7 +5731,6 @@ export default function CashBook() {
                 onAdd={() => setEntrySheet({ initial: null })}
                 setTab={switchTab}
                 prices={prices}
-                onOpenInvestments={() => setInvestmentsOpen(true)}
               />
             )
             : tab === "owed" ? (
