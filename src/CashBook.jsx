@@ -1553,7 +1553,7 @@ function AccountCard({ book, acc, active, onImport, onTransactions, pending, onV
     display: "flex", flexDirection: "column", overflow: "hidden",
   };
   return (
-    <div style={{ position: "relative", width: "100%", aspectRatio: "2.2/1", perspective: 1400 }}>
+    <div style={{ position: "relative", width: "100%", aspectRatio: "1.85/1", perspective: 1400 }}>
       <div style={{
         position: "relative", width: "100%", height: "100%", transformStyle: "preserve-3d",
         transition: "transform .7s cubic-bezier(.4,.15,.2,1)",
@@ -1797,7 +1797,7 @@ function QuickAction({ grad, shadow, icon, label, onClick }) {
   );
 }
 
-function DashHome({ book, go, onImport, onAdd, setTab, prices, onOpenInvestments }) {
+function DashHome({ book, go, onImport, onAdd, setTab, prices }) {
   const t = today();
   const monthStart = t.slice(0, 8) + "01";
   const { bs } = bsSlices(book, t, prices);
@@ -1810,14 +1810,26 @@ function DashHome({ book, go, onImport, onAdd, setTab, prices, onOpenInvestments
 
   const pl = computePL(book, monthStart, t);
   let invested = 0;
+  const investedBag = {}; // label (holding / account / head) -> amount, for the Invested detail sheet
   for (const e of book.entries) {
     if (e.date < monthStart || e.date > t) continue;
-    if (e.type === "out" && book.headClass[e.head]) invested += e.amount;
+    if (e.type === "out" && book.headClass[e.head]) {
+      invested += e.amount;
+      investedBag[e.head] = (investedBag[e.head] || 0) + e.amount;
+    }
     if (e.type === "transfer" && e.dir === "out") {
       const a = book.bsAccounts.find((x) => x.name === e.account);
-      if (a && a.kind === "asset") invested += e.amount;
+      if (a && a.kind === "asset") {
+        invested += e.amount;
+        investedBag[e.account] = (investedBag[e.account] || 0) + e.amount;
+      }
     }
-    if (e.type === "holding" && e.dir === "buy") invested += e.amount - (e.charge || 0);
+    if (e.type === "holding" && e.dir === "buy") {
+      const amt = e.amount - (e.charge || 0);
+      const label = holdingName(book, e.holdingId);
+      invested += amt;
+      investedBag[label] = (investedBag[label] || 0) + amt;
+    }
   }
 
   const accounts = accountModels(book);
@@ -1894,7 +1906,7 @@ function DashHome({ book, go, onImport, onAdd, setTab, prices, onOpenInvestments
         <StatChip grad={C.greenGrad} value={compactMoney(book, pl.totalIncome)} label="Income" onClick={() => setStatSheet("income")} />
         <StatChip grad={C.redGrad} value={compactMoney(book, pl.totalExpense)} label="Expenses" onClick={() => setStatSheet("expense")} />
         <StatChip grad={C.grad} value={compactMoney(book, pl.net)} label="Savings" onClick={() => setStatSheet("savings")} />
-        <StatChip grad={C.amberGrad} value={compactMoney(book, invested)} label="Invested" onClick={onOpenInvestments} />
+        <StatChip grad={C.amberGrad} value={compactMoney(book, invested)} label="Invested" onClick={() => setStatSheet("invested")} />
       </div>
 
       <div style={{ ...glass(24), marginTop: 14, marginBottom: 8, padding: "14px 16px 16px" }}>
@@ -1908,12 +1920,18 @@ function DashHome({ book, go, onImport, onAdd, setTab, prices, onOpenInvestments
         </div>
       </div>
 
-      {statSheet && <StatDetailSheet book={book} kind={statSheet} pl={pl} onClose={() => setStatSheet(null)} />}
+      {statSheet && (
+        <StatDetailSheet
+          book={book} kind={statSheet} pl={pl}
+          invested={invested} investedBag={investedBag}
+          onClose={() => setStatSheet(null)}
+        />
+      )}
     </div>
   );
 }
 
-function StatDetailSheet({ book, kind, pl, onClose }) {
+function StatDetailSheet({ book, kind, pl, invested, investedBag, onClose }) {
   if (kind === "savings") {
     return (
       <Sheet title="Savings — This Month" onClose={onClose}>
@@ -1933,13 +1951,16 @@ function StatDetailSheet({ book, kind, pl, onClose }) {
     );
   }
   const isIncome = kind === "income";
-  const bag = isIncome ? pl.income : pl.expense;
-  const total = isIncome ? pl.totalIncome : pl.totalExpense;
+  const isInvested = kind === "invested";
+  const bag = isInvested ? (investedBag || {}) : isIncome ? pl.income : pl.expense;
+  const total = isInvested ? (invested || 0) : isIncome ? pl.totalIncome : pl.totalExpense;
+  const title = isInvested ? "Invested" : isIncome ? "Income" : "Expenses";
+  const color = isInvested ? C.amber : isIncome ? C.green : C.red;
   const rows = Object.entries(bag).sort((a, b) => b[1] - a[1]);
   return (
-    <Sheet title={`${isIncome ? "Income" : "Expenses"} — This Month`} onClose={onClose}>
-      <div style={{ fontSize: 30, fontWeight: 800, color: isIncome ? C.green : C.red, fontVariantNumeric: "tabular-nums" }}>{money(book, total)}</div>
-      <div style={{ fontSize: 12, color: C.muted, marginTop: 2, marginBottom: 16 }}>By category</div>
+    <Sheet title={`${title} — This Month`} onClose={onClose}>
+      <div style={{ fontSize: 30, fontWeight: 800, color, fontVariantNumeric: "tabular-nums" }}>{money(book, total)}</div>
+      <div style={{ fontSize: 12, color: C.muted, marginTop: 2, marginBottom: 16 }}>{isInvested ? "By destination" : "By category"}</div>
       <div style={{ ...glass(18), overflow: "hidden", fontVariantNumeric: "tabular-nums" }}>
         {rows.map(([h, a], i) => (
           <div key={h} style={{ display: "flex", alignItems: "center", padding: "12px 16px", borderTop: i ? `1px solid ${C.line}` : "none" }}>
@@ -5644,7 +5665,6 @@ export default function CashBook() {
                 onAdd={() => setEntrySheet({ initial: null })}
                 setTab={switchTab}
                 prices={prices}
-                onOpenInvestments={() => setInvestmentsOpen(true)}
               />
             )
             : tab === "owed" ? (
