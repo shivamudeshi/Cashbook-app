@@ -113,7 +113,7 @@ html { scroll-behavior: smooth; }
 .cb-sheet-overlay { animation: cbFadeIn .2s ease both; }
 .cb-sheet { animation: cbSlideUp .32s cubic-bezier(.2,.9,.3,1) both; }
 .cb-press { transition: transform .12s ease, filter .15s ease, background .2s ease, color .2s ease; }
-.cb-press:active { transform: scale(.96); }
+.cb-press:active { transform: scale(.96) translateY(1px); filter: brightness(.92); }
 .cb-fab { transition: transform .15s ease, box-shadow .2s ease; }
 .cb-fab:active { transform: scale(.9); }
 .cb-tab { transition: color .2s ease, transform .15s ease; }
@@ -128,9 +128,15 @@ html { scroll-behavior: smooth; }
 @keyframes cbChipPop { from { transform: scale(.88); opacity: .5; } to { transform: scale(1); opacity: 1; } }
 @keyframes cbCheckPop { 0% { transform: scale(.3); opacity: 0; } 65% { transform: scale(1.1); opacity: 1; } 100% { transform: scale(1); opacity: 1; } }
 @keyframes cbRingPulse { 0% { transform: scale(.8); opacity: .7; } 100% { transform: scale(1.5); opacity: 0; } }
+@keyframes cbShimmer { 0% { background-position: -150% 0; } 100% { background-position: 150% 0; } }
 .cb-list-in { animation: cbListIn .42s cubic-bezier(.2,.85,.3,1) both; }
 .cb-chip-pop { animation: cbChipPop .22s cubic-bezier(.3,.9,.3,1) both; }
 .cb-check-pop { animation: cbCheckPop .5s cubic-bezier(.3,1.4,.4,1) both; }
+.cb-skeleton {
+  background: linear-gradient(90deg, rgba(255,255,255,.06), rgba(255,255,255,.14), rgba(255,255,255,.06));
+  background-size: 200% 100%; border-radius: 8px;
+  animation: cbShimmer 1.4s linear infinite;
+}
 .cb-carousel::-webkit-scrollbar { display: none; }
 .cb-carousel { scrollbar-width: none; }
 input::placeholder { color: #7a6f95; }
@@ -138,7 +144,7 @@ input, select { transition: border-color .18s ease, box-shadow .18s ease; }
 input:focus, select:focus { outline: none; border-color: #a78bfa !important; box-shadow: 0 0 0 3px rgba(167,139,250,.18); }
 @media (prefers-reduced-motion: reduce) {
   .cb-view, .cb-row, .cb-sheet, .cb-sheet-overlay, .cb-subpage, .cb-list-in,
-  .cb-chip-pop, .cb-check-pop,
+  .cb-chip-pop, .cb-check-pop, .cb-skeleton,
   .cb-stagger > *, .cb-splash-glyph, .cb-splash-name { animation: none; }
   .cb-press, .cb-fab, .cb-tab, input, select { transition: none; }
   html { scroll-behavior: auto; }
@@ -1981,9 +1987,9 @@ function StatDetailSheet({ book, kind, pl, onClose }) {
   if (kind === "savings") {
     return (
       <Sheet title="Savings — This Month" onClose={onClose}>
-        <div style={{ fontSize: 30, fontWeight: 800, color: pl.net >= 0 ? C.green : C.red }}>{money(book, pl.net)}</div>
+        <div style={{ fontSize: 30, fontWeight: 800, color: pl.net >= 0 ? C.green : C.red, fontVariantNumeric: "tabular-nums" }}>{money(book, pl.net)}</div>
         <div style={{ fontSize: 12, color: C.muted, marginTop: 2, marginBottom: 16 }}>Income minus expenses this month</div>
-        <div style={{ ...glass(18), overflow: "hidden" }}>
+        <div style={{ ...glass(18), overflow: "hidden", fontVariantNumeric: "tabular-nums" }}>
           <div style={{ display: "flex", alignItems: "center", padding: "12px 16px" }}>
             <div style={{ flex: 1, fontSize: 14, fontWeight: 700, color: C.soft }}>Income</div>
             <div style={{ fontSize: 14, fontWeight: 800, color: C.green }}>{money(book, pl.totalIncome)}</div>
@@ -2002,9 +2008,9 @@ function StatDetailSheet({ book, kind, pl, onClose }) {
   const rows = Object.entries(bag).sort((a, b) => b[1] - a[1]);
   return (
     <Sheet title={`${isIncome ? "Income" : "Expenses"} — This Month`} onClose={onClose}>
-      <div style={{ fontSize: 30, fontWeight: 800, color: isIncome ? C.green : C.red }}>{money(book, total)}</div>
+      <div style={{ fontSize: 30, fontWeight: 800, color: isIncome ? C.green : C.red, fontVariantNumeric: "tabular-nums" }}>{money(book, total)}</div>
       <div style={{ fontSize: 12, color: C.muted, marginTop: 2, marginBottom: 16 }}>By category</div>
-      <div style={{ ...glass(18), overflow: "hidden" }}>
+      <div style={{ ...glass(18), overflow: "hidden", fontVariantNumeric: "tabular-nums" }}>
         {rows.map(([h, a], i) => (
           <div key={h} style={{ display: "flex", alignItems: "center", padding: "12px 16px", borderTop: i ? `1px solid ${C.line}` : "none" }}>
             <div style={{ flex: 1, fontSize: 14, fontWeight: 700, color: C.soft }}>{h}</div>
@@ -2145,7 +2151,7 @@ function investDetailLine(book, r) {
   return `${r.units.toFixed(2)}g · ${navPrice(book, unit)}/g`;
 }
 
-function InvestmentsPage({ book, prices, instruments, onClose, onAdd, onOpenHolding, onManage, onRefresh }) {
+function InvestmentsPage({ book, prices, instruments, pricesLoaded, onClose, onAdd, onOpenHolding, onManage, onRefresh }) {
   const [months, setMonths] = useState(3);
   const [valueMode, setValueMode] = useState("market"); // market | invested
   const [filterKind, setFilterKind] = useState("all"); // all | mf | stock | gold
@@ -2232,11 +2238,15 @@ function InvestmentsPage({ book, prices, instruments, onClose, onAdd, onOpenHold
             />
           </div>
           <div style={{ display: "flex", alignItems: "flex-end", gap: 12, marginTop: 14 }}>
-            <div style={{ fontSize: 30, fontWeight: 800, color: "#fff", fontVariantNumeric: "tabular-nums" }}>
-              {mask(money(book, heroValue))}
-            </div>
+            {pricesLoaded ? (
+              <div style={{ fontSize: 30, fontWeight: 800, color: "#fff", fontVariantNumeric: "tabular-nums" }}>
+                {mask(money(book, heroValue))}
+              </div>
+            ) : (
+              <div className="cb-skeleton" style={{ width: 140, height: 30 }} />
+            )}
           </div>
-          {!hidden && (
+          {pricesLoaded && !hidden && (
             <div style={{ fontSize: 12, fontWeight: 700, color: seriesDiff >= 0 ? C.green : C.red, marginTop: 5 }}>
               {seriesDiff >= 0 ? "▲" : "▼"} {money(book, Math.abs(seriesDiff))}{seriesPct !== null ? ` (${Math.abs(seriesPct)}%)` : ""} vs last month
             </div>
@@ -2296,7 +2306,17 @@ function InvestmentsPage({ book, prices, instruments, onClose, onAdd, onOpenHold
         </div>
 
         <div style={{ ...glass(18), overflow: "hidden", background: C.glassSoft, border: C.borderSoft }}>
-          {sorted.map((r, i) => {
+          {!pricesLoaded && holdings.length > 0 && [0, 1, 2].map((i) => (
+            <div key={i} style={{ display: "flex", alignItems: "center", gap: 10, padding: "13px 16px", borderTop: i === 0 ? "none" : `1px solid ${C.line}` }}>
+              <div className="cb-skeleton" style={{ width: 38, height: 38, borderRadius: 999, flexShrink: 0 }} />
+              <div style={{ flex: 1 }}>
+                <div className="cb-skeleton" style={{ width: "60%", height: 14, marginBottom: 6 }} />
+                <div className="cb-skeleton" style={{ width: "40%", height: 11 }} />
+              </div>
+              <div className="cb-skeleton" style={{ width: 64, height: 14 }} />
+            </div>
+          ))}
+          {pricesLoaded && sorted.map((r, i) => {
             const v = HOLDING_VISUALS[r.kind];
             return (
               <div
@@ -2311,7 +2331,7 @@ function InvestmentsPage({ book, prices, instruments, onClose, onAdd, onOpenHold
                   <div style={{ fontSize: 11, color: C.muted, marginTop: 1 }}>{INVEST_KIND_LABEL[r.kind]}</div>
                   <div style={{ fontSize: 11, color: C.faint, marginTop: 1 }}>{investDetailLine(book, r)}</div>
                 </div>
-                <div style={{ textAlign: "right" }}>
+                <div style={{ textAlign: "right", fontVariantNumeric: "tabular-nums" }}>
                   <div style={{ fontSize: 14, fontWeight: 800, color: "#fff" }}>{mask(money(book, r.value))}</div>
                   <div style={{ fontSize: 11, fontWeight: 700, color: r.gain >= 0 ? C.green : C.red, marginTop: 2 }}>
                     {mask(`${r.gain >= 0 ? "+" : ""}${money(book, r.gain)} (${r.gainPct}%)`)}
@@ -2550,7 +2570,7 @@ function TxView({ book, up, onEdit, onAdd, initialFilter }) {
     <div
       className="cb-row cb-press"
       onClick={() => (selectMode ? toggleSelected(e.id) : onEdit(e))}
-      style={{ display: "flex", alignItems: "center", gap: 10, padding: "11px 16px", borderTop: `1px solid ${C.line}`, cursor: "pointer" }}
+      style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 16px", borderTop: `1px solid ${C.line}`, cursor: "pointer" }}
     >
       {selectMode && (
         <div style={{
@@ -2568,9 +2588,9 @@ function TxView({ book, up, onEdit, onAdd, initialFilter }) {
         </div>
       )}
       {v.kind === "icon" ? (
-        <Orb size={34} grad={v.color}><Ic name={v.icon} size={15} /></Orb>
+        <Orb size={30} grad={v.color}><Ic name={v.icon} size={14} /></Orb>
       ) : (
-        <Avatar name={v.name} index={v.index} size={34} />
+        <Avatar name={v.name} index={v.index} size={30} />
       )}
       <div style={{ flex: 1, minWidth: 0 }}>
         <div style={{ fontSize: 14, fontWeight: 600, color: C.ink }}>
@@ -2582,7 +2602,7 @@ function TxView({ book, up, onEdit, onAdd, initialFilter }) {
           <div style={{ fontSize: 12, color: C.muted, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{e.note}</div>
         )}
       </div>
-      <div style={{ fontSize: 14, fontWeight: 700, color: entrySign(e) > 0 ? C.green : C.red, whiteSpace: "nowrap" }}>
+      <div style={{ fontSize: 14, fontWeight: 700, color: entrySign(e) > 0 ? C.green : C.red, whiteSpace: "nowrap", fontVariantNumeric: "tabular-nums" }}>
         {entrySign(e) > 0 ? "+" : "−"}{money(book, e.amount)}
       </div>
     </div>
@@ -2889,7 +2909,7 @@ function PartyRow({ book, p, index, onOpen }) {
         <div style={{ fontSize: 14, fontWeight: 700, color: C.ink }}>{p.name}</div>
         <div style={{ fontSize: 11, fontWeight: 700, color: m.statusColor, marginTop: 1 }}>{m.statusLabel}</div>
       </div>
-      <div style={{ fontSize: 14.5, fontWeight: 800, color: "#fff" }}>{money(book, Math.abs(p.balance))}</div>
+      <div style={{ fontSize: 14.5, fontWeight: 800, color: "#fff", fontVariantNumeric: "tabular-nums" }}>{money(book, Math.abs(p.balance))}</div>
     </div>
   );
 }
@@ -2920,7 +2940,7 @@ function OwedView({ book, go, onAddMemo, onRecordPayment }) {
       <div style={{ display: "flex", alignItems: "flex-start", padding: "2px 0 4px" }}>
         <div style={{ flex: 1 }}>
           <div style={{ fontSize: 12.5, fontWeight: 700, color: C.muted }}>{label}</div>
-          <div style={{ fontSize: 30, fontWeight: 800, color: "#fff", marginTop: 4 }}>{money(book, total)}</div>
+          <div style={{ fontSize: 30, fontWeight: 800, color: "#fff", marginTop: 4, fontVariantNumeric: "tabular-nums" }}>{money(book, total)}</div>
           {d !== null && (
             <div style={{ fontSize: 12.5, fontWeight: 700, color: d >= 0 ? C.green : C.red, marginTop: 6 }}>
               {d >= 0 ? "▲" : "▼"} {Math.abs(d)}% <span style={{ color: C.faint, fontWeight: 600 }}>vs last month</span>
@@ -2954,10 +2974,10 @@ function OwedView({ book, go, onAddMemo, onRecordPayment }) {
         <div style={{ fontSize: 11.5, fontWeight: 700, color: C.muted, textTransform: "uppercase", letterSpacing: ".04em" }}>
           Net position
         </div>
-        <div style={{ fontSize: 26, fontWeight: 800, color: net >= 0 ? C.green : C.red, marginTop: 6 }}>
+        <div style={{ fontSize: 26, fontWeight: 800, color: net >= 0 ? C.green : C.red, marginTop: 6, fontVariantNumeric: "tabular-nums" }}>
           {net >= 0 ? "+" : "−"}{money(book, Math.abs(net))}
         </div>
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginTop: 12 }}>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginTop: 12, fontVariantNumeric: "tabular-nums" }}>
           <div style={{ background: "rgba(110,231,183,.12)", border: "1px solid rgba(110,231,183,.3)", borderRadius: 12, padding: "9px 10px" }}>
             <div style={{ fontSize: 10, fontWeight: 700, color: C.faint, textTransform: "uppercase" }}>You'll receive</div>
             <div style={{ fontSize: 14, fontWeight: 800, color: C.green, marginTop: 3 }}>{money(book, owed.debtors)}</div>
@@ -3127,11 +3147,11 @@ function PartyProfilePage({ book, partyId, up, onRecordPayment, onSettle, onAddM
       </div>
       <div style={{ padding: "4px 0" }}>
         <div style={{ fontSize: 12, fontWeight: 700, color: C.muted }}>Outstanding</div>
-        <div style={{ fontSize: 34, fontWeight: 800, color: "#fff", marginTop: 4 }}>
+        <div style={{ fontSize: 34, fontWeight: 800, color: "#fff", marginTop: 4, fontVariantNumeric: "tabular-nums" }}>
           {p.balance < 0 ? "−" : ""}{money(book, Math.abs(p.balance))}
         </div>
       </div>
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8, margin: "14px 0" }}>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8, margin: "14px 0", fontVariantNumeric: "tabular-nums" }}>
         <div style={{ background: C.chip, border: C.borderSoft, borderRadius: 14, padding: 10 }}>
           <div style={{ fontSize: 10, fontWeight: 700, color: C.faint, textTransform: "uppercase" }}>Lent</div>
           <div style={{ fontSize: 14, fontWeight: 800, color: "#fff", marginTop: 3 }}>{money(book, lent)}</div>
@@ -3162,7 +3182,7 @@ function PartyProfilePage({ book, partyId, up, onRecordPayment, onSettle, onAddM
                 {tx.note ? `${tx.note} · ` : ""}{prettyDate(tx.date)}
               </div>
             </div>
-            <div style={{ fontSize: 13.5, fontWeight: 800, color: tx.delta >= 0 ? C.green : C.red }}>
+            <div style={{ fontSize: 13.5, fontWeight: 800, color: tx.delta >= 0 ? C.green : C.red, fontVariantNumeric: "tabular-nums" }}>
               {tx.delta >= 0 ? "+" : "−"}{money(book, Math.abs(tx.delta))}
             </div>
           </div>
@@ -3337,7 +3357,7 @@ function PLPage({ book }) {
   };
 
   const Section = ({ title, bag, prevBag, type, totalName, total, prevTotal, goodWhenUp, color }) => (
-    <div style={{ ...glass(20), padding: 16, marginTop: 12 }}>
+    <div style={{ ...glass(20), padding: 16, marginTop: 12, fontVariantNumeric: "tabular-nums" }}>
       <div style={{ ...st.section, marginBottom: 6 }}>{title}</div>
       {Object.entries(bag).map(([h, a]) => {
         const open = openHead === `${type}:${h}`;
@@ -3438,7 +3458,7 @@ function PLPage({ book }) {
         goodWhenUp={false} color={C.red} />
 
       {spend.length > 0 && (
-        <div style={{ ...glass(20), padding: 16, marginTop: 12 }}>
+        <div style={{ ...glass(20), padding: 16, marginTop: 12, fontVariantNumeric: "tabular-nums" }}>
           <div style={{ ...st.section, marginBottom: 10 }}>Where it went</div>
           {spend.map(([h, a]) => (
             <div key={h} style={{ marginBottom: 9 }}>
@@ -3454,7 +3474,7 @@ function PLPage({ book }) {
         </div>
       )}
 
-      <div style={{ ...glass(20), padding: 16, marginTop: 12, marginBottom: 8 }}>
+      <div style={{ ...glass(20), padding: 16, marginTop: 12, marginBottom: 8, fontVariantNumeric: "tabular-nums" }}>
         <div style={{ display: "flex" }}>
           <span style={{ flex: 1, fontWeight: 800, color: C.ink }}>Net {pl.net >= 0 ? "surplus" : "deficit"}</span>
           <span style={{ fontSize: 18, fontWeight: 800, color: pl.net >= 0 ? C.green : C.red }}>{money(book, pl.net)}</span>
@@ -3797,7 +3817,7 @@ function AccountDetailPage({ book, accId, onEdit }) {
               <div style={{ fontSize: 14, fontWeight: 600, color: C.ink }}>{entryLabel(book, e)}</div>
               {e.note && <div style={{ fontSize: 12, color: C.muted, whiteSpace: "nowrap", overflow: "hidden", textOverflowe: "ellipsis" }}>{e.note}</div>}
             </div>
-            <div style={{ fontSize: 14, fontWeight: 700, color: entrySign(e) > 0 ? C.green : C.red }}>
+            <div style={{ fontSize: 14, fontWeight: 700, color: entrySign(e) > 0 ? C.green : C.red, fontVariantNumeric: "tabular-nums" }}>
               {entrySign(e) > 0 ? "+" : "−"}{money(book, e.amount)}
             </div>
           </div>
@@ -3860,7 +3880,7 @@ function HoldingDetailPage({ book, prices, holdingId, onEdit, onAdd }) {
                   {e.units} units{e.note ? ` · ${e.note}` : ""}
                 </div>
               </div>
-              <div style={{ fontSize: 14, fontWeight: 700, color: e.dir === "sell" ? C.green : C.red }}>
+              <div style={{ fontSize: 14, fontWeight: 700, color: e.dir === "sell" ? C.green : C.red, fontVariantNumeric: "tabular-nums" }}>
                 {e.dir === "sell" ? "+" : "−"}{money(book, e.amount)}
               </div>
             </div>
@@ -5358,6 +5378,7 @@ export default function CashBook() {
   const [locked, setLocked] = useState(false);
   const [prices, setPrices] = useState({});
   const [instruments, setInstruments] = useState({ mf: [], stock: [] });
+  const [pricesLoaded, setPricesLoaded] = useState(false);
   const skipSave = useRef(true);
 
   useEffect(() => {
@@ -5378,8 +5399,10 @@ export default function CashBook() {
   // treats a missing price as "value at cost," never a crash).
   useEffect(() => {
     if (typeof fetch !== "function") return; // jsdom test harness has no fetch
-    fetch("prices.json").then((r) => r.json()).then(setPrices).catch(() => {});
-    fetch("instruments.json").then((r) => r.json()).then(setInstruments).catch(() => {});
+    Promise.allSettled([
+      fetch("prices.json").then((r) => r.json()).then(setPrices),
+      fetch("instruments.json").then((r) => r.json()).then(setInstruments),
+    ]).finally(() => setPricesLoaded(true));
   }, []);
   useEffect(() => {
     if (!book) return;
@@ -5653,7 +5676,17 @@ export default function CashBook() {
                 style={{ flex: 1, border: "none", background: "none", padding: "6px 0", cursor: "pointer", fontFamily: F.sans }}
               >
                 <div style={{ display: "flex", justifyContent: "center" }}>
-                  <Ic name={tb.icon} size={19} stroke={active ? C.accentText : C.faint} sw={2} />
+                  <div
+                    key={active ? "on" : "off"}
+                    className={active ? "cb-chip-pop" : undefined}
+                    style={{
+                      display: "flex", alignItems: "center", justifyContent: "center",
+                      width: 30, height: 26, borderRadius: 999,
+                      background: active ? "rgba(167,139,250,.18)" : "transparent",
+                    }}
+                  >
+                    <Ic name={tb.icon} size={19} stroke={active ? C.accentText : C.faint} sw={active ? 2.4 : 2} />
+                  </div>
                 </div>
                 <div style={{ fontSize: 10, fontWeight: 700, color: active ? C.accentText : C.faint, marginTop: 5 }}>
                   {tb.label}
@@ -5675,7 +5708,7 @@ export default function CashBook() {
       )}
       {investmentsOpen && (
         <InvestmentsPage
-          book={book} prices={prices} instruments={instruments}
+          book={book} prices={prices} instruments={instruments} pricesLoaded={pricesLoaded}
           onClose={() => setInvestmentsOpen(false)}
           onAdd={() => { setInvestmentsOpen(false); setEntrySheet({ initial: { type: "holding", dir: "buy", date: today() } }); }}
           onOpenHolding={(h) => { setInvestmentsOpen(false); go("holdingDetail", h.id); }}
