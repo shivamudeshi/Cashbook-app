@@ -109,6 +109,13 @@ const MIGRATIONS = [
     if (!book.opening.holdings) book.opening.holdings = {};
     return book;
   },
+  // v7: theme preference (the blue redesign). Additive; existing books
+  // default to "blue," the new shipped default — Violet remains
+  // selectable from Setup for anyone who preferred the original look.
+  (book) => {
+    if (!book.prefs.theme) book.prefs.theme = "blue";
+    return book;
+  },
 ];
 
 // Starter keywords for the local importer; the review screen adds to these

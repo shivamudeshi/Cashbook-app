@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import * as XLSX from "xlsx";
 import { loadBook, saveBook, DEFAULT_CODING_RULES } from "./storage.js";
@@ -46,16 +46,59 @@ async function getOcrWorker(onProgress) {
 /* Violet glass design system (from the user's Claude Design project
    "Cash Book.dc.html"): near-black aubergine ground, frosted glass panels,
    violet gradient actions, gradient icon orbs per stat family. */
+// Hex -> rgba(hex, alpha). Every theme declares only its 3 base accent
+// hexes; every alpha-blended variant used across the app derives from
+// them, so adding a new theme later is a 4-line registry entry, never a
+// hand-picked palette.
+function alpha(hex, a) {
+  const n = hex.replace("#", "");
+  const r = parseInt(n.slice(0, 2), 16), g = parseInt(n.slice(2, 4), 16), b = parseInt(n.slice(4, 6), 16);
+  return `rgba(${r},${g},${b},${a})`;
+}
+
+// "Blue" (default) is a deep indigo -- deliberately NOT the same hue as
+// C.blueGrad (bank iconography, #60a5fa/#2563eb, fixed/non-theme), which
+// is what keeps bank vs. credit-card visually distinct once neither is
+// violet. Reuses the exact hex pair already shipped as C.indigoGrad.
+export const THEMES = {
+  blue: {
+    label: "Blue", swatch: "linear-gradient(135deg,#6366f1,#4338ca)",
+    accent: "#6366f1", accentDeep: "#4338ca", accentText: "#c7d2fe",
+  },
+  violet: {
+    label: "Violet", swatch: "linear-gradient(135deg,#a78bfa,#6d28d9)",
+    accent: "#a78bfa", accentDeep: "#6d28d9", accentText: "#c4a6ff",
+  },
+};
+
+function deriveAccentTokens(t) {
+  return {
+    accent: t.accent, accentDeep: t.accentDeep, accentText: t.accentText,
+    grad: `linear-gradient(135deg,${t.accent},${t.accentDeep})`,
+    accentSoft: alpha(t.accent, .18),       // active chip/seg/tab/optbtn fill
+    accentRing: alpha(t.accent, .18),       // input focus ring
+    accentBorder: alpha(t.accent, .5),      // active chip/seg/tab/optbtn border
+    accentBg: alpha(t.accent, .2),          // "in"-style badge fill
+    accentBorderSoft: alpha(t.accent, .4),  // badge border / dashed CTA border
+  };
+}
+
+// Mutates C's theme-dependent props IN PLACE (same object reference --
+// every existing C.xxx call site across the file keeps working unchanged
+// and becomes theme-reactive automatically).
+export function applyTheme(name) {
+  Object.assign(C, deriveAccentTokens(THEMES[name] || THEMES.blue));
+}
+
+export const THEME_LS_KEY = "cb-theme";
+
 export const C = {
   bg: "#050308",
   ink: "#f1ecfb",
   soft: "#e4d9f5",
   muted: "#a99cc9",
   faint: "#8a7fae",
-  accent: "#a78bfa",
-  accentDeep: "#6d28d9",
-  accentText: "#c4a6ff",
-  grad: "linear-gradient(135deg,#a78bfa,#6d28d9)",
+  ...deriveAccentTokens(THEMES.blue),
   glass: "linear-gradient(160deg, rgba(255,255,255,.10), rgba(255,255,255,.02))",
   glassSoft: "linear-gradient(160deg, rgba(255,255,255,.09), rgba(255,255,255,.02))",
   border: "1px solid rgba(255,255,255,.14)",
@@ -82,6 +125,17 @@ export const C = {
   credit: "#6ee7b7",
   debit: "#fda4af",
 };
+
+// Boot-time fast-path: applies a returning user's saved theme before the
+// async loadBook() IndexedDB read resolves, so the very first frame (the
+// Splash screen) doesn't always flash Blue first. book.prefs.theme
+// remains the actual source of truth -- this is just a boot cache, kept
+// in sync by the root component's theme effect.
+try {
+  const savedTheme = typeof localStorage !== "undefined" ? localStorage.getItem(THEME_LS_KEY) : null;
+  if (savedTheme && THEMES[savedTheme]) applyTheme(savedTheme);
+} catch {}
+
 export const F = {
   serif: '"Plus Jakarta Sans", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif',
   sans: '"Plus Jakarta Sans", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif',
@@ -150,9 +204,9 @@ html, body { overscroll-behavior-x: none; -webkit-tap-highlight-color: transpare
 }
 .cb-carousel::-webkit-scrollbar { display: none; }
 .cb-carousel { scrollbar-width: none; overscroll-behavior-x: contain; }
-input::placeholder { color: #7a6f95; }
+input::placeholder { color: #8a7fae; }
 input, select { transition: border-color .18s ease, box-shadow .18s ease; }
-input:focus, select:focus { outline: none; border-color: #a78bfa !important; box-shadow: 0 0 0 3px rgba(167,139,250,.18); }
+input:focus, select:focus { outline: none; }
 @media (prefers-reduced-motion: reduce) {
   .cb-view, .cb-row, .cb-sheet, .cb-sheet-overlay, .cb-subpage, .cb-list-in,
   .cb-chip-pop, .cb-check-pop, .cb-skeleton, .cb-shake, .cb-glow-breathe,
@@ -518,6 +572,7 @@ export function defaultBook() {
       dateFmt: "dmy",
       notifs: { backup: true, suspense: true, dues: true },
       lock: { on: false, pin: "" },
+      theme: "blue",
     },
     budgets: {},
     partyNotes: [],
@@ -818,7 +873,7 @@ if (typeof window !== "undefined") {
     computePL, balancesAsOf, owedAsOf, computeBS, defaultBook,
     parseStatementText, suggestHead, keywordOf, parseBankSms, parsePdfTable,
     isExplained, isRefund, entryVisual, holdingsAsOf, holdingsValue,
-    money, navPrice,
+    money, navPrice, C, THEMES, applyTheme,
   };
 }
 
@@ -1084,8 +1139,10 @@ function Ic({ name, size = 15, stroke = "#fff", sw = 2.2 }) {
   );
 }
 
-const AVATARS = [C.grad, C.greenGrad, C.blueGrad, C.amberGrad, C.pinkGrad, C.tealGrad, C.indigoGrad, C.redGrad];
-const avatarBg = (i) => AVATARS[i % AVATARS.length];
+// Rebuilt fresh on every call (not a module-level array) so avatarBg(0)
+// stays theme-reactive -- a frozen array would snapshot C.grad's string
+// value once at import time and never see later theme mutations.
+const avatarBg = (i) => [C.grad, C.greenGrad, C.blueGrad, C.amberGrad, C.pinkGrad, C.tealGrad, C.indigoGrad, C.redGrad][i % 8];
 const SLICE_COLORS = ["#a78bfa", "#60a5fa", "#34d399", "#fbbf24", "#e879f9", "#2dd4bf", "#fb7185", "#71717a"];
 
 /* glass primitives */
@@ -1194,8 +1251,8 @@ function FilterChip({ label, active, onClick, pop }) {
       style={{
         padding: "7px 13px", borderRadius: 999, fontSize: 12, fontWeight: 700,
         fontFamily: F.sans, cursor: "pointer", whiteSpace: "nowrap", flexShrink: 0,
-        border: `1px solid ${active ? "rgba(167,139,250,.5)" : "rgba(255,255,255,.16)"}`,
-        background: active ? "rgba(167,139,250,.18)" : "rgba(255,255,255,.06)",
+        border: `1px solid ${active ? C.accentBorder : "rgba(255,255,255,.16)"}`,
+        background: active ? C.accentSoft : "rgba(255,255,255,.06)",
         color: active ? C.accentText : C.soft,
       }}
     >
@@ -1293,7 +1350,7 @@ function DropdownField({ value, options, onChange, placeholder, style, wrapStyle
                   onClick={() => { onChange(o.v); setOpen(false); }}
                   style={{
                     textAlign: "left", padding: "10px 12px", borderRadius: 10, border: "none",
-                    background: o.v === value ? "rgba(167,139,250,.18)" : "none",
+                    background: o.v === value ? C.accentSoft : "none",
                     color: o.v === value ? C.accentText : C.soft, fontSize: 13.5, fontWeight: 700,
                     fontFamily: F.sans, cursor: "pointer",
                   }}
@@ -1391,8 +1448,8 @@ function Chips({ options, value, onChange, render }) {
           style={{
             padding: "7px 12px", borderRadius: 999, fontSize: 13, fontWeight: 700,
             fontFamily: F.sans, cursor: "pointer",
-            border: `1px solid ${value === o ? "rgba(167,139,250,.5)" : "rgba(255,255,255,.16)"}`,
-            background: value === o ? "rgba(167,139,250,.18)" : "rgba(255,255,255,.05)",
+            border: `1px solid ${value === o ? C.accentBorder : "rgba(255,255,255,.16)"}`,
+            background: value === o ? C.accentSoft : "rgba(255,255,255,.05)",
             color: value === o ? C.accentText : C.soft,
           }}
         >
@@ -1544,10 +1601,10 @@ function AccountCard({ book, acc, active, onImport, onTransactions, pending, onV
   // icon, same near-black card + breathing-glow language as the lock screen —
   // no colorful gradient fill.
   const glowBg = isCard
-    ? "radial-gradient(circle, rgba(167,139,250,.42), rgba(109,40,217,.14) 50%, transparent 70%)"
+    ? `radial-gradient(circle, ${alpha(C.accent, .42)}, ${alpha(C.accentDeep, .14)} 50%, transparent 70%)`
     : "radial-gradient(circle, rgba(96,165,250,.4), rgba(37,99,235,.12) 50%, transparent 70%)";
   const glowShadow = isCard
-    ? "0 22px 46px -22px rgba(109,40,217,.4)"
+    ? `0 22px 46px -22px ${alpha(C.accentDeep, .4)}`
     : "0 22px 46px -22px rgba(37,99,235,.35)";
   const grainBg = {
     backgroundImage: "radial-gradient(rgba(255,255,255,.045) 1px, transparent 1px)",
@@ -1582,7 +1639,7 @@ function AccountCard({ book, acc, active, onImport, onTransactions, pending, onV
           <div style={{ position: "absolute", inset: 0, opacity: 0.5, mixBlendMode: "overlay", pointerEvents: "none", ...grainBg }} />
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", position: "relative" }}>
             <div style={{ display: "flex", alignItems: "center", gap: 9, minWidth: 0 }}>
-              <Orb size={32} grad={isCard ? C.grad : C.blueGrad} shadow={isCard ? "0 4px 10px -3px rgba(109,40,217,.6)" : "0 4px 10px -3px rgba(37,99,235,.6)"}>
+              <Orb size={32} grad={isCard ? C.grad : C.blueGrad} shadow={isCard ? `0 4px 10px -3px ${alpha(C.accentDeep, .6)}` : "0 4px 10px -3px rgba(37,99,235,.6)"}>
                 <Ic name={isCard ? "card" : "bank"} size={15} />
               </Orb>
               <div style={{ minWidth: 0 }}>
@@ -1641,10 +1698,10 @@ function AccountCard({ book, acc, active, onImport, onTransactions, pending, onV
               </RoundBtn>
             </div>
             <div style={{ display: "flex", gap: 6, fontSize: 10, flexWrap: "wrap" }}>
-              <span style={{ background: "rgba(167,139,250,.2)", border: "1px solid rgba(167,139,250,.4)", color: "#e2d6fb", padding: "3px 8px", borderRadius: 999, fontWeight: 700 }}>
+              <span style={{ background: C.accentBg, border: `1px solid ${C.accentBorderSoft}`, color: C.accentText, padding: "3px 8px", borderRadius: 999, fontWeight: 700 }}>
                 in {money(book, acc.monthIn)}
               </span>
-              <span style={{ background: "rgba(255,255,255,.08)", border: "1px solid rgba(255,255,255,.16)", color: "#d3c8e8", padding: "3px 8px", borderRadius: 999, fontWeight: 700 }}>
+              <span style={{ background: "rgba(255,255,255,.08)", border: "1px solid rgba(255,255,255,.16)", color: C.soft, padding: "3px 8px", borderRadius: 999, fontWeight: 700 }}>
                 out {money(book, acc.monthOut)}
               </span>
             </div>
@@ -1666,7 +1723,7 @@ function AccountCard({ book, acc, active, onImport, onTransactions, pending, onV
 }
 
 /* ────────────────────── SVG mini-charts ────────────────────── */
-function Sparkline({ points, width = 320, height = 90, color = "#a78bfa" }) {
+function Sparkline({ points, width = 320, height = 90, color = C.accent }) {
   if (!points || points.length < 2) {
     return <div style={{ fontSize: 12, color: C.faint, padding: "20px 0" }}>Not enough history yet — check back next month.</div>;
   }
@@ -1798,7 +1855,7 @@ function QuickAction({ grad, shadow, icon, label, onClick }) {
   return (
     <button className="cb-press" onClick={onClick} style={{ display: "flex", flexDirection: "column", alignItems: "center", border: "none", background: "none", padding: 0, cursor: "pointer", textAlign: "center" }}>
       <Orb size={38} radius={13} grad={grad} shadow={shadow}><Ic name={icon} size={17} /></Orb>
-      <div style={{ fontSize: 10, fontWeight: 700, color: "#c9bfe0", marginTop: 6, whiteSpace: "nowrap" }}>
+      <div style={{ fontSize: 10, fontWeight: 700, color: C.muted, marginTop: 6, whiteSpace: "nowrap" }}>
         {label}
       </div>
     </button>
@@ -1862,14 +1919,14 @@ function DashHome({ book, go, onImport, onAdd, setTab, prices }) {
     <div className="cb-stagger">
       <div className="cb-press" onClick={() => go("networth")} style={{ ...glass(22), padding: "18px 18px 16px", cursor: "pointer" }}>
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 14, fontWeight: 700, color: "#e2d6fb" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 14, fontWeight: 700, color: C.soft }}>
             Net Worth
             <Ic name="info" size={13} stroke={C.faint} />
           </div>
           <span style={{
             display: "flex", alignItems: "center", gap: 5, padding: "6px 12px", borderRadius: 999,
             border: "1px solid rgba(255,255,255,.16)", background: "rgba(255,255,255,.06)",
-            color: "#e2d6fb", fontSize: 12, fontWeight: 700,
+            color: C.soft, fontSize: 12, fontWeight: 700,
           }}>
             This Month
           </span>
@@ -1927,7 +1984,7 @@ function DashHome({ book, go, onImport, onAdd, setTab, prices }) {
         <div style={{ display: "grid", gridTemplateColumns: "repeat(5, 1fr)", gap: 6 }}>
           <QuickAction grad={C.indigoGrad} shadow="0 6px 14px -4px rgba(67,56,202,.55)" icon="download" label="Import" onClick={onImport} />
           <QuickAction grad={C.skyGrad} shadow="0 6px 14px -4px rgba(3,105,161,.55)" icon="plus" label="Add" onClick={onAdd} />
-          <QuickAction grad={C.grad} shadow="0 6px 14px -4px rgba(109,40,217,.55)" icon="pie" label="Reports" onClick={() => setTab("reports")} />
+          <QuickAction grad={C.grad} shadow={`0 6px 14px -4px ${alpha(C.accentDeep, .55)}`} icon="pie" label="Reports" onClick={() => setTab("reports")} />
           <QuickAction grad={C.pinkGrad} shadow="0 6px 14px -4px rgba(162,28,175,.55)" icon="tag" label="Budget" onClick={() => { setTab("reports"); go("budget"); }} />
           <QuickAction grad={C.tealGrad} shadow="0 6px 14px -4px rgba(15,118,110,.55)" icon="people" label="Owed" onClick={() => setTab("owed")} />
         </div>
@@ -1997,7 +2054,7 @@ function StatDetailSheet({ book, kind, pl, invested, investedBag, expDiffPct, to
                 {money(book, topCat[1])} spent this month
               </div>
               <div style={{ height: 5, borderRadius: 999, background: "rgba(255,255,255,.1)", marginTop: 12 }}>
-                <div style={{ height: "100%", width: `${Math.round((topCat[1] / (pl.totalExpense || 1)) * 100)}%`, borderRadius: 999, background: "linear-gradient(90deg,#a78bfa,#6d28d9)" }} />
+                <div style={{ height: "100%", width: `${Math.round((topCat[1] / (pl.totalExpense || 1)) * 100)}%`, borderRadius: 999, background: `linear-gradient(90deg,${C.accent},${C.accentDeep})` }} />
               </div>
             </div>
           )}
@@ -2117,8 +2174,8 @@ function NetWorthPage({ book, go, prices }) {
               style={{
                 padding: "7px 14px", borderRadius: 999, fontSize: 12, fontWeight: 800,
                 fontFamily: F.sans, cursor: "pointer",
-                border: `1px solid ${months === m ? "rgba(167,139,250,.5)" : "rgba(255,255,255,.14)"}`,
-                background: months === m ? "rgba(167,139,250,.18)" : "rgba(255,255,255,.05)",
+                border: `1px solid ${months === m ? C.accentBorder : "rgba(255,255,255,.14)"}`,
+                background: months === m ? C.accentSoft : "rgba(255,255,255,.05)",
                 color: months === m ? C.accentText : C.muted,
               }}
             >
@@ -2249,7 +2306,7 @@ function InvestmentsPage({ book, prices, instruments, pricesLoaded, onClose, onA
 
         <div style={{ ...glass(22), padding: "18px 18px 16px" }}>
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
-            <button className="cb-press" onClick={() => setHidden((x) => !x)} style={{ display: "flex", alignItems: "center", gap: 6, border: "none", background: "none", padding: 0, cursor: "pointer", fontSize: 13, fontWeight: 700, color: "#e2d6fb" }}>
+            <button className="cb-press" onClick={() => setHidden((x) => !x)} style={{ display: "flex", alignItems: "center", gap: 6, border: "none", background: "none", padding: 0, cursor: "pointer", fontSize: 13, fontWeight: 700, color: C.soft }}>
               Total Investment Value
               <Ic name={hidden ? "eyeOff" : "eye"} size={13} stroke={C.faint} />
             </button>
@@ -2257,7 +2314,7 @@ function InvestmentsPage({ book, prices, instruments, pricesLoaded, onClose, onA
               value={valueMode}
               onChange={setValueMode}
               options={[{ v: "market", label: "Market Value" }, { v: "invested", label: "Invested Amount" }]}
-              style={{ padding: "6px 12px", borderRadius: 999, fontSize: 12, color: "#e2d6fb" }}
+              style={{ padding: "6px 12px", borderRadius: 999, fontSize: 12, color: C.soft }}
               wrapStyle={{ flexShrink: 0 }}
             />
           </div>
@@ -2277,7 +2334,7 @@ function InvestmentsPage({ book, prices, instruments, pricesLoaded, onClose, onA
           )}
 
           <div style={{ marginTop: 14 }}>
-            <Sparkline points={series.map((s) => s.value)} color="#a78bfa" />
+            <Sparkline points={series.map((s) => s.value)} />
           </div>
           <div style={{ display: "flex", gap: 6, marginTop: 4, paddingBottom: 2 }}>
             {[["3M", 3], ["6M", 6], ["1Y", 12], ["All", 24]].map(([label, m]) => (
@@ -2288,8 +2345,8 @@ function InvestmentsPage({ book, prices, instruments, pricesLoaded, onClose, onA
                 style={{
                   padding: "7px 14px", borderRadius: 999, fontSize: 12, fontWeight: 800,
                   fontFamily: F.sans, cursor: "pointer",
-                  border: `1px solid ${months === m ? "rgba(167,139,250,.5)" : "rgba(255,255,255,.14)"}`,
-                  background: months === m ? "rgba(167,139,250,.18)" : "rgba(255,255,255,.05)",
+                  border: `1px solid ${months === m ? C.accentBorder : "rgba(255,255,255,.14)"}`,
+                  background: months === m ? C.accentSoft : "rgba(255,255,255,.05)",
                   color: months === m ? C.accentText : C.muted,
                 }}
               >
@@ -2381,7 +2438,7 @@ function InvestmentsPage({ book, prices, instruments, pricesLoaded, onClose, onA
           </div>
         </div>
 
-        <button className="cb-press" onClick={onAdd} style={{ width: "100%", marginTop: 14, padding: "13px 0", border: "1px dashed rgba(167,139,250,.4)", borderRadius: 14, background: "rgba(167,139,250,.08)", color: C.accentText, fontWeight: 800, fontSize: 13.5, fontFamily: F.sans, cursor: "pointer" }}>
+        <button className="cb-press" onClick={onAdd} style={{ width: "100%", marginTop: 14, padding: "13px 0", border: `1px dashed ${C.accentBorderSoft}`, borderRadius: 14, background: alpha(C.accent, .08), color: C.accentText, fontWeight: 800, fontSize: 13.5, fontFamily: F.sans, cursor: "pointer" }}>
           + Add Investment
         </button>
 
@@ -3110,7 +3167,7 @@ function OwedDetailPage({ book, kind, go }) {
         </div>
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "6px 10px", marginTop: 10 }}>
           {buckets.map((b) => (
-            <div key={b.label} style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 11, color: "#c9bfe0", fontWeight: 600 }}>
+            <div key={b.label} style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 11, color: C.muted, fontWeight: 600 }}>
               <span style={{ width: 7, height: 7, borderRadius: 999, background: b.color, flexShrink: 0 }} />
               {b.label} <span style={{ color: C.faint }}>· {compactMoney(book, b.value)}</span>
             </div>
@@ -3663,7 +3720,7 @@ function CashFlowPage({ book }) {
             </div>
           ))}
         </div>
-        <div style={{ display: "flex", gap: 14, marginTop: 10, fontSize: 11, color: "#c9bfe0", fontWeight: 600 }}>
+        <div style={{ display: "flex", gap: 14, marginTop: 10, fontSize: 11, color: C.muted, fontWeight: 600 }}>
           <span style={{ display: "flex", alignItems: "center", gap: 5 }}><span style={{ width: 8, height: 8, borderRadius: 999, background: "#34d399" }} /> Money in</span>
           <span style={{ display: "flex", alignItems: "center", gap: 5 }}><span style={{ width: 8, height: 8, borderRadius: 999, background: "#fb7185" }} /> Money out</span>
         </div>
@@ -3816,10 +3873,10 @@ function AccountDetailPage({ book, accId, onEdit }) {
           {money(book, shown)}
         </div>
         <div style={{ display: "flex", gap: 6, marginTop: 10, fontSize: 10.5 }}>
-          <span style={{ background: "rgba(167,139,250,.2)", border: "1px solid rgba(167,139,250,.4)", color: "#e2d6fb", padding: "3px 8px", borderRadius: 999, fontWeight: 700 }}>
+          <span style={{ background: C.accentBg, border: `1px solid ${C.accentBorderSoft}`, color: C.accentText, padding: "3px 8px", borderRadius: 999, fontWeight: 700 }}>
             in {money(book, acc.monthIn)} this month
           </span>
-          <span style={{ background: "rgba(255,255,255,.08)", border: "1px solid rgba(255,255,255,.16)", color: "#d3c8e8", padding: "3px 8px", borderRadius: 999, fontWeight: 700 }}>
+          <span style={{ background: "rgba(255,255,255,.08)", border: "1px solid rgba(255,255,255,.16)", color: C.soft, padding: "3px 8px", borderRadius: 999, fontWeight: 700 }}>
             out {money(book, acc.monthOut)}
           </span>
         </div>
@@ -3883,7 +3940,7 @@ function HoldingDetailPage({ book, prices, holdingId, onEdit, onAdd }) {
         </div>
         <div style={{ fontSize: 12, color: C.muted, marginTop: 8 }}>{investDetailLine(book, row)}</div>
         <div style={{ display: "flex", gap: 6, marginTop: 10, fontSize: 10.5 }}>
-          <span style={{ background: "rgba(167,139,250,.2)", border: "1px solid rgba(167,139,250,.4)", color: "#e2d6fb", padding: "3px 8px", borderRadius: 999, fontWeight: 700 }}>
+          <span style={{ background: C.accentBg, border: `1px solid ${C.accentBorderSoft}`, color: C.accentText, padding: "3px 8px", borderRadius: 999, fontWeight: 700 }}>
             Invested {money(book, row.costBasis)}
           </span>
         </div>
@@ -3952,7 +4009,8 @@ function SetupHub({ book, go }) {
       </div>
       <div style={st.eyebrow}>Preferences</div>
       <div style={{ ...glass(18), marginBottom: 18, overflow: "hidden", background: C.glassSoft, border: C.borderSoft }}>
-        <SetupRow last={0} grad={C.amberGrad} icon="calendar" title="Currency & Date" sub={`${book.prefs.currency} · ${{ dmy: "DD-MM-YYYY", mdy: "MM-DD-YYYY", ymd: "YYYY-MM-DD" }[book.prefs.dateFmt]}`} onClick={() => go("setupPrefs")} />
+        <SetupRow last={0} grad={C.grad} icon="grid" title="Appearance" sub={THEMES[book.prefs.theme || "blue"].label} onClick={() => go("setupTheme")} />
+        <SetupRow grad={C.amberGrad} icon="calendar" title="Currency & Date" sub={`${book.prefs.currency} · ${{ dmy: "DD-MM-YYYY", mdy: "MM-DD-YYYY", ymd: "YYYY-MM-DD" }[book.prefs.dateFmt]}`} onClick={() => go("setupPrefs")} />
         <SetupRow grad={C.redGrad} icon="bell" title="Notifications" sub={`${notifCount} enabled`} onClick={() => go("setupNotifs")} />
         <SetupRow grad={C.indigoGrad} icon="shield" title="Security" sub={lock.on && lock.pin ? "App lock on" : "App lock off"} onClick={() => go("setupSecurity")} />
       </div>
@@ -4287,8 +4345,8 @@ function SetupHoldingsPage({ book, up, instruments }) {
 function CategoryChips({ book, up, side, accent }) {
   const [adding, setAdding] = useState(false);
   const [name, setName] = useState("");
-  const border = accent === "green" ? "1px solid rgba(110,231,183,.3)" : "1px solid rgba(167,139,250,.3)";
-  const bg = accent === "green" ? "rgba(110,231,183,.1)" : "rgba(167,139,250,.1)";
+  const border = accent === "green" ? "1px solid rgba(110,231,183,.3)" : `1px solid ${alpha(C.accent, .3)}`;
+  const bg = accent === "green" ? "rgba(110,231,183,.1)" : alpha(C.accent, .1);
   const color = accent === "green" ? C.green : C.accentText;
   return (
     <>
@@ -4476,8 +4534,8 @@ function SetupPrefsPage({ book, up }) {
     <button className="cb-press" onClick={onClick}
       style={{
         flex: 1, padding: "11px 0", borderRadius: 12, fontFamily: F.sans, cursor: "pointer",
-        border: `1px solid ${active ? "rgba(167,139,250,.5)" : "rgba(255,255,255,.16)"}`,
-        background: active ? "rgba(167,139,250,.18)" : "rgba(255,255,255,.05)",
+        border: `1px solid ${active ? C.accentBorder : "rgba(255,255,255,.16)"}`,
+        background: active ? C.accentSoft : "rgba(255,255,255,.05)",
         color: active ? C.accentText : C.soft, fontSize: big ? 16 : 13.5, fontWeight: big ? 800 : 700,
       }}>
       {label}
@@ -4508,6 +4566,36 @@ function SetupPrefsPage({ book, up }) {
         <div style={{ fontSize: 26, fontWeight: 800, color: "#fff", marginTop: 8 }}>{money(book, 125430)}</div>
         <div style={{ fontSize: 12, color: C.muted, marginTop: 4 }}>{fmtDate(book, today())}</div>
       </div>
+    </div>
+  );
+}
+
+function SetupThemePage({ book, up }) {
+  const current = book.prefs.theme || "blue";
+  return (
+    <div className="cb-stagger">
+      <div style={{ fontSize: 12, color: C.muted, padding: "0 2px 12px" }}>
+        Changes the app's accent color everywhere — chips, buttons, the lock screen glow, and the credit-card glow. Takes effect immediately.
+      </div>
+      {Object.entries(THEMES).map(([key, t]) => {
+        const active = current === key;
+        return (
+          <div key={key} className="cb-press" onClick={() => up((b) => ((b.prefs.theme = key), b))}
+            style={{
+              ...glass(18), display: "flex", alignItems: "center", gap: 12,
+              padding: "14px 16px", marginBottom: 10, cursor: "pointer",
+              border: active ? `1px solid ${C.accentBorder}` : C.borderSoft,
+              background: active ? C.accentSoft : C.glassSoft,
+            }}>
+            <div style={{ width: 40, height: 40, borderRadius: 12, background: t.swatch, flexShrink: 0, boxShadow: `0 6px 14px -4px ${alpha(t.accentDeep, .55)}` }} />
+            <div style={{ flex: 1 }}>
+              <div style={{ fontSize: 14.5, fontWeight: 700, color: C.ink }}>{t.label}</div>
+              <div style={{ fontSize: 11.5, color: C.muted, marginTop: 1 }}>{key === "blue" ? "New default" : "The original look"}</div>
+            </div>
+            {active && <Ic name="check" size={18} stroke={C.accentText} sw={2.6} />}
+          </div>
+        );
+      })}
     </div>
   );
 }
@@ -4760,7 +4848,7 @@ function HoldingPicker({ book, instruments, initial, onChange }) {
                   style={{
                     display: "block", width: "100%", textAlign: "left", padding: "9px 12px",
                     border: "none", borderBottom: `1px solid ${C.line}`, fontFamily: F.sans,
-                    background: instrumentId === r.id ? "rgba(167,139,250,.14)" : "none",
+                    background: instrumentId === r.id ? alpha(C.accent, .14) : "none",
                     color: C.soft, fontSize: 12.5, cursor: "pointer",
                   }}
                 >
@@ -5310,7 +5398,7 @@ function Splash({ leaving }) {
         style={{
           width: 96, height: 96, borderRadius: 26, background: C.grad,
           border: "1px solid rgba(255,255,255,.2)",
-          boxShadow: "0 24px 50px -16px rgba(109,40,217,.7)",
+          boxShadow: `0 24px 50px -16px ${alpha(C.accentDeep, .7)}`,
           display: "flex", alignItems: "center", justifyContent: "center",
           fontSize: 48, fontWeight: 800, color: "#fff", fontFamily: F.sans,
         }}
@@ -5375,7 +5463,7 @@ function LockScreen({ pin, onUnlock }) {
     }}>
       <div className="cb-glow-breathe" style={{
         position: "absolute", top: -140, left: "50%", width: 420, height: 420, borderRadius: 999,
-        background: "radial-gradient(circle, rgba(167,139,250,.30), rgba(109,40,217,.08) 55%, transparent 72%)",
+        background: `radial-gradient(circle, ${alpha(C.accent, .30)}, ${alpha(C.accentDeep, .08)} 55%, transparent 72%)`,
         transform: "translateX(-50%)", pointerEvents: "none",
       }} />
       <div style={{ textAlign: "center", position: "relative" }}>
@@ -5383,7 +5471,7 @@ function LockScreen({ pin, onUnlock }) {
         <div style={{ fontSize: 12.5, color: C.muted, fontWeight: 600, marginTop: 6 }}>{prettyDate(today())}</div>
       </div>
       <div style={{ marginTop: 22 }}>
-        <Orb size={38} radius={11} grad={C.grad} shadow="0 10px 20px -8px rgba(109,40,217,.6)">
+        <Orb size={38} radius={11} grad={C.grad} shadow={`0 10px 20px -8px ${alpha(C.accentDeep, .6)}`}>
           <span style={{ fontSize: 16, fontWeight: 800, color: "#fff" }}>₹</span>
         </Orb>
       </div>
@@ -5498,6 +5586,7 @@ const PAGE_TITLES = {
   setupAccounts: "Accounts",
   setupCategories: "Categories",
   setupParties: "Parties",
+  setupTheme: "Appearance",
   setupPrefs: "Currency & Date",
   setupNotifs: "Notifications",
   setupSecurity: "Security",
@@ -5536,6 +5625,20 @@ export default function CashBook() {
     const t2 = setTimeout(() => setSplash("done"), min + 400);
     return () => { clearTimeout(t1); clearTimeout(t2); };
   }, []);
+
+  // Applies the active theme to the shared C token object before paint
+  // whenever book.prefs.theme changes, then bumps a version counter to
+  // force one synchronous re-render that picks up the mutated values --
+  // useLayoutEffect-triggered state updates flush before the browser
+  // paints, so the corrected render replaces the stale one in the same
+  // frame (no flash), without needing Context or a ~700-site prop refactor.
+  const [, forceThemeRepaint] = useState(0);
+  useLayoutEffect(() => {
+    if (!book) return;
+    applyTheme(book.prefs.theme || "blue");
+    try { localStorage.setItem(THEME_LS_KEY, book.prefs.theme || "blue"); } catch {}
+    forceThemeRepaint((n) => n + 1);
+  }, [book?.prefs?.theme]);
 
   // Live price/instrument snapshot — fetched once on load (the service
   // worker's network-first rule keeps it fresh on subsequent visits; a
@@ -5754,6 +5857,7 @@ export default function CashBook() {
     : page.name === "setupAccounts" ? <SetupAccountsPage book={book} up={up} />
     : page.name === "setupCategories" ? <SetupCategoriesPage book={book} up={up} />
     : page.name === "setupParties" ? <SetupPartiesPage book={book} up={up} />
+    : page.name === "setupTheme" ? <SetupThemePage book={book} up={up} />
     : page.name === "setupPrefs" ? <SetupPrefsPage book={book} up={up} />
     : page.name === "setupNotifs" ? <SetupNotifsPage book={book} up={up} />
     : page.name === "setupSecurity" ? <SetupSecurityPage book={book} up={up} />
@@ -5769,6 +5873,11 @@ export default function CashBook() {
       paddingBottom: "calc(112px + env(safe-area-inset-bottom))",
     }}>
       <style>{ANIM_CSS}</style>
+      {/* ANIM_CSS above is a frozen static string with no interpolation --
+          the focus ring lives in its own render-time style tag so it
+          re-reads C.accent/C.accentRing on every render and stays
+          theme-reactive. */}
+      <style>{`input:focus, select:focus { border-color: ${C.accent} !important; box-shadow: 0 0 0 3px ${C.accentRing}; }`}</style>
 
       <div className="cb-header">
         <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "16px 20px 12px", maxWidth: 480, margin: "0 auto" }}>
@@ -5789,7 +5898,7 @@ export default function CashBook() {
                 <div style={{
                   width: 44, height: 44, borderRadius: 14, background: C.grad, display: "flex",
                   alignItems: "center", justifyContent: "center", fontSize: 20, fontWeight: 800,
-                  color: "#fff", boxShadow: "0 6px 14px -4px rgba(109,40,217,.6)", flexShrink: 0,
+                  color: "#fff", boxShadow: `0 6px 14px -4px ${alpha(C.accentDeep, .6)}`, flexShrink: 0,
                 }}>
                   ₹
                 </div>
@@ -5875,7 +5984,7 @@ export default function CashBook() {
                     style={{
                       display: "flex", alignItems: "center", justifyContent: "center",
                       width: 30, height: 26, borderRadius: 999,
-                      background: active ? "rgba(167,139,250,.18)" : "transparent",
+                      background: active ? C.accentSoft : "transparent",
                     }}
                   >
                     <Ic name={tb.icon} size={19} stroke={active ? C.accentText : C.faint} sw={active ? 2.4 : 2} />

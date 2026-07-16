@@ -6,7 +6,7 @@ const assert = require("node:assert");
 const fs = require("node:fs");
 const path = require("node:path");
 const { JSDOM } = require("jsdom");
-const { indexedDB, IDBKeyRange } = require("fake-indexeddb");
+const { indexedDB, IDBKeyRange, IDBFactory } = require("fake-indexeddb");
 
 const BUNDLE = path.join(__dirname, "..", "dist", "app.js");
 
@@ -324,8 +324,76 @@ async function main() {
   assert.ok(fresh.heads.expense.includes("Suspense"), "Suspense head present");
   assert.ok(fresh.parties.length >= 2, "placeholder parties seeded");
 
+  // Theme: Blue is the shipped default, and applyTheme swaps the shared C
+  // token object's accent family in place (the mechanism the whole live
+  // theme-switcher relies on) without touching its neutral/category tokens.
+  assert.strictEqual(fresh.prefs.theme, "blue", "fresh books default to the blue theme");
+  assert.ok(E.THEMES && E.THEMES.blue && E.THEMES.violet, "both themes are registered");
+  const bgBefore = E.C.bg;
+  E.applyTheme("violet");
+  assert.strictEqual(E.C.accent, "#a78bfa", "applyTheme('violet') swaps C.accent to the legacy violet");
+  assert.strictEqual(E.C.grad, "linear-gradient(135deg,#a78bfa,#6d28d9)", "C.grad follows the active theme too");
+  assert.strictEqual(E.C.bg, bgBefore, "neutral/structural tokens are untouched by a theme swap");
+  E.applyTheme("blue");
+  assert.strictEqual(E.C.accent, "#6366f1", "applyTheme('blue') restores the default indigo");
+  E.applyTheme("nonexistent");
+  assert.strictEqual(E.C.accent, "#6366f1", "an unknown theme name falls back to blue rather than throwing");
+
   console.log("ok — app renders and the balance sheet foots to the rupee");
   window.close();
+
+  // Migration v7: a pre-existing v6 book (no prefs.theme) must come out of
+  // loadBook() upgraded to v7 with prefs.theme defaulted to "blue" — run
+  // via a second, fully isolated bundle mount against a fresh in-memory
+  // IndexedDB seeded directly (bypassing the app) with v6-shaped data.
+  const migIndexedDB = new IDBFactory();
+  const seedReq = migIndexedDB.open("cashbook", 1);
+  await new Promise((resolve, reject) => {
+    seedReq.onupgradeneeded = () => seedReq.result.createObjectStore("kv");
+    seedReq.onsuccess = () => {
+      const db = seedReq.result;
+      const tx = db.transaction("kv", "readwrite");
+      tx.objectStore("kv").put(
+        {
+          v: 6,
+          entries: [], heads: { income: [], expense: ["Suspense"] }, headClass: {},
+          bsAccounts: [], parties: [], opening: { asOf: "2025-01-01", bank: 0, accounts: {}, holdings: {} },
+          owedMemos: [], codingRules: [],
+          prefs: { currency: "₹", dateFmt: "dmy", notifs: {}, lock: { on: false, pin: "" } }, // no theme key — the v6 shape
+          budgets: {}, partyNotes: [], holdings: [],
+        },
+        "book"
+      );
+      tx.oncomplete = () => { db.close(); resolve(); };
+      tx.onerror = () => reject(tx.error);
+    };
+    seedReq.onerror = () => reject(seedReq.error);
+  });
+
+  const migDom = new JSDOM(
+    '<!doctype html><html><body><div id="root"></div></body></html>',
+    { runScripts: "dangerously", pretendToBeVisual: true, url: "https://cashbook.test/" }
+  );
+  migDom.window.indexedDB = migIndexedDB;
+  migDom.window.IDBKeyRange = IDBKeyRange;
+  migDom.window.eval(fs.readFileSync(BUNDLE, "utf8"));
+  await new Promise((r) => setTimeout(r, 400));
+
+  const readBack = migIndexedDB.open("cashbook", 1);
+  const migratedBook = await new Promise((resolve, reject) => {
+    readBack.onsuccess = () => {
+      const db = readBack.result;
+      const req = db.transaction("kv", "readonly").objectStore("kv").get("book");
+      req.onsuccess = () => { db.close(); resolve(req.result); };
+      req.onerror = () => reject(req.error);
+    };
+    readBack.onerror = () => reject(readBack.error);
+  });
+  assert.strictEqual(migratedBook.v, 7, "a v6 book is migrated to v7 on load");
+  assert.strictEqual(migratedBook.prefs.theme, "blue", "the v7 migration backfills prefs.theme to blue");
+
+  console.log("ok — v6 book migrates to v7 with prefs.theme defaulted to blue");
+  migDom.window.close();
 }
 
 main().catch((e) => {
