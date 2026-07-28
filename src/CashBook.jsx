@@ -201,7 +201,7 @@ export const F = {
    this sheet is injected once at the app root. */
 const ANIM_CSS = `
 html { scroll-behavior: smooth; }
-html, body { overscroll-behavior-x: none; -webkit-tap-highlight-color: transparent; touch-action: manipulation; }
+html, body { overscroll-behavior-x: none; -webkit-tap-highlight-color: transparent; touch-action: manipulation; -webkit-touch-callout: none; user-select: none; }
 @keyframes cbFadeUp { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: none; } }
 @keyframes cbSlideUp { from { transform: translateY(48px); opacity: .4; } to { transform: none; opacity: 1; } }
 @keyframes cbSlideIn { from { transform: translateX(56px); opacity: 0; } to { transform: none; opacity: 1; } }
@@ -553,7 +553,7 @@ export function computeBS(db, asOf, prices) {
   const pl = computePL(db, "0000-01-01", asOf);
   const holdings = holdingsAsOf(db, asOf).filter((h) => h.units > 0.0001 || Math.abs(h.costBasis) > 0.0001);
 
-  const assets = [{ name: "Bank", amount: bal.bank }];
+  const assets = [{ name: (db.prefs && db.prefs.bankName) || "Bank", amount: bal.bank }];
   const liabilities = [];
   for (const a of db.bsAccounts) {
     (a.kind === "liability" ? liabilities : assets).push({
@@ -641,6 +641,7 @@ export function defaultBook() {
       notifs: { backup: true, suspense: true, dues: true },
       lock: { on: false, pin: "" },
       theme: "blue",
+      bankName: "Bank",
     },
     budgets: {},
     partyNotes: [],
@@ -798,7 +799,11 @@ function pdfGroupLines(items) {
  * to. Returns [] if a page's layout doesn't look like a table it can read
  * confidently — callers should fall back to parseStatementText() then. */
 const PDF_NOISE_RE = /^\d+\s+of\s+\d+$/i;
-const PDF_STOP_RE = /closing balance|total (debit|credit)s?|other account details|^summary\s*:?$/i;
+// A standalone "<Something> Bank Limited" line is a footer signature (many
+// Indian bank statements print one right above the closing disclaimer) —
+// stopping there too, not just at "closing balance", keeps that signature
+// from being read as a trailing fragment of the last transaction above it.
+const PDF_STOP_RE = /closing balance|total (debit|credit)s?|other account details|^summary\s*:?$|^[a-z][a-z .]*bank limited$/i;
 const PDF_LABEL_RE =
   /^(si|date|particulars|narration|description|transaction remarks|remarks|details|chq num|withdrawal|deposit|balance|debit|credit|amount|type|dr\/cr|cr\/dr)\.?$/i;
 
@@ -809,7 +814,10 @@ function pdfFindHeader(lines) {
   const DEPOSIT_LBL = /^(deposit|credit)(\s*amt\.?)?$/i;
   const AMOUNT_LBL = /^amount$/i;
   const TYPE_LBL = /^(dr\/cr|cr\/dr|type)$/i;
-  const BALANCE_LBL = /^balance$/i;
+  // Matches a bare "Balance" as well as a prefixed variant like "Closing
+  // Balance" — some statements label the running-balance column with the
+  // qualifier attached, as one merged text item.
+  const BALANCE_LBL = /(^|\s)balance$/i;
 
   for (let li = 0; li < lines.length; li++) {
     let dateX, narrX, wX, dX, amtX, typeX, balX;
@@ -824,10 +832,36 @@ function pdfFindHeader(lines) {
       else if (BALANCE_LBL.test(s)) balX = it.x;
     }
     if (dateX == null || narrX == null) continue;
-    if (wX != null && dX != null) return { headerIndex: li, dateX, mode: "split", withdrawalX: wX, depositX: dX, balanceX: balX };
-    if (amtX != null && typeX != null) return { headerIndex: li, dateX, mode: "typed", amountX: amtX, typeX, balanceX: balX };
+    if (wX != null && dX != null) {
+      const ranges = pdfColumnRanges([[wX, "out"], [dX, "in"], [balX, null]]);
+      return { headerIndex: li, headerY: lines[li].y, dateX, mode: "split", withdrawalX: wX, depositX: dX, balanceX: balX, ranges };
+    }
+    if (amtX != null && typeX != null) {
+      const ranges = pdfColumnRanges([[amtX, "amt"], [balX, null]]);
+      return { headerIndex: li, headerY: lines[li].y, dateX, mode: "typed", amountX: amtX, typeX, balanceX: balX, ranges };
+    }
   }
   return null;
+}
+
+// Ascending [x, label] boundaries for the amount-bearing columns (drops any
+// entry whose x is null, e.g. an undetected Balance column).
+function pdfColumnRanges(bounds) {
+  return bounds.filter(([x]) => x != null).sort((a, b) => a[0] - b[0]);
+}
+
+// Which column an item's x falls into: the label of the last boundary at or
+// before x (a few px of slack for a right-aligned figure whose glyph starts
+// just shy of its column's nominal start), or undefined if x is left of the
+// first boundary (a Ref No/Value Dt column — never a real amount, whatever
+// its own text happens to look like numerically or date-like).
+function pdfColumnAt(x, ranges) {
+  let label;
+  for (const [boundX, lbl] of ranges) {
+    if (x >= boundX - 5) label = lbl;
+    else break;
+  }
+  return label;
 }
 
 // Leading numeric value of an item's own text, e.g. "2,11,586.20 Cr" -> 211586.2.
@@ -836,14 +870,15 @@ function pdfLeadingNumber(s) {
   return m ? parseFloat(m[0].replace(/,/g, "")) : null;
 }
 
-function parsePdfTablePage(items) {
-  const lines = pdfGroupLines(items);
-  const hdr = pdfFindHeader(lines);
-  if (!hdr) return [];
-
+// Extracts every transaction from `lines[startIndex..]` using an already-
+// resolved header (found on this page, or carried forward from an earlier
+// page — see parsePdfTable). Split out from parsePdfTablePage so a
+// continuation page that doesn't repeat the column header can still be
+// read against the header from an earlier page in the same statement.
+function pdfExtractRows(lines, hdr, startIndex) {
   const anchors = [];
   const fragments = [];
-  for (let li = hdr.headerIndex + 1; li < lines.length; li++) {
+  for (let li = startIndex; li < lines.length; li++) {
     const line = lines[li];
     const trimmed = line.text.trim();
     if (PDF_STOP_RE.test(trimmed)) break;
@@ -858,36 +893,29 @@ function parsePdfTablePage(items) {
       const candidates = line.items
         .filter((it) => it.x > hdr.dateX + 5 && /^\d/.test(it.s.trim()))
         .map((it) => ({ it, v: pdfLeadingNumber(it.s) }))
-        .filter((c) => Number.isFinite(c.v) && c.v > 0);
+        .filter((c) => Number.isFinite(c.v) && c.v >= 0);
 
       let amount, type;
       if (hdr.mode === "split") {
-        let best = null;
         for (const c of candidates) {
-          const dw = Math.abs(c.it.x - hdr.withdrawalX);
-          const dd = Math.abs(c.it.x - hdr.depositX);
-          const db = hdr.balanceX != null ? Math.abs(c.it.x - hdr.balanceX) : Infinity;
-          const min = Math.min(dw, dd, db);
-          if (min === db) continue; // nearest the balance column — skip
-          if (!best || min < best.dist) best = { dist: min, amount: Math.round(c.v), type: dw < dd ? "out" : "in" };
+          const col = pdfColumnAt(c.it.x, hdr.ranges);
+          if (col !== "out" && col !== "in") continue;
+          amount = Math.round(c.v); type = col;
+          break;
         }
-        if (best) { amount = best.amount; type = best.type; }
       } else {
-        let best = null;
-        for (const c of candidates) {
-          const da = Math.abs(c.it.x - hdr.amountX);
-          const db = hdr.balanceX != null ? Math.abs(c.it.x - hdr.balanceX) : Infinity;
-          if (da > db) continue;
-          if (!best || da < best.dist) best = { dist: da, amount: Math.round(c.v) };
-        }
-        if (best) {
-          amount = best.amount;
+        const amtCandidate = candidates.find((c) => pdfColumnAt(c.it.x, hdr.ranges) === "amt");
+        if (amtCandidate) {
+          amount = Math.round(amtCandidate.v);
           const typeTok = line.items.find((it) => Math.abs(it.x - hdr.typeX) < 40);
           type = typeTok && /^cr/i.test(typeTok.s.trim()) ? "in" : "out";
         }
       }
 
-      if (amount) {
+      // != null (not truthy) so a genuine sub-rupee amount that rounds to 0
+      // still becomes a row instead of silently vanishing — the review
+      // screen is where a user notices/drops a stray ₹0 entry, not here.
+      if (amount != null) {
         const inline = line.items
           .filter((it) => it.x > hdr.dateX + 5 && it !== dateItem && !/^\d/.test(it.s.trim()))
           .map((it) => it.s)
@@ -905,14 +933,25 @@ function parsePdfTablePage(items) {
     if (!dm && !looksNumeric && !PDF_LABEL_RE.test(trimmed)) fragments.push({ y: line.y, text: trimmed });
   }
 
+  // A fragment belongs to whichever of its two immediate neighboring anchors
+  // (the one just above it, y >= f.y, or the one just below, y < f.y) it's
+  // closer to — narration can wrap on either side of a transaction's own
+  // numeric row. Scoping to only the immediate neighbors (rather than a
+  // global nearest-by-distance search, or a fixed pixel cutoff) means a
+  // fragment can never bleed past an adjacent transaction even when rows
+  // sit close together; a generous absolute cap is still a backstop against
+  // stray footer/noise text near the very top or bottom of a page.
   for (const f of fragments) {
-    let best = null;
+    let before = null, after = null;
     for (const a of anchors) {
-      const dist = Math.abs(a.y - f.y);
-      if (dist > 40) continue;
-      if (!best || dist < best.dist) best = { a, dist };
+      if (a.y >= f.y) { if (!before || a.y < before.y) before = a; }
+      else if (!after || a.y > after.y) after = a;
     }
-    if (best) best.a.pieces.push({ y: f.y, text: f.text });
+    const distBefore = before ? before.y - f.y : Infinity;
+    const distAfter = after ? f.y - after.y : Infinity;
+    const chosen = distBefore <= distAfter ? before : after;
+    const dist = Math.min(distBefore, distAfter);
+    if (chosen && dist <= 120) chosen.pieces.push({ y: f.y, text: f.text });
   }
 
   return anchors.map((a) => ({
@@ -929,10 +968,49 @@ function parsePdfTablePage(items) {
   }));
 }
 
+function parsePdfTablePage(items) {
+  const lines = pdfGroupLines(items);
+  const hdr = pdfFindHeader(lines);
+  if (!hdr) return [];
+  return pdfExtractRows(lines, hdr, hdr.headerIndex + 1);
+}
+
 // Exposed so npm test can drive it directly with a synthetic item list —
 // this is the function that fixes the wrapped-narration/wrong-direction bug.
+// Per-page, not per-document: many multi-page statements only print the
+// column header once, on the first page — a page that doesn't repeat it
+// reuses the most recently found header instead of being skipped outright
+// (previously every continuation page silently contributed zero rows). A
+// headerless page still repeats the SAME letterhead/account-info block the
+// header page had above its header row (name, address, account number...),
+// at the same fixed Y positions on every page (one page template, reused
+// per page — even though a couple of its lines' own TEXT legitimately
+// differs page to page, e.g. "Page No.: 2" vs "Page No.: 1"). So rather
+// than matching text or guessing a single cutoff Y (real data can start
+// slightly above or below where the header row itself sat, since a
+// continuation page has no header row of its own eating up a line), skip
+// every line whose Y coincides with one of the header page's own
+// pre-header lines, and start reading at the first Y that doesn't — a
+// repeated static block can't coincidentally land on the same Y positions
+// as itself while also being a transaction row, which necessarily varies.
 export function parsePdfTable(pages) {
-  return pages.flatMap(parsePdfTablePage);
+  let carried = null;
+  let letterheadYs = null;
+  const rows = [];
+  for (const items of pages) {
+    const lines = pdfGroupLines(items);
+    const found = pdfFindHeader(lines);
+    const hdr = found || carried;
+    if (!hdr) continue;
+    if (found) {
+      carried = found;
+      letterheadYs = new Set(lines.slice(0, found.headerIndex).map((l) => l.y));
+    }
+    const startIndex = found ? hdr.headerIndex + 1 : lines.findIndex((l) => !letterheadYs.has(l.y));
+    if (startIndex === -1) continue;
+    rows.push(...pdfExtractRows(lines, hdr, startIndex));
+  }
+  return rows;
 }
 
 // Exposed so npm test can assert the engine on the REAL production bundle.
@@ -1606,7 +1684,7 @@ function accountModels(book) {
   }
   const looksLikeCard = (a) => a.kind === "liability";
   return [
-    { id: "bank", type: "bank", kind: "asset", name: "Bank", last4: book.prefs.bankLast4 || "", balance: bal.bank, monthIn: bIn, monthOut: bOut },
+    { id: "bank", type: "bank", kind: "asset", name: book.prefs.bankName || "Bank", last4: book.prefs.bankLast4 || "", balance: bal.bank, monthIn: bIn, monthOut: bOut },
     ...book.bsAccounts.map((a) => ({
       id: "acct:" + a.name,
       type: looksLikeCard(a) ? "credit_card" : "bank",
@@ -2715,7 +2793,7 @@ function TxView({ book, up, onEdit, onAdd, initialFilter }) {
 
   const periodLabel = { all: "All time", month: "This month", "90d": "Last 90 days", fy: "This FY", custom: "Custom" }[period];
   const typeLabel = { all: "All types", in: "Money in", out: "Money out", transfer: "Transfers", party: "Party" }[type];
-  const accountLabel = account === "all" ? "All accounts" : account === "bank" ? "Bank" : account.slice(5);
+  const accountLabel = account === "all" ? "All accounts" : account === "bank" ? (book.prefs.bankName || "Bank") : account.slice(5);
 
   const Popover = ({ children }) => (
     <div className="cb-view" style={{ background: C.tile, border: `1px solid ${C.overlayBorder}`, borderRadius: 16, padding: "12px 14px", marginTop: 8 }}>
@@ -4363,39 +4441,20 @@ function NameEditor({ value, onCommit, placeholder }) {
 }
 
 function OpeningAmount({ book, value, onCommit }) {
-  const [v, setV] = useState(String(value || 0));
-  useEffect(() => setV(String(value || 0)), [value]);
+  const [v, setV] = useState(value ? String(value) : "");
+  useEffect(() => setV(value ? String(value) : ""), [value]);
   return (
     <input
       style={{ ...st.input, width: 104, textAlign: "right", padding: "9px 10px", fontSize: 13.5, fontWeight: 700 }}
       inputMode="decimal"
+      placeholder="0"
       value={v}
       onChange={(e) => setV(e.target.value)}
       onBlur={() => {
+        if (!v.trim()) { onCommit(0); return; }
         const n = parseAmount(v);
         if (!isNaN(n)) onCommit(n);
-        else setV(String(value || 0));
-      }}
-    />
-  );
-}
-
-// Same pattern as OpeningAmount, but a plain unit count (fund units, share
-// quantity, grams) rather than a currency amount — parseFloat, not
-// parseAmount's ₹/k/L shorthand.
-function OpeningUnitsField({ value, onCommit }) {
-  const [v, setV] = useState(String(value || 0));
-  useEffect(() => setV(String(value || 0)), [value]);
-  return (
-    <input
-      style={{ ...st.input, width: 104, textAlign: "right", padding: "9px 10px", fontSize: 13.5, fontWeight: 700 }}
-      inputMode="decimal"
-      value={v}
-      onChange={(e) => setV(e.target.value)}
-      onBlur={() => {
-        const n = parseFloat(v);
-        if (!isNaN(n)) onCommit(n);
-        else setV(String(value || 0));
+        else setV(value ? String(value) : "");
       }}
     />
   );
@@ -4459,8 +4518,8 @@ function SetupAccountsPage({ book, up }) {
         <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "13px 16px" }}>
           <Orb size={38} radius={11} grad={C.blueGrad}><Ic name="bank" size={16} /></Orb>
           <div style={{ flex: 1 }}>
-            <div style={{ fontSize: 14, fontWeight: 700, color: C.ink }}>Bank</div>
-            <div style={{ fontSize: 11.5, color: C.muted }}>Primary account · opening balance</div>
+            <NameEditor value={book.prefs.bankName || "Bank"} onCommit={(n) => up((b) => ((b.prefs.bankName = n), b))} />
+            <div style={{ fontSize: 11.5, color: C.muted, marginTop: 4 }}>Primary account · opening balance</div>
           </div>
           <OpeningAmount book={book} value={book.opening.bank}
             onCommit={(n) => up((b) => ((b.opening.bank = n), b))} />
@@ -4545,9 +4604,9 @@ function SetupAccountsPage({ book, up }) {
 
 function SetupHoldingsPage({ book, up, instruments }) {
   const [confirmDel, setConfirmDel] = useState("");
-  const [adding, setAdding] = useState(false);
-  const [newSel, setNewSel] = useState({ kind: "mf", holdingId: "", instrumentId: "", label: "" });
+  const [sheet, setSheet] = useState(null); // null | "new" | a holding id
   const rows = holdingsAsOf(book, today());
+  const editingHolding = sheet && sheet !== "new" ? rows.find((h) => h.id === sheet) : null;
 
   const renameHolding = (id, newLabel) =>
     up((b) => {
@@ -4561,34 +4620,6 @@ function SetupHoldingsPage({ book, up, instruments }) {
       delete b.opening.holdings[id];
       return b;
     });
-  const setOpeningUnits = (id, units) =>
-    up((b) => {
-      const cur = b.opening.holdings[id] || { units: 0, costBasis: 0 };
-      b.opening.holdings[id] = { ...cur, units };
-      return b;
-    });
-  const setOpeningCost = (id, costBasis) =>
-    up((b) => {
-      const cur = b.opening.holdings[id] || { units: 0, costBasis: 0 };
-      b.opening.holdings[id] = { ...cur, costBasis };
-      return b;
-    });
-
-  const canAddHolding = !newSel.holdingId && (newSel.kind === "gold" ? newSel.label.trim() : newSel.instrumentId);
-  const addHolding = () => {
-    if (!canAddHolding) return;
-    up((b) => {
-      b.holdings.push({
-        id: uid(), kind: newSel.kind,
-        instrumentId: newSel.kind === "gold" ? "gold:" + uid() : newSel.instrumentId,
-        label: newSel.label.trim() || "Gold",
-        units: 0, costBasis: 0,
-      });
-      return b;
-    });
-    setAdding(false);
-    setNewSel({ kind: "mf", holdingId: "", instrumentId: "", label: "" });
-  };
 
   return (
     <div className="cb-stagger">
@@ -4604,62 +4635,96 @@ function SetupHoldingsPage({ book, up, instruments }) {
           </div>
         </div>
       )}
-      <div style={{ fontSize: 12.5, color: C.muted, marginBottom: 12 }}>
-        Rename or remove holdings here, and set an opening position for
-        anything you already held before using this app — no transaction
-        needed, same as an account's opening balance.
+      <div style={{ fontSize: 12, color: C.muted, marginBottom: 10 }}>
+        Tap a holding to correct its opening units/cost. Rename inline, or remove it below.
       </div>
-      <div style={{ ...glass(18), overflow: "hidden", background: C.glassSoft, border: C.borderSoft }}>
-        {rows.map((h, i) => {
+      <div style={{ ...glass(18), padding: "4px 16px", background: C.glassSoft, border: C.borderSoft }}>
+        {rows.map((h) => {
           const v = HOLDING_VISUALS[h.kind];
           const removable = h.units <= 0.0001 && Math.abs(h.costBasis) <= 0.0001;
-          const opening = (book.opening.holdings && book.opening.holdings[h.id]) || { units: 0, costBasis: 0 };
           return (
-            <div key={h.id} style={{ padding: "13px 16px", borderTop: i === 0 ? "none" : `1px solid ${C.line}` }}>
-              <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                <Orb size={38} radius={11} grad={`linear-gradient(135deg, ${v.color}, ${v.color}99)`}><Ic name={v.icon} size={16} /></Orb>
+            <div key={h.id} className="cb-press" onClick={() => setSheet(h.id)}
+              style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 0", borderBottom: `1px solid ${C.line}`, cursor: "pointer" }}>
+              <Orb size={32} grad={`linear-gradient(135deg, ${v.color}, ${v.color}99)`}><Ic name={v.icon} size={14} /></Orb>
+              <div onClick={(e) => e.stopPropagation()} style={{ flex: 1, minWidth: 0 }}>
                 <NameEditor value={h.label} onCommit={(n) => renameHolding(h.id, n)} />
-                <span style={{ fontSize: 11, color: C.muted, flexShrink: 0 }}>{INVEST_KIND_LABEL[h.kind]}</span>
-                <RoundBtn style={{ width: 30, height: 30, opacity: removable ? 1 : 0.35 }} aria-label={`Remove ${h.label}`} disabled={!removable} onClick={() => removable && setConfirmDel(h.id)}>
-                  <Ic name="trash" size={13} stroke={C.red} />
-                </RoundBtn>
               </div>
-              <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 8, paddingLeft: 48 }}>
-                <span style={{ flex: 1, fontSize: 11.5, color: C.muted }}>Opening units</span>
-                <OpeningUnitsField value={opening.units} onCommit={(n) => setOpeningUnits(h.id, n)} />
-              </div>
-              <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 6, paddingLeft: 48 }}>
-                <span style={{ flex: 1, fontSize: 11.5, color: C.muted }}>Opening cost</span>
-                <OpeningAmount book={book} value={opening.costBasis} onCommit={(n) => setOpeningCost(h.id, n)} />
-              </div>
+              <span style={{ fontSize: 11, color: C.muted, flexShrink: 0 }}>{INVEST_KIND_LABEL[h.kind]}</span>
+              <RoundBtn style={{ width: 32, height: 32, opacity: removable ? 1 : 0.35 }} aria-label={`Remove ${h.label}`} disabled={!removable}
+                onClick={(e) => { e.stopPropagation(); removable && setConfirmDel(h.id); }}>
+                <Ic name="trash" size={13} stroke={C.red} />
+              </RoundBtn>
             </div>
           );
         })}
-        {rows.length === 0 && <div style={{ padding: "20px 16px", fontSize: 13, color: C.muted, textAlign: "center" }}>No holdings yet.</div>}
+        {rows.length === 0 && <div style={{ fontSize: 13, color: C.muted, padding: "14px 0" }}>No holdings yet.</div>}
       </div>
 
-      {!adding ? (
-        <button className="cb-press" onClick={() => setAdding(true)}
-          style={{ width: "100%", marginTop: 14, padding: "13px 0", border: `1px dashed ${C.overlayBorder}`, borderRadius: 14, background: C.overlayWash, color: C.accentText, fontWeight: 700, fontSize: 13.5, fontFamily: F.sans, cursor: "pointer" }}>
-          + Add Holding
-        </button>
-      ) : (
-        <div className="cb-view" style={{ ...glass(20), padding: 18, marginTop: 14 }}>
-          <HoldingPicker book={book} instruments={instruments} onChange={setNewSel} />
-          <div style={{ fontSize: 12, color: C.muted, marginTop: 8 }}>
-            Registers the holding with zero units — set its opening
-            position in the list above once it's added.
-          </div>
-          <PrimaryBtn
-            style={{ width: "100%", marginTop: 14, opacity: canAddHolding ? 1 : 0.5 }}
-            disabled={!canAddHolding}
-            onClick={addHolding}
-          >
-            Add Holding
-          </PrimaryBtn>
-        </div>
+      <button className="cb-press" onClick={() => setSheet("new")}
+        style={{ width: "100%", marginTop: 14, padding: "13px 0", border: `1px dashed ${C.overlayBorder}`, borderRadius: 14, background: C.overlayWash, color: C.accentText, fontWeight: 700, fontSize: 13.5, fontFamily: F.sans, cursor: "pointer" }}>
+        + Add Holding
+      </button>
+
+      {sheet && createPortal(
+        <HoldingSheet book={book} up={up} instruments={instruments} holding={editingHolding} onClose={() => setSheet(null)} />,
+        document.body
       )}
     </div>
+  );
+}
+
+// Sheet-based add/edit for a holding (mirrors round 13's TripSheet). Create
+// mode collects kind/instrument (via HoldingPicker) plus its opening
+// position in one step; edit mode only corrects the opening position —
+// kind/instrument can't change post-creation without orphaning the
+// buy/sell entries already tied to this holdingId.
+function HoldingSheet({ book, up, instruments, holding, onClose }) {
+  const editing = !!holding;
+  const [newSel, setNewSel] = useState({ kind: "mf", holdingId: "", instrumentId: "", label: "" });
+  const openingExisting = editing ? ((book.opening.holdings && book.opening.holdings[holding.id]) || { units: 0, costBasis: 0 }) : { units: 0, costBasis: 0 };
+  const [units, setUnits] = useState(openingExisting.units ? String(openingExisting.units) : "");
+  const [cost, setCost] = useState(openingExisting.costBasis ? String(openingExisting.costBasis) : "");
+
+  const canAddNew = !newSel.holdingId && (newSel.kind === "gold" ? newSel.label.trim() : newSel.instrumentId);
+  const valid = editing || canAddNew;
+
+  const save = () => {
+    if (!valid) return;
+    const u = parseFloat(units) || 0;
+    const c = parseAmount(cost) || 0;
+    up((b) => {
+      const id = editing ? holding.id : uid();
+      if (!editing) {
+        b.holdings.push({
+          id, kind: newSel.kind,
+          instrumentId: newSel.kind === "gold" ? "gold:" + uid() : newSel.instrumentId,
+          label: newSel.label.trim() || "Gold",
+          units: 0, costBasis: 0,
+        });
+      }
+      if (u || c) b.opening.holdings[id] = { units: u, costBasis: c };
+      else delete b.opening.holdings[id];
+      return b;
+    });
+    onClose();
+  };
+
+  return (
+    <Sheet title={editing ? `Opening position — ${holding.label}` : "New holding"} onClose={onClose}>
+      {!editing && <HoldingPicker book={book} instruments={instruments} onChange={setNewSel} />}
+      <label style={st.label}>Opening units (optional)</label>
+      <input style={st.input} inputMode="decimal" value={units} placeholder="0" onChange={(e) => setUnits(e.target.value)} />
+      <label style={st.label}>Opening cost (optional)</label>
+      <AmountField book={book} value={cost} onChange={setCost} />
+      <div style={{ fontSize: 11.5, color: C.faint, marginTop: 8 }}>
+        {editing
+          ? "Corrects the starting position you held before using this app — no transaction is created."
+          : "If you already held this before using this app, enter its starting units/cost — no transaction needed. Leave both empty to start at zero."}
+      </div>
+      <PrimaryBtn disabled={!valid} style={{ width: "100%", marginTop: 14, opacity: valid ? 1 : 0.5 }} onClick={save}>
+        {editing ? "Save changes" : "Add Holding"}
+      </PrimaryBtn>
+    </Sheet>
   );
 }
 
