@@ -116,6 +116,11 @@ const MIGRATIONS = [
     if (!book.prefs.theme) book.prefs.theme = "blue";
     return book;
   },
+  // v8: trips — named travel groupings; entries opt in via e.tripId.
+  (book) => {
+    if (!book.trips) book.trips = [];
+    return book;
+  },
 ];
 
 // Starter keywords for the local importer; the review screen adds to these
