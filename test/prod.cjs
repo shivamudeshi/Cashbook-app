@@ -140,11 +140,15 @@ async function main() {
       { id: "t4", date: "2025-06-04", amount: 2000, type: "out", head: "Shopping", tripId: "manali" },
       { id: "t5", date: "2025-06-05", amount: 4000, type: "out", head: "Rent" }, // untagged — must not count
       { id: "t6", date: "2025-06-06", amount: 1000, type: "out", head: "Suspense", tripId: "goa" }, // unexplained — must not count
+      // Splitwise-style: a participant's "owed back" share carries the same
+      // tripId as the real spend, purely so TripDetailPage's entry list
+      // shows the full split — it must NEVER be summed as trip spend.
+      { id: "t7", date: "2025-06-07", amount: 9999, type: "party", partyId: "p1", dir: "out", tripId: "goa" },
     ],
     heads: { income: [], expense: ["Food out", "Transport", "Shopping", "Rent", "Suspense"] },
     headClass: {},
     bsAccounts: [],
-    parties: [],
+    parties: [{ id: "p1", name: "Friend" }],
     trips: [{ id: "goa", name: "Goa" }, { id: "manali", name: "Manali" }, { id: "empty", name: "Unplanned" }],
     opening: { asOf: "2025-06-01", bank: 0, accounts: {} },
     owedMemos: [],
@@ -154,8 +158,8 @@ async function main() {
   const goa = tripSpend.find((t) => t.id === "goa");
   const manali = tripSpend.find((t) => t.id === "manali");
   const empty = tripSpend.find((t) => t.id === "empty");
-  assert.strictEqual(goa.spent, 4000, "Goa: 3000 + 1500 − 500 refund, Suspense entry excluded");
-  assert.strictEqual(goa.count, 3, "Goa count includes the refund but not the unexplained entry");
+  assert.strictEqual(goa.spent, 4000, "Goa: 3000 + 1500 − 500 refund, Suspense entry excluded, party share NOT counted");
+  assert.strictEqual(goa.count, 3, "Goa count includes the refund but not the unexplained or party entries");
   assert.strictEqual(manali.spent, 2000, "Manali totals independently of Goa");
   assert.strictEqual(empty.spent, 0, "a trip with no tagged entries spends 0");
   assert.strictEqual(empty.count, 0, "a trip with no tagged entries has 0 count");
@@ -208,6 +212,13 @@ async function main() {
 
   assert.strictEqual(E.holdingsValue(hf1, prices4), 5200, "40 units x 130/unit live price");
   assert.strictEqual(E.holdingsValue(hf1, {}), 4950, "no price snapshot (e.g. gold) falls back to cost basis");
+
+  // A "land" (Real Estate) holding is architecturally identical to gold —
+  // a synthetic instrumentId that can never match a real price snapshot,
+  // so it's permanently valued at cost, with zero engine changes needed.
+  const landHolding = { id: "l1", kind: "land", instrumentId: "land:seed", label: "Flat in Pune", units: 1, costBasis: 2500000 };
+  assert.strictEqual(E.holdingsValue(landHolding, prices4), 2500000, "a land holding is never found in any price snapshot — always values at cost");
+  assert.strictEqual(E.holdingsValue(landHolding, {}), 2500000, "a land holding values at cost with no price snapshot at all, same as gold");
 
   const pl4 = E.computePL(db4, "2025-06-01", asOf4);
   assert.strictEqual(pl4.expense["Finance charges"], 100, "the buy's charge posts as a Finance charges expense");
