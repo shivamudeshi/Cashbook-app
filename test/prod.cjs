@@ -129,6 +129,37 @@ async function main() {
   assert.ok(bs2.balanced, "balance sheet still foots with unexplained + refund entries mixed in");
   assert.strictEqual(bs2.totalAssets, 9400, "assets reflect only the explained bank movement");
 
+  // Trip spend: tagged entries fold into a per-trip total; untagged and
+  // unexplained (Suspense) entries are excluded, and an "in" against a trip
+  // nets as a refund — same shape as owedAsOf's filter-by-tag + isExplained.
+  const dbT = {
+    entries: [
+      { id: "t1", date: "2025-06-01", amount: 3000, type: "out", head: "Food out", tripId: "goa" },
+      { id: "t2", date: "2025-06-02", amount: 1500, type: "out", head: "Transport", tripId: "goa" },
+      { id: "t3", date: "2025-06-03", amount: 500, type: "in", head: "Food out", tripId: "goa" }, // refund
+      { id: "t4", date: "2025-06-04", amount: 2000, type: "out", head: "Shopping", tripId: "manali" },
+      { id: "t5", date: "2025-06-05", amount: 4000, type: "out", head: "Rent" }, // untagged — must not count
+      { id: "t6", date: "2025-06-06", amount: 1000, type: "out", head: "Suspense", tripId: "goa" }, // unexplained — must not count
+    ],
+    heads: { income: [], expense: ["Food out", "Transport", "Shopping", "Rent", "Suspense"] },
+    headClass: {},
+    bsAccounts: [],
+    parties: [],
+    trips: [{ id: "goa", name: "Goa" }, { id: "manali", name: "Manali" }, { id: "empty", name: "Unplanned" }],
+    opening: { asOf: "2025-06-01", bank: 0, accounts: {} },
+    owedMemos: [],
+  };
+  const asOfT = "2025-06-30";
+  const tripSpend = E.tripSpendAsOf(dbT, asOfT);
+  const goa = tripSpend.find((t) => t.id === "goa");
+  const manali = tripSpend.find((t) => t.id === "manali");
+  const empty = tripSpend.find((t) => t.id === "empty");
+  assert.strictEqual(goa.spent, 4000, "Goa: 3000 + 1500 − 500 refund, Suspense entry excluded");
+  assert.strictEqual(goa.count, 3, "Goa count includes the refund but not the unexplained entry");
+  assert.strictEqual(manali.spent, 2000, "Manali totals independently of Goa");
+  assert.strictEqual(empty.spent, 0, "a trip with no tagged entries spends 0");
+  assert.strictEqual(empty.count, 0, "a trip with no tagged entries has 0 count");
+
   // Row icon/color: curated category, Suspense, transfer, party, and an
   // unmatched custom head all resolve to something renderable.
   const db3 = { ...db2, parties: [{ id: "p1", name: "Alex" }], bsAccounts: [{ name: "Investments", kind: "asset" }] };
@@ -405,10 +436,11 @@ async function main() {
     };
     readBack.onerror = () => reject(readBack.error);
   });
-  assert.strictEqual(migratedBook.v, 7, "a v6 book is migrated to v7 on load");
+  assert.strictEqual(migratedBook.v, 8, "a v6 book is migrated to v8 on load");
   assert.strictEqual(migratedBook.prefs.theme, "blue", "the v7 migration backfills prefs.theme to blue");
+  assert.deepStrictEqual(migratedBook.trips, [], "the v8 migration backfills an empty trips array");
 
-  console.log("ok — v6 book migrates to v7 with prefs.theme defaulted to blue");
+  console.log("ok — v6 book migrates to v8 with prefs.theme defaulted to blue and trips backfilled");
   migDom.window.close();
 }
 

@@ -527,6 +527,21 @@ export function owedAsOf(db, asOf) {
   return { perParty, debtors, creditors, memoNet };
 }
 
+// Trip spend: entries tagged with e.tripId, same filter shape as owedAsOf —
+// "in" entries against a trip are refunds, netted against spend.
+export function tripSpendAsOf(db, asOf) {
+  return (db.trips || []).map((t) => {
+    let spent = 0, count = 0;
+    for (const e of db.entries) {
+      if (e.tripId === t.id && e.date <= asOf && isExplained(e)) {
+        spent += e.type === "out" ? e.amount : -e.amount;
+        count++;
+      }
+    }
+    return { ...t, spent, count };
+  });
+}
+
 // `prices` is optional — an in-memory-only snapshot ({instrumentId:
 // {price, asOf}}) fetched at runtime, never persisted in `db` (see
 // holdingsValue). Omit it and every holding values at cost, which is
@@ -630,6 +645,7 @@ export function defaultBook() {
     budgets: {},
     partyNotes: [],
     holdings: [],
+    trips: [],
   };
 }
 
@@ -642,7 +658,7 @@ function normalizeBook(j) {
   b.opening = { ...d.opening, ...(j.opening || {}) };
   if (!b.opening.accounts) b.opening.accounts = {};
   if (!b.opening.holdings) b.opening.holdings = {};
-  for (const k of ["entries", "bsAccounts", "parties", "owedMemos", "codingRules", "partyNotes", "holdings"]) {
+  for (const k of ["entries", "bsAccounts", "parties", "owedMemos", "codingRules", "partyNotes", "holdings", "trips"]) {
     if (!Array.isArray(b[k])) b[k] = d[k];
   }
   if (!b.headClass) b.headClass = {};
@@ -926,7 +942,7 @@ if (typeof window !== "undefined") {
     computePL, balancesAsOf, owedAsOf, computeBS, defaultBook,
     parseStatementText, suggestHead, keywordOf, parseBankSms, parsePdfTable,
     isExplained, isRefund, entryVisual, holdingsAsOf, holdingsValue,
-    money, navPrice, C, THEMES, applyTheme,
+    money, navPrice, C, THEMES, applyTheme, tripSpendAsOf,
   };
 }
 
@@ -1034,6 +1050,8 @@ const partyName = (book, id) =>
   (book.parties.find((p) => p.id === id) || { name: "Unknown" }).name;
 const holdingName = (book, id) =>
   ((book.holdings || []).find((h) => h.id === id) || { label: "Holding" }).label;
+const tripName = (book, id) =>
+  ((book.trips || []).find((t) => t.id === id) || { name: "Trip" }).name;
 
 function entryLabel(book, e) {
   if (e.type === "transfer")
@@ -1183,6 +1201,7 @@ function Ic({ name, size = 15, stroke = "#fff", sw = 2.2 }) {
     eyeOff: <><path d="M17.9 17.9A10.6 10.6 0 0 1 12 20c-7 0-11-8-11-8a19 19 0 0 1 5-5.6M9.9 4.2A10.4 10.4 0 0 1 12 4c7 0 11 8 11 8a18.7 18.7 0 0 1-2.4 3.5" /><path d="M9.5 9.7a3 3 0 0 0 4.2 4.2" /><line x1="2" y1="2" x2="22" y2="22" /></>,
     scan: <><path d="M3 7V5a2 2 0 0 1 2-2h2" /><path d="M17 3h2a2 2 0 0 1 2 2v2" /><path d="M21 17v2a2 2 0 0 1-2 2h-2" /><path d="M7 21H5a2 2 0 0 1-2-2v-2" /></>,
     backspace: <><path d="M9 5h11a1 1 0 0 1 1 1v12a1 1 0 0 1-1 1H9l-6-7 6-7z" /><line x1="13" y1="9.5" x2="18.5" y2="14.5" /><line x1="18.5" y1="9.5" x2="13" y2="14.5" /></>,
+    plane: <><path d="M2.5 16.5 21 7.6a1.6 1.6 0 0 0-2.1-2.2L9.4 12H4l-2 2.2 5 1.3z" /><path d="M9.4 12l1.6 8 2.3-2 .3-4" /></>,
   }[name];
   return (
     <svg viewBox="0 0 24 24" width={size} height={size} fill="none" stroke={stroke}
@@ -2584,9 +2603,10 @@ function TxView({ book, up, onEdit, onAdd, initialFilter }) {
   const [selectMode, setSelectMode] = useState(false);
   const [selected, setSelected] = useState(() => new Set());
   const [bulkPicker, setBulkPicker] = useState(false);
-  const [bulkDest, setBulkDest] = useState("head"); // head | transfer | party
+  const [bulkDest, setBulkDest] = useState("head"); // head | transfer | party | trip
   const [bulkAccount, setBulkAccount] = useState((book.bsAccounts[0] || {}).name || "");
   const [bulkParty, setBulkParty] = useState((book.parties[0] || {}).id || "");
+  const [bulkTrip, setBulkTrip] = useState((book.trips[0] || {}).id || "");
   const [confirmBulkDelete, setConfirmBulkDelete] = useState(false);
 
   const unexplained = book.entries.filter((e) => e.head === "Suspense").length;
@@ -2623,6 +2643,8 @@ function TxView({ book, up, onEdit, onAdd, initialFilter }) {
         } else if (bulkDest === "party") {
           e.type = "party"; e.partyId = bulkParty; e.dir = originalType;
           delete e.head;
+        } else if (bulkDest === "trip") {
+          if (bulkTrip) e.tripId = bulkTrip; else delete e.tripId;
         } else {
           e.head = h;
           const kw = keywordOf(e.note);
@@ -2738,6 +2760,10 @@ function TxView({ book, up, onEdit, onAdd, initialFilter }) {
           {entryLabel(book, e)}
           {e.head === "Suspense" && <span style={{ color: C.amber, fontSize: 11, marginLeft: 6, fontWeight: 700 }}>● re-code</span>}
           {isRefund(book, e) && <span style={{ color: C.accentText, fontSize: 11, marginLeft: 6, fontWeight: 700 }}>↩ refund</span>}
+          {e.tripId && (() => {
+            const trip = book.trips.find((t) => t.id === e.tripId);
+            return trip ? <span style={{ color: C.accentText, fontSize: 11, marginLeft: 6, fontWeight: 700 }}>✈ {trip.name}</span> : null;
+          })()}
         </div>
         {e.note && (
           <div style={{ fontSize: 12, color: C.muted, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{e.note}</div>
@@ -2927,6 +2953,7 @@ function TxView({ book, up, onEdit, onAdd, initialFilter }) {
               { v: "head", label: "Category" },
               { v: "transfer", label: "Transfer" },
               { v: "party", label: "Party" },
+              { v: "trip", label: "Trip" },
             ]}
           />
           {bulkDest === "head" && (
@@ -2981,6 +3008,22 @@ function TxView({ book, up, onEdit, onAdd, initialFilter }) {
                 style={{ width: "100%", marginTop: 14, opacity: book.parties.length ? 1 : 0.5 }}
                 onClick={() => book.parties.length && applyBulkRecode()}
               >
+                Apply
+              </PrimaryBtn>
+            </div>
+          )}
+          {bulkDest === "trip" && (
+            <div style={{ marginTop: 14 }}>
+              <label style={st.label}>Trip</label>
+              <DropdownField
+                value={bulkTrip}
+                onChange={setBulkTrip}
+                options={[{ v: "", label: "No trip (remove tag)" }, ...book.trips.map((tr) => ({ v: tr.id, label: tr.name }))]}
+              />
+              <div style={{ fontSize: 12, color: C.muted, marginTop: 8 }}>
+                Tags these entries to a trip without changing their category — they still count toward the P&L and Budget exactly as before.
+              </div>
+              <PrimaryBtn style={{ width: "100%", marginTop: 14 }} onClick={() => applyBulkRecode()}>
                 Apply
               </PrimaryBtn>
             </div>
@@ -3367,6 +3410,223 @@ function PartyProfilePage({ book, partyId, up, onRecordPayment, onSettle, onAddM
     </div>
   );
 }
+
+/* ────────────────────────── Travel ────────────────────────── */
+function TripSheet({ book, up, initial, onClose }) {
+  const editing = !!(initial && initial.id);
+  const [name, setName] = useState(initial?.name || "");
+  const [budget, setBudget] = useState(initial?.budget ? String(initial.budget) : "");
+  const [startDate, setStartDate] = useState(initial?.startDate || "");
+  const [endDate, setEndDate] = useState(initial?.endDate || "");
+  const valid = name.trim().length > 0;
+
+  const save = () => {
+    if (!valid) return;
+    const patch = {
+      name: name.trim(),
+      budget: parseAmount(budget) || 0,
+      startDate: startDate || null,
+      endDate: endDate || null,
+    };
+    up((b) => {
+      if (editing) {
+        const x = b.trips.find((t) => t.id === initial.id);
+        if (x) Object.assign(x, patch);
+      } else {
+        b.trips.push({ id: uid(), ...patch });
+      }
+      return b;
+    });
+    onClose();
+  };
+
+  return (
+    <Sheet title={editing ? "Edit trip" : "New trip"} onClose={onClose}>
+      <label style={st.label}>Name</label>
+      <input style={st.input} value={name} placeholder="e.g. Goa 2026" onChange={(e) => setName(e.target.value)} />
+      <label style={st.label}>Budget (optional)</label>
+      <AmountField book={book} value={budget} onChange={setBudget} />
+      <div style={{ display: "flex", gap: 8 }}>
+        <div style={{ flex: 1 }}>
+          <label style={st.label}>Start date (optional)</label>
+          <input style={st.input} type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} />
+        </div>
+        <div style={{ flex: 1 }}>
+          <label style={st.label}>End date (optional)</label>
+          <input style={st.input} type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} />
+        </div>
+      </div>
+      <PrimaryBtn disabled={!valid} style={{ width: "100%", marginTop: 16, opacity: valid ? 1 : 0.5 }} onClick={save}>
+        {editing ? "Save changes" : "Add trip"}
+      </PrimaryBtn>
+    </Sheet>
+  );
+}
+
+function TripRow({ book, trip, onOpen }) {
+  const hasBudget = trip.budget > 0;
+  const pct = hasBudget ? Math.max(0, Math.round((trip.spent / trip.budget) * 100)) : null;
+  const dateRange = trip.startDate
+    ? (trip.endDate && trip.endDate !== trip.startDate ? `${prettyDate(trip.startDate)} – ${prettyDate(trip.endDate)}` : prettyDate(trip.startDate))
+    : `${trip.count} ${trip.count === 1 ? "entry" : "entries"}`;
+  return (
+    <div className="cb-press cb-row" onClick={onOpen} style={{ padding: "12px 0", borderBottom: `1px solid ${C.line}`, cursor: "pointer" }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+        <Orb size={34} grad={C.skyGrad}><Ic name="plane" size={15} /></Orb>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ fontSize: 14, fontWeight: 700, color: C.ink }}>{trip.name}</div>
+          <div style={{ fontSize: 11, color: C.muted, marginTop: 1 }}>{dateRange}</div>
+        </div>
+        <div style={{ fontSize: 14.5, fontWeight: 800, color: C.ink, fontVariantNumeric: "tabular-nums" }}>{money(book, Math.max(0, trip.spent))}</div>
+      </div>
+      {hasBudget && (
+        <div style={{ height: 5, borderRadius: 999, background: C.overlayBorder, marginTop: 8, overflow: "hidden" }}>
+          <div style={{ height: "100%", borderRadius: 999, width: `${Math.min(100, pct)}%`, background: pct > 100 ? C.redGrad : pct > 80 ? C.amberGrad : C.greenGrad }} />
+        </div>
+      )}
+    </div>
+  );
+}
+
+function TravelView({ book, up, go }) {
+  const t = today();
+  const trips = tripSpendAsOf(book, t);
+  const totalSpent = trips.reduce((s, tr) => s + Math.max(0, tr.spent), 0);
+  const sorted = [...trips].sort((a, b) => {
+    if (a.startDate && b.startDate) return b.startDate.localeCompare(a.startDate);
+    if (a.startDate) return -1;
+    if (b.startDate) return 1;
+    return 0;
+  });
+  const [newTrip, setNewTrip] = useState(false);
+
+  return (
+    <div className="cb-stagger">
+      <div style={st.h1}>Travel</div>
+      <div style={st.sub}>Track what each trip costs you</div>
+      <div style={{ ...glass(20), padding: 16, margin: "14px 0 20px" }}>
+        <div style={{ fontSize: 11.5, fontWeight: 700, color: C.muted, textTransform: "uppercase", letterSpacing: ".04em" }}>
+          Total trip spend
+        </div>
+        <div style={{ fontSize: 26, fontWeight: 800, color: C.ink, marginTop: 6, fontVariantNumeric: "tabular-nums" }}>
+          {money(book, totalSpent)}
+        </div>
+        <div style={{ fontSize: 12, color: C.muted, marginTop: 4 }}>
+          Across {trips.length} {trips.length === 1 ? "trip" : "trips"}
+        </div>
+      </div>
+      {sorted.length > 0 ? (
+        <div style={{ ...glass(20), padding: "4px 16px", marginBottom: 16 }}>
+          {sorted.map((tr) => <TripRow key={tr.id} book={book} trip={tr} onOpen={() => go("trip", tr.id)} />)}
+        </div>
+      ) : (
+        <div style={{ fontSize: 13, color: C.muted, padding: "20px 10px" }}>
+          No trips tracked yet — add one to start tagging expenses to it.
+        </div>
+      )}
+      <PrimaryBtn style={{ width: "100%" }} onClick={() => setNewTrip(true)}>+ New Trip</PrimaryBtn>
+      {newTrip && createPortal(<TripSheet book={book} up={up} initial={null} onClose={() => setNewTrip(false)} />, document.body)}
+    </div>
+  );
+}
+
+function TripDetailPage({ book, up, tripId, onEdit, onAddExpense, go }) {
+  const t = today();
+  const trip = tripSpendAsOf(book, t).find((x) => x.id === tripId);
+  const [editSheet, setEditSheet] = useState(false);
+  const [confirmDel, setConfirmDel] = useState(false);
+  if (!trip) return <div style={{ color: C.muted, padding: 30 }}>Trip not found.</div>;
+
+  const hasBudget = trip.budget > 0;
+  const pct = hasBudget ? Math.max(0, Math.round((trip.spent / trip.budget) * 100)) : null;
+  const dateRange = trip.startDate
+    ? (trip.endDate && trip.endDate !== trip.startDate ? `${prettyDate(trip.startDate)} – ${prettyDate(trip.endDate)}` : prettyDate(trip.startDate))
+    : "No dates set";
+  const entries = book.entries.filter((e) => e.tripId === tripId).sort((a, b) => b.date.localeCompare(a.date));
+
+  return (
+    <div className="cb-stagger">
+      {confirmDel && (
+        <div className="cb-view" style={{ background: alpha(C.dangerTint, .1), border: `1px solid ${alpha(C.dangerTint, .3)}`, borderRadius: 16, padding: 14, marginBottom: 14 }}>
+          <div style={{ fontSize: 13, fontWeight: 700, color: C.red }}>Delete {trip.name}?</div>
+          <div style={{ fontSize: 12, color: C.soft, marginTop: 4 }}>
+            Entries already tagged to it stay in your records and keep counting toward the P&L — they just won't show under a trip anymore.
+          </div>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginTop: 12 }}>
+            <GhostBtn style={{ padding: "10px 0" }} onClick={() => setConfirmDel(false)}>Cancel</GhostBtn>
+            <PrimaryBtn danger style={{ padding: "10px 0" }} onClick={() => {
+              up((b) => ((b.trips = b.trips.filter((x) => x.id !== tripId)), b));
+              go(null);
+            }}>Delete</PrimaryBtn>
+          </div>
+        </div>
+      )}
+      <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 16 }}>
+        <Orb size={46} grad={C.skyGrad}><Ic name="plane" size={20} /></Orb>
+        <div style={{ flex: 1 }}>
+          <div style={{ fontSize: 18, fontWeight: 800, color: C.ink }}>{trip.name}</div>
+          <div style={{ fontSize: 12, color: C.muted, fontWeight: 600 }}>{dateRange}</div>
+        </div>
+        <GhostBtn style={{ padding: "8px 14px", fontSize: 12.5 }} onClick={() => setEditSheet(true)}>Edit</GhostBtn>
+      </div>
+      <div style={{ padding: "4px 0" }}>
+        <div style={{ fontSize: 12, fontWeight: 700, color: C.muted }}>Total spent</div>
+        <div style={{ fontSize: 34, fontWeight: 800, color: C.ink, marginTop: 4, fontVariantNumeric: "tabular-nums" }}>
+          {money(book, Math.max(0, trip.spent))}
+        </div>
+        {hasBudget && (
+          <>
+            <div style={{ fontSize: 12, color: pct > 100 ? C.red : C.muted, marginTop: 6 }}>
+              {pct}% of {money(book, trip.budget)} budget · {money(book, Math.max(0, trip.budget - trip.spent))} left
+            </div>
+            <div style={{ height: 8, borderRadius: 999, background: C.overlayBorder, marginTop: 10, overflow: "hidden" }}>
+              <div style={{ height: "100%", borderRadius: 999, width: `${Math.min(100, pct)}%`, background: pct > 100 ? C.redGrad : C.grad }} />
+            </div>
+          </>
+        )}
+      </div>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, margin: "16px 0 18px" }}>
+        <div style={{ background: C.chip, border: C.borderSoft, borderRadius: 14, padding: 10 }}>
+          <div style={{ fontSize: 10, fontWeight: 700, color: C.faint, textTransform: "uppercase" }}>Entries</div>
+          <div style={{ fontSize: 16, fontWeight: 800, color: C.ink, marginTop: 3 }}>{trip.count}</div>
+        </div>
+        <div style={{ background: C.chip, border: C.borderSoft, borderRadius: 14, padding: 10 }}>
+          <div style={{ fontSize: 10, fontWeight: 700, color: C.faint, textTransform: "uppercase" }}>Budget</div>
+          <div style={{ fontSize: 16, fontWeight: 800, color: C.ink, marginTop: 3 }}>{hasBudget ? money(book, trip.budget) : "Not set"}</div>
+        </div>
+      </div>
+      <PrimaryBtn style={{ width: "100%", marginBottom: 18 }} onClick={onAddExpense}>Add Expense</PrimaryBtn>
+      <div style={{ fontSize: 14, fontWeight: 800, color: C.ink, marginBottom: 8 }}>Entries</div>
+      <div style={{ ...glass(18), overflow: "hidden", marginBottom: 18 }}>
+        {entries.map((e, i) => {
+          const v = entryVisual(book, e);
+          return (
+            <div key={e.id} className="cb-row cb-press" onClick={() => onEdit(e)}
+              style={{ display: "flex", alignItems: "center", gap: 10, padding: "11px 16px", borderTop: i ? `1px solid ${C.line}` : "none", cursor: "pointer" }}>
+              <div style={{ width: 52, fontSize: 11, color: C.faint, fontWeight: 600, flexShrink: 0 }}>{prettyDate(e.date).replace(/^\w+, /, "")}</div>
+              {v.kind === "icon" ? (
+                <Orb size={32} grad={v.color}><Ic name={v.icon} size={14} /></Orb>
+              ) : (
+                <Avatar name={v.name} index={v.index} size={32} />
+              )}
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontSize: 14, fontWeight: 600, color: C.ink }}>{entryLabel(book, e)}</div>
+                {e.note && <div style={{ fontSize: 12, color: C.muted, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{e.note}</div>}
+              </div>
+              <div style={{ fontSize: 14, fontWeight: 700, color: entrySign(e) > 0 ? C.green : C.red, fontVariantNumeric: "tabular-nums" }}>
+                {entrySign(e) > 0 ? "+" : "−"}{money(book, e.amount)}
+              </div>
+            </div>
+          );
+        })}
+        {entries.length === 0 && <div style={{ fontSize: 13, color: C.muted, padding: 16 }}>No expenses tagged to this trip yet.</div>}
+      </div>
+      <GhostBtn style={{ width: "100%", color: C.red }} onClick={() => setConfirmDel(true)}>Delete trip</GhostBtn>
+      {editSheet && createPortal(<TripSheet book={book} up={up} initial={trip} onClose={() => setEditSheet(false)} />, document.body)}
+    </div>
+  );
+}
+
 /* ────────────────────────── Reports suite ────────────────────────── */
 function Variance({ book, current, prev, goodWhenUp }) {
   const diff = current - prev;
@@ -4066,6 +4326,7 @@ function SetupHub({ book, go }) {
         <SetupRow grad={C.grad} icon="tag" title="Categories" sub={`${cats} categories`} onClick={() => go("setupCategories")} />
         <SetupRow grad={C.tealGrad} icon="people" title="Parties" sub={`${book.parties.length} people`} onClick={() => go("setupParties")} />
         <SetupRow grad={C.amberGrad} icon="coins" title="Holdings" sub={`${(book.holdings || []).length} tracked`} onClick={() => go("setupHoldings")} />
+        <SetupRow grad={C.skyGrad} icon="plane" title="Trips" sub={`${(book.trips || []).length} tracked`} onClick={() => go("setupTrips")} />
       </div>
       <div style={st.eyebrow}>Preferences</div>
       <div style={{ ...glass(18), marginBottom: 18, overflow: "hidden", background: C.glassSoft, border: C.borderSoft }}>
@@ -4589,6 +4850,46 @@ function SetupPartiesPage({ book, up }) {
   );
 }
 
+function SetupTripsPage({ book, up }) {
+  const [confirmDel, setConfirmDel] = useState(null);
+  return (
+    <div className="cb-stagger">
+      {confirmDel && (
+        <div className="cb-view" style={{ background: alpha(C.dangerTint, .1), border: `1px solid ${alpha(C.dangerTint, .3)}`, borderRadius: 16, padding: 14, marginBottom: 14 }}>
+          <div style={{ fontSize: 13, fontWeight: 700, color: C.red }}>Remove {tripName(book, confirmDel)}?</div>
+          <div style={{ fontSize: 12, color: C.soft, marginTop: 4 }}>Entries already tagged to it stay in your records.</div>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginTop: 12 }}>
+            <GhostBtn style={{ padding: "10px 0" }} onClick={() => setConfirmDel(null)}>Cancel</GhostBtn>
+            <PrimaryBtn danger style={{ padding: "10px 0" }} onClick={() => {
+              up((b) => ((b.trips = b.trips.filter((t) => t.id !== confirmDel)), b));
+              setConfirmDel(null);
+            }}>Remove</PrimaryBtn>
+          </div>
+        </div>
+      )}
+      <div style={{ ...glass(18), padding: "4px 16px", background: C.glassSoft, border: C.borderSoft }}>
+        {book.trips.map((t) => (
+          <div key={t.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 0", borderBottom: `1px solid ${C.line}` }}>
+            <Orb size={32} grad={C.skyGrad}><Ic name="plane" size={14} /></Orb>
+            <NameEditor value={t.name} onCommit={(n) => up((b) => {
+              const x = b.trips.find((y) => y.id === t.id);
+              if (x) x.name = n;
+              return b;
+            })} />
+            <RoundBtn style={{ width: 32, height: 32 }} aria-label={`Remove ${t.name}`} onClick={() => setConfirmDel(t.id)}>
+              <Ic name="trash" size={13} stroke={C.red} />
+            </RoundBtn>
+          </div>
+        ))}
+        {book.trips.length === 0 && <div style={{ fontSize: 13, color: C.muted, padding: "14px 0" }}>No trips yet — add one from the Travel tab.</div>}
+      </div>
+      <div style={{ fontSize: 11.5, color: C.faint, marginTop: 10 }}>
+        Budget and dates are set from a trip's own detail page (Travel tab). This is just for renaming or removing trips.
+      </div>
+    </div>
+  );
+}
+
 function SetupPrefsPage({ book, up }) {
   const OptBtn = ({ active, label, onClick, big }) => (
     <button className="cb-press" onClick={onClick}
@@ -4949,6 +5250,7 @@ function EntrySheet({ book, initial, instruments, onSave, onSaveSplit, onClose, 
   const [dir, setDir] = useState(initial?.dir || "out");
   const [note, setNote] = useState(initial?.note || "");
   const [date, setDate] = useState(initial?.date || today());
+  const [tripId, setTripId] = useState(initial?.tripId || "");
   const [participants, setParticipants] = useState([{ key: uid(), partyId: (book.parties[0] || {}).id || "", newName: "", amount: "" }]);
 
   const editingHolding = initial?.type === "holding" ? (book.holdings || []).find((h) => h.id === initial.holdingId) : null;
@@ -4989,7 +5291,10 @@ function EntrySheet({ book, initial, instruments, onSave, onSaveSplit, onClose, 
           : { kind: investSel.kind, instrumentId: investSel.instrumentId, label: investSel.label.trim() };
       }
     }
-    else e.head = effHead;
+    else {
+      e.head = effHead;
+      if ((type === "out" || type === "in") && tripId) e.tripId = tripId;
+    }
     onSave({ ...e, ...overrides });
   };
 
@@ -5069,6 +5374,17 @@ function EntrySheet({ book, initial, instruments, onSave, onSaveSplit, onClose, 
             value={effHead}
             onChange={setHead}
             render={(h) => (book.headClass[h] ? `${h} → ${book.headClass[h]}` : h)}
+          />
+        </>
+      )}
+      {(type === "out" || type === "in") && book.trips.length > 0 && (
+        <>
+          <label style={st.label}>Trip (optional)</label>
+          <DropdownField
+            value={tripId}
+            onChange={setTripId}
+            options={[{ v: "", label: "None" }, ...book.trips.map((t) => ({ v: t.id, label: t.name }))]}
+            placeholder="None"
           />
         </>
       )}
@@ -5635,6 +5951,7 @@ function ExitConfirmDialog({ onCancel, onExit }) {
 const TABS = [
   { id: "dash", label: "Dashboard", icon: "home" },
   { id: "owed", label: "Owed", icon: "people" },
+  { id: "travel", label: "Travel", icon: "plane" },
   { id: "tx", label: "Transactions", icon: "swap" },
   { id: "reports", label: "Reports", icon: "pie" },
   { id: "setup", label: "Setup", icon: "gear" },
@@ -5664,6 +5981,7 @@ const PAGE_TITLES = {
   setupSecurity: "Security",
   setupData: "Backup & Data",
   setupHoldings: "Holdings",
+  setupTrips: "Trips",
 };
 
 export default function CashBook() {
@@ -5878,6 +6196,7 @@ export default function CashBook() {
   const title = page ? (
     page.name === "party" ? partyName(book, page.arg)
     : page.name === "holdingDetail" ? holdingName(book, page.arg)
+    : page.name === "trip" ? tripName(book, page.arg)
     : PAGE_TITLES[page.name] || "Cash Book"
   ) : null;
   const backTarget = page && { assets: "networth", liabilities: "networth" }[page.name];
@@ -5939,6 +6258,15 @@ export default function CashBook() {
     : page.name === "setupSecurity" ? <SetupSecurityPage book={book} up={up} />
     : page.name === "setupData" ? <SetupDataPage book={book} up={up} />
     : page.name === "setupHoldings" ? <SetupHoldingsPage book={book} up={up} instruments={instruments} />
+    : page.name === "setupTrips" ? <SetupTripsPage book={book} up={up} />
+    : page.name === "trip" ? (
+      <TripDetailPage
+        book={book} up={up} tripId={page.arg}
+        onEdit={(e) => setEntrySheet({ initial: e })}
+        onAddExpense={() => setEntrySheet({ initial: { type: "out", tripId: page.arg, date: today() } })}
+        go={go}
+      />
+    )
     : null
   );
 
@@ -6032,6 +6360,9 @@ export default function CashBook() {
                 onRecordPayment={openRecordPayment}
               />
             )
+            : tab === "travel" ? (
+              <TravelView book={book} up={up} go={go} />
+            )
             : tab === "tx" ? (
               <TxView book={book} up={up} onEdit={(e) => setEntrySheet({ initial: e })} onAdd={() => setEntrySheet({ initial: null })} initialFilter={txFilter} />
             )
@@ -6071,7 +6402,7 @@ export default function CashBook() {
                     <Ic name={tb.icon} size={19} stroke={active ? C.accentText : C.faint} sw={active ? 2.4 : 2} />
                   </div>
                 </div>
-                <div style={{ fontSize: 10, fontWeight: 700, color: active ? C.accentText : C.faint, marginTop: 5 }}>
+                <div style={{ fontSize: 10, fontWeight: 700, color: active ? C.accentText : C.faint, marginTop: 5, whiteSpace: "nowrap" }}>
                   {tb.label}
                 </div>
                 <span style={{ display: "block", margin: "4px auto 0", width: 14, height: 3, borderRadius: 999, background: C.accentText, opacity: active ? 1 : 0 }} />
