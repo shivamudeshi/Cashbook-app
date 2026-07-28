@@ -325,17 +325,33 @@ async function main() {
   assert.ok(fresh.parties.length >= 2, "placeholder parties seeded");
 
   // Theme: Blue is the shipped default, and applyTheme swaps the shared C
-  // token object's accent family in place (the mechanism the whole live
-  // theme-switcher relies on) without touching its neutral/category tokens.
+  // token object's FULL palette in place (accent family + bg/ink/surface/
+  // overlay tokens) -- the mechanism the whole live theme-switcher relies
+  // on, now covering real light themes as well as the two dark ones.
   assert.strictEqual(fresh.prefs.theme, "blue", "fresh books default to the blue theme");
-  assert.ok(E.THEMES && E.THEMES.blue && E.THEMES.violet, "both themes are registered");
-  const bgBefore = E.C.bg;
+  assert.ok(E.THEMES && E.THEMES.blue && E.THEMES.violet, "both dark themes are registered");
+  assert.ok(E.THEMES.paperWhite && E.THEMES.mintAir && E.THEMES.roseQuartz, "all three light themes are registered");
+  assert.strictEqual(E.THEMES.blue.mode, "dark");
+  assert.strictEqual(E.THEMES.paperWhite.mode, "light");
+
   E.applyTheme("violet");
   assert.strictEqual(E.C.accent, "#a78bfa", "applyTheme('violet') swaps C.accent to the legacy violet");
   assert.strictEqual(E.C.grad, "linear-gradient(135deg,#a78bfa,#6d28d9)", "C.grad follows the active theme too");
-  assert.strictEqual(E.C.bg, bgBefore, "neutral/structural tokens are untouched by a theme swap");
+  assert.strictEqual(E.C.bg, "#050308", "violet keeps the same dark background as blue (only the accent differs)");
+
+  E.applyTheme("paperWhite");
+  assert.strictEqual(E.C.mode, "light", "a light theme flips C.mode");
+  assert.strictEqual(E.C.colorScheme, "light", "a light theme flips the native form-control color-scheme too");
+  assert.strictEqual(E.C.bg, "#f6f5f3", "a light theme actually changes the background, not just the accent");
+  assert.notStrictEqual(E.C.ink, "#f1ecfb", "ink flips to a dark color on a light theme (not the dark theme's near-white)");
+  assert.ok(/^rgba\(0,0,0,/.test(E.C.overlayBorder), "Paper White's neutral overlay scale is black-based, not white-based");
+
+  E.applyTheme("mintAir");
+  assert.ok(/^rgba\(13,148,136,/.test(E.C.overlayBorder), "Mint Air's overlay scale is tinted with its own accent, not neutral black");
+
   E.applyTheme("blue");
   assert.strictEqual(E.C.accent, "#6366f1", "applyTheme('blue') restores the default indigo");
+  assert.strictEqual(E.C.mode, "dark", "switching back to blue restores dark mode");
   E.applyTheme("nonexistent");
   assert.strictEqual(E.C.accent, "#6366f1", "an unknown theme name falls back to blue rather than throwing");
 

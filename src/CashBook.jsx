@@ -60,18 +60,81 @@ function alpha(hex, a) {
 // C.blueGrad (bank iconography, #60a5fa/#2563eb, fixed/non-theme), which
 // is what keeps bank vs. credit-card visually distinct once neither is
 // violet. Reuses the exact hex pair already shipped as C.indigoGrad.
+//
+// Each theme carries its FULL palette, not just the accent -- mode:
+// "dark"/"light" plus every surface/text/overlay token below. Blue and
+// Violet's non-accent fields are today's exact original literals
+// (verbatim), so the two dark themes already shipped are pixel-unchanged.
+// Paper White / Mint Air / Rose Quartz are real light palettes: solid-ish
+// light surfaces instead of translucent-white glass (translucent white on
+// a light background has no contrast), and a dark-on-light overlay scale
+// (overlayTint flips from white to a per-theme dark/accent hue).
 export const THEMES = {
   blue: {
-    label: "Blue", swatch: "linear-gradient(135deg,#6366f1,#4338ca)",
+    label: "Blue", swatch: "linear-gradient(135deg,#6366f1,#4338ca)", mode: "dark", tagline: "New default",
     accent: "#6366f1", accentDeep: "#4338ca", accentText: "#c7d2fe",
+    bg: "#050308", ink: "#f1ecfb", soft: "#e4d9f5", muted: "#a99cc9", faint: "#8a7fae",
+    glass: "linear-gradient(160deg, rgba(255,255,255,.10), rgba(255,255,255,.02))",
+    glassSoft: "linear-gradient(160deg, rgba(255,255,255,.09), rgba(255,255,255,.02))",
+    border: "1px solid rgba(255,255,255,.14)", borderSoft: "1px solid rgba(255,255,255,.10)",
+    line: "rgba(255,255,255,.08)", chip: "rgba(255,255,255,.06)", tile: "rgba(255,255,255,.05)",
+    shadow: "0 20px 40px -22px rgba(0,0,0,.6)",
+    sheetBg: "linear-gradient(170deg,#171029,#0c0716)", navBg: "rgba(13,10,23,.94)", headerBg: "rgba(6,4,10,.55)",
+    green: "#6ee7b7", red: "#fda4af", amberText: "#fbbf24", dangerTint: "#fb7185", successTint: "#6ee7b7",
+    overlayTint: "#ffffff", overlayWash: "rgba(255,255,255,.06)", overlayBorder: "rgba(255,255,255,.16)", overlayStrong: "rgba(255,255,255,.22)",
   },
   violet: {
-    label: "Violet", swatch: "linear-gradient(135deg,#a78bfa,#6d28d9)",
+    label: "Violet", swatch: "linear-gradient(135deg,#a78bfa,#6d28d9)", mode: "dark", tagline: "The original look",
     accent: "#a78bfa", accentDeep: "#6d28d9", accentText: "#c4a6ff",
+    bg: "#050308", ink: "#f1ecfb", soft: "#e4d9f5", muted: "#a99cc9", faint: "#8a7fae",
+    glass: "linear-gradient(160deg, rgba(255,255,255,.10), rgba(255,255,255,.02))",
+    glassSoft: "linear-gradient(160deg, rgba(255,255,255,.09), rgba(255,255,255,.02))",
+    border: "1px solid rgba(255,255,255,.14)", borderSoft: "1px solid rgba(255,255,255,.10)",
+    line: "rgba(255,255,255,.08)", chip: "rgba(255,255,255,.06)", tile: "rgba(255,255,255,.05)",
+    shadow: "0 20px 40px -22px rgba(0,0,0,.6)",
+    sheetBg: "linear-gradient(170deg,#171029,#0c0716)", navBg: "rgba(13,10,23,.94)", headerBg: "rgba(6,4,10,.55)",
+    green: "#6ee7b7", red: "#fda4af", amberText: "#fbbf24", dangerTint: "#fb7185", successTint: "#6ee7b7",
+    overlayTint: "#ffffff", overlayWash: "rgba(255,255,255,.06)", overlayBorder: "rgba(255,255,255,.16)", overlayStrong: "rgba(255,255,255,.22)",
+  },
+  paperWhite: {
+    label: "Paper White", swatch: "linear-gradient(135deg,#4f46e5,#4338ca)", mode: "light", tagline: "The most direct light mode",
+    accent: "#4f46e5", accentDeep: "#4338ca", accentText: "#3730a3",
+    bg: "#f6f5f3", ink: "#181521", soft: "#3d3850", muted: "#6b6478", faint: "#948da0",
+    glass: "linear-gradient(170deg,#ffffff,#fbfaf9)", glassSoft: "linear-gradient(170deg,#fdfcfb,#f7f6f4)",
+    border: "1px solid rgba(0,0,0,.07)", borderSoft: "1px solid rgba(0,0,0,.045)",
+    line: "rgba(0,0,0,.06)", chip: "rgba(0,0,0,.045)", tile: "rgba(0,0,0,.035)",
+    shadow: "0 20px 40px -22px rgba(24,21,33,.18)",
+    sheetBg: "linear-gradient(170deg,#ffffff,#f4f3f1)", navBg: "rgba(255,255,255,.92)", headerBg: "rgba(255,255,255,.82)",
+    green: "#047857", red: "#dc2626", amberText: "#b45309", dangerTint: "#dc2626", successTint: "#047857",
+    overlayTint: "#000000", overlayWash: "rgba(0,0,0,.045)", overlayBorder: "rgba(0,0,0,.10)", overlayStrong: "rgba(0,0,0,.16)",
+  },
+  mintAir: {
+    label: "Mint Air", swatch: "linear-gradient(135deg,#0d9488,#0f766e)", mode: "light", tagline: "A fresh new accent",
+    accent: "#0d9488", accentDeep: "#0f766e", accentText: "#0f766e",
+    bg: "#f0f9f6", ink: "#0d251f", soft: "#1f5347", muted: "#5c8a7e", faint: "#84a89b",
+    glass: "linear-gradient(170deg,#ffffff,#f7fdfb)", glassSoft: "linear-gradient(170deg,#fdfffe,#f2faf7)",
+    border: "1px solid rgba(13,148,136,.10)", borderSoft: "1px solid rgba(13,148,136,.06)",
+    line: "rgba(13,148,136,.08)", chip: "rgba(13,148,136,.07)", tile: "rgba(13,148,136,.05)",
+    shadow: "0 20px 40px -22px rgba(13,37,31,.16)",
+    sheetBg: "linear-gradient(170deg,#ffffff,#f1f9f6)", navBg: "rgba(255,255,255,.92)", headerBg: "rgba(240,249,246,.82)",
+    green: "#047857", red: "#dc2626", amberText: "#b45309", dangerTint: "#dc2626", successTint: "#047857",
+    overlayTint: "#0d9488", overlayWash: "rgba(13,148,136,.06)", overlayBorder: "rgba(13,148,136,.12)", overlayStrong: "rgba(13,148,136,.18)",
+  },
+  roseQuartz: {
+    label: "Rose Quartz", swatch: "linear-gradient(135deg,#be123c,#9f1239)", mode: "light", tagline: "The softest option",
+    accent: "#be123c", accentDeep: "#9f1239", accentText: "#9f1239",
+    bg: "#fbf1f3", ink: "#33101a", soft: "#6b3341", muted: "#96707c", faint: "#b596a0",
+    glass: "linear-gradient(170deg,#fffafb,#fdf5f7)", glassSoft: "linear-gradient(170deg,#fffbfc,#faf1f3)",
+    border: "1px solid rgba(190,18,60,.09)", borderSoft: "1px solid rgba(190,18,60,.05)",
+    line: "rgba(190,18,60,.07)", chip: "rgba(190,18,60,.06)", tile: "rgba(190,18,60,.04)",
+    shadow: "0 20px 40px -22px rgba(51,16,26,.16)",
+    sheetBg: "linear-gradient(170deg,#fffafb,#fbf0f2)", navBg: "rgba(255,250,251,.92)", headerBg: "rgba(251,241,243,.82)",
+    green: "#047857", red: "#dc2626", amberText: "#b45309", dangerTint: "#dc2626", successTint: "#047857",
+    overlayTint: "#be123c", overlayWash: "rgba(190,18,60,.05)", overlayBorder: "rgba(190,18,60,.11)", overlayStrong: "rgba(190,18,60,.17)",
   },
 };
 
-function deriveAccentTokens(t) {
+function deriveTokens(t) {
   return {
     accent: t.accent, accentDeep: t.accentDeep, accentText: t.accentText,
     grad: `linear-gradient(135deg,${t.accent},${t.accentDeep})`,
@@ -80,6 +143,17 @@ function deriveAccentTokens(t) {
     accentBorder: alpha(t.accent, .5),      // active chip/seg/tab/optbtn border
     accentBg: alpha(t.accent, .2),          // "in"-style badge fill
     accentBorderSoft: alpha(t.accent, .4),  // badge border / dashed CTA border
+
+    mode: t.mode, colorScheme: t.mode === "light" ? "light" : "dark",
+    bg: t.bg, ink: t.ink, soft: t.soft, muted: t.muted, faint: t.faint,
+    glass: t.glass, glassSoft: t.glassSoft,
+    border: t.border, borderSoft: t.borderSoft, line: t.line, chip: t.chip, tile: t.tile,
+    shadow: t.shadow, sheetBg: t.sheetBg, navBg: t.navBg, headerBg: t.headerBg,
+    green: t.green, red: t.red, amberText: t.amberText,
+    dangerTint: t.dangerTint, successTint: t.successTint,
+    overlayTint: t.overlayTint, overlayWash: t.overlayWash, overlayBorder: t.overlayBorder, overlayStrong: t.overlayStrong,
+    // legacy aliases still used by the money-direction coloring
+    credit: t.green, debit: t.red,
   };
 }
 
@@ -87,29 +161,16 @@ function deriveAccentTokens(t) {
 // every existing C.xxx call site across the file keeps working unchanged
 // and becomes theme-reactive automatically).
 export function applyTheme(name) {
-  Object.assign(C, deriveAccentTokens(THEMES[name] || THEMES.blue));
+  Object.assign(C, deriveTokens(THEMES[name] || THEMES.blue));
 }
 
 export const THEME_LS_KEY = "cb-theme";
 
 export const C = {
-  bg: "#050308",
-  ink: "#f1ecfb",
-  soft: "#e4d9f5",
-  muted: "#a99cc9",
-  faint: "#8a7fae",
-  ...deriveAccentTokens(THEMES.blue),
-  glass: "linear-gradient(160deg, rgba(255,255,255,.10), rgba(255,255,255,.02))",
-  glassSoft: "linear-gradient(160deg, rgba(255,255,255,.09), rgba(255,255,255,.02))",
-  border: "1px solid rgba(255,255,255,.14)",
-  borderSoft: "1px solid rgba(255,255,255,.10)",
-  line: "rgba(255,255,255,.08)",
-  chip: "rgba(255,255,255,.06)",
-  tile: "rgba(255,255,255,.05)",
-  shadow: "0 20px 40px -22px rgba(0,0,0,.6)",
-  green: "#6ee7b7",
+  ...deriveTokens(THEMES.blue),
+  // fixed brand-color icon-orb gradients (account-type/category
+  // iconography) -- unrelated to the app's theme, never re-derived.
   greenGrad: "linear-gradient(135deg,#34d399,#047857)",
-  red: "#fda4af",
   redGrad: "linear-gradient(135deg,#fb7185,#9f1239)",
   amberGrad: "linear-gradient(135deg,#fbbf24,#b45309)",
   blueGrad: "linear-gradient(135deg,#60a5fa,#2563eb)",
@@ -118,12 +179,7 @@ export const C = {
   tealGrad: "linear-gradient(135deg,#2dd4bf,#0f766e)",
   pinkGrad: "linear-gradient(135deg,#e879f9,#a21caf)",
   grayGrad: "linear-gradient(135deg,#71717a,#3f3f46)",
-  sheetBg: "linear-gradient(170deg,#171029,#0c0716)",
-  navBg: "rgba(13,10,23,.94)",
   amber: "#fbbf24",
-  // legacy aliases still used by the money-direction coloring
-  credit: "#6ee7b7",
-  debit: "#fda4af",
 };
 
 // Boot-time fast-path: applies a returning user's saved theme before the
@@ -177,8 +233,7 @@ html, body { overscroll-behavior-x: none; -webkit-tap-highlight-color: transpare
 .cb-splash-name { animation: cbSplashRise .5s .25s ease both; }
 .cb-splash-out { transition: opacity .35s ease; opacity: 0 !important; pointer-events: none; }
 .cb-header { position: sticky; top: 0; z-index: 15; backdrop-filter: blur(18px);
-  -webkit-backdrop-filter: blur(18px);
-  background: rgba(6,4,10,.55); border-bottom: 1px solid rgba(255,255,255,.08); }
+  -webkit-backdrop-filter: blur(18px); }
 @keyframes cbListIn { from { opacity: 0; transform: translateY(9px); } to { opacity: 1; transform: none; } }
 @keyframes cbChipPop { from { transform: scale(.88); opacity: .5; } to { transform: scale(1); opacity: 1; } }
 @keyframes cbCheckPop { 0% { transform: scale(.3); opacity: 0; } 65% { transform: scale(1.1); opacity: 1; } 100% { transform: scale(1); opacity: 1; } }
@@ -198,13 +253,11 @@ html, body { overscroll-behavior-x: none; -webkit-tap-highlight-color: transpare
 .cb-shake { animation: cbShake .45s cubic-bezier(.36,.07,.19,.97) both; }
 .cb-glow-breathe { animation: cbGlowBreathe 6s ease-in-out infinite; }
 .cb-skeleton {
-  background: linear-gradient(90deg, rgba(255,255,255,.06), rgba(255,255,255,.14), rgba(255,255,255,.06));
   background-size: 200% 100%; border-radius: 8px;
   animation: cbShimmer 1.4s linear infinite;
 }
 .cb-carousel::-webkit-scrollbar { display: none; }
 .cb-carousel { scrollbar-width: none; overscroll-behavior-x: contain; }
-input::placeholder { color: #8a7fae; }
 input, select { transition: border-color .18s ease, box-shadow .18s ease; }
 input:focus, select:focus { outline: none; }
 @media (prefers-reduced-motion: reduce) {
@@ -1150,21 +1203,28 @@ const glass = (r = 24) => ({
   background: C.glass, backdropFilter: "blur(20px)", WebkitBackdropFilter: "blur(20px)",
   border: C.border, borderRadius: r, boxShadow: C.shadow,
 });
+// A plain object literal here would capture C.ink/C.muted/C.faint by
+// value once at module load -- getters re-read C fresh on every access,
+// so these stay theme-reactive the same way glass()/avatarBg() do.
 const st = {
-  input: {
-    width: "100%", boxSizing: "border-box", padding: "10px 12px",
-    borderRadius: 12, border: "1px solid rgba(255,255,255,.16)",
-    background: "rgba(255,255,255,.06)", fontSize: 15, fontFamily: F.sans,
-    color: C.ink, colorScheme: "dark",
+  get input() {
+    return {
+      width: "100%", boxSizing: "border-box", padding: "10px 12px",
+      borderRadius: 12, border: `1px solid ${C.overlayBorder}`,
+      background: C.overlayWash, fontSize: 15, fontFamily: F.sans,
+      color: C.ink, colorScheme: C.colorScheme,
+    };
   },
-  label: {
-    display: "block", fontSize: 11, color: C.muted, margin: "10px 0 5px",
-    textTransform: "uppercase", letterSpacing: "0.06em", fontWeight: 700,
+  get label() {
+    return {
+      display: "block", fontSize: 11, color: C.muted, margin: "10px 0 5px",
+      textTransform: "uppercase", letterSpacing: "0.06em", fontWeight: 700,
+    };
   },
-  h1: { fontSize: 22, fontWeight: 800, color: C.ink, marginBottom: 2 },
-  sub: { fontSize: 12, color: C.muted, fontWeight: 600, marginBottom: 14 },
-  section: { fontSize: 15, fontWeight: 800, color: C.ink },
-  eyebrow: { fontSize: 11, fontWeight: 700, color: C.faint, textTransform: "uppercase", letterSpacing: ".06em", margin: "2px 2px 8px" },
+  get h1() { return { fontSize: 22, fontWeight: 800, color: C.ink, marginBottom: 2 }; },
+  get sub() { return { fontSize: 12, color: C.muted, fontWeight: 600, marginBottom: 14 }; },
+  get section() { return { fontSize: 15, fontWeight: 800, color: C.ink }; },
+  get eyebrow() { return { fontSize: 11, fontWeight: 700, color: C.faint, textTransform: "uppercase", letterSpacing: ".06em", margin: "2px 2px 8px" }; },
 };
 
 function PrimaryBtn({ style, danger, ...props }) {
@@ -1185,8 +1245,8 @@ function GhostBtn({ style, ...props }) {
     <button
       className="cb-press"
       style={{
-        padding: "13px 0", border: "1px solid rgba(255,255,255,.18)", borderRadius: 14,
-        background: "rgba(255,255,255,.06)", color: C.ink,
+        padding: "13px 0", border: `1px solid ${C.overlayBorder}`, borderRadius: 14,
+        background: C.overlayWash, color: C.ink,
         fontWeight: 700, fontSize: 13, fontFamily: F.sans, cursor: "pointer", ...style,
       }}
       {...props}
@@ -1198,8 +1258,8 @@ function RoundBtn({ style, children, ...props }) {
     <button
       className="cb-press"
       style={{
-        width: 34, height: 34, borderRadius: 999, border: "1px solid rgba(255,255,255,.14)",
-        background: "rgba(255,255,255,.06)", display: "flex", alignItems: "center",
+        width: 34, height: 34, borderRadius: 999, border: `1px solid ${C.overlayBorder}`,
+        background: C.overlayWash, display: "flex", alignItems: "center",
         justifyContent: "center", cursor: "pointer", flexShrink: 0, ...style,
       }}
       {...props}
@@ -1251,8 +1311,8 @@ function FilterChip({ label, active, onClick, pop }) {
       style={{
         padding: "7px 13px", borderRadius: 999, fontSize: 12, fontWeight: 700,
         fontFamily: F.sans, cursor: "pointer", whiteSpace: "nowrap", flexShrink: 0,
-        border: `1px solid ${active ? C.accentBorder : "rgba(255,255,255,.16)"}`,
-        background: active ? C.accentSoft : "rgba(255,255,255,.06)",
+        border: `1px solid ${active ? C.accentBorder : C.overlayBorder}`,
+        background: active ? C.accentSoft : C.overlayWash,
         color: active ? C.accentText : C.soft,
       }}
     >
@@ -1382,7 +1442,7 @@ function Toggle({ on, onChange }) {
       aria-checked={on}
       style={{
         width: 44, height: 26, borderRadius: 999, border: "none", cursor: "pointer",
-        background: on ? C.grad : "rgba(255,255,255,.14)", position: "relative", padding: 0, flexShrink: 0,
+        background: on ? C.grad : C.overlayBorder, position: "relative", padding: 0, flexShrink: 0,
       }}
     >
       <span style={{
@@ -1412,7 +1472,7 @@ function Sheet({ title, onClose, children }) {
           width: "100%", maxWidth: 480, margin: "0 auto", maxHeight: "88vh",
           overflowY: "auto", boxSizing: "border-box",
           background: C.sheetBg, border: C.border,
-          borderTop: "1px solid rgba(255,255,255,.22)",
+          borderTop: `1px solid ${C.overlayStrong}`,
           borderRadius: "24px 24px 0 0",
           padding: "14px 16px calc(18px + env(safe-area-inset-bottom))",
         }}
@@ -1423,7 +1483,7 @@ function Sheet({ title, onClose, children }) {
             className="cb-press"
             onClick={onClose}
             style={{
-              border: "1px solid rgba(255,255,255,.18)", background: "rgba(255,255,255,.06)",
+              border: `1px solid ${C.overlayBorder}`, background: C.overlayWash,
               color: C.ink, padding: "7px 14px", borderRadius: 10, fontSize: 13,
               fontWeight: 700, fontFamily: F.sans, cursor: "pointer",
             }}
@@ -1448,8 +1508,8 @@ function Chips({ options, value, onChange, render }) {
           style={{
             padding: "7px 12px", borderRadius: 999, fontSize: 13, fontWeight: 700,
             fontFamily: F.sans, cursor: "pointer",
-            border: `1px solid ${value === o ? C.accentBorder : "rgba(255,255,255,.16)"}`,
-            background: value === o ? C.accentSoft : "rgba(255,255,255,.05)",
+            border: `1px solid ${value === o ? C.accentBorder : C.overlayBorder}`,
+            background: value === o ? C.accentSoft : C.overlayWash,
             color: value === o ? C.accentText : C.soft,
           }}
         >
@@ -1756,7 +1816,7 @@ function Donut({ slices, size = 120, thickness = 14, centerLabel, centerValue })
   let offset = 0;
   return (
     <svg viewBox={`0 0 ${size} ${size}`} style={{ width: size, height: size, flexShrink: 0 }}>
-      <circle cx={size / 2} cy={size / 2} r={r} fill="none" stroke="rgba(255,255,255,.06)" strokeWidth={thickness} />
+      <circle cx={size / 2} cy={size / 2} r={r} fill="none" stroke={C.overlayWash} strokeWidth={thickness} />
       {slices.map((s, i) => {
         const frac = s.value / total;
         const el = (
@@ -1775,7 +1835,7 @@ function Donut({ slices, size = 120, thickness = 14, centerLabel, centerValue })
       })}
       {centerValue && (
         <>
-          <text x="50%" y="47%" textAnchor="middle" fill="#fff" fontSize="15" fontWeight="800" fontFamily={F.sans}>{centerValue}</text>
+          <text x="50%" y="47%" textAnchor="middle" fill={C.ink} fontSize="15" fontWeight="800" fontFamily={F.sans}>{centerValue}</text>
           <text x="50%" y="61%" textAnchor="middle" fill={C.faint} fontSize="8.5" fontWeight="600" fontFamily={F.sans}>{centerLabel}</text>
         </>
       )}
@@ -1842,7 +1902,7 @@ function StatChip({ grad, value, label, onClick }) {
     >
       <span style={{ width: 8, height: 8, borderRadius: 999, background: grad, flexShrink: 0 }} />
       <div style={{ minWidth: 0 }}>
-        <div style={{ fontSize: 13, fontWeight: 800, color: "#fff", fontVariantNumeric: "tabular-nums", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+        <div style={{ fontSize: 13, fontWeight: 800, color: C.ink, fontVariantNumeric: "tabular-nums", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
           {value}
         </div>
         <div style={{ fontSize: 9.5, fontWeight: 700, color: C.faint, textTransform: "uppercase", letterSpacing: ".03em" }}>{label}</div>
@@ -1925,7 +1985,7 @@ function DashHome({ book, go, onImport, onAdd, setTab, prices }) {
           </div>
           <span style={{
             display: "flex", alignItems: "center", gap: 5, padding: "6px 12px", borderRadius: 999,
-            border: "1px solid rgba(255,255,255,.16)", background: "rgba(255,255,255,.06)",
+            border: `1px solid ${C.overlayBorder}`, background: C.overlayWash,
             color: C.soft, fontSize: 12, fontWeight: 700,
           }}>
             This Month
@@ -1933,7 +1993,7 @@ function DashHome({ book, go, onImport, onAdd, setTab, prices }) {
         </div>
         <div style={{ display: "flex", alignItems: "flex-end", gap: 12, marginTop: 14 }}>
           <div>
-            <div style={{ fontSize: 30, fontWeight: 800, color: "#fff", fontVariantNumeric: "tabular-nums" }}>
+            <div style={{ fontSize: 30, fontWeight: 800, color: C.ink, fontVariantNumeric: "tabular-nums" }}>
               {money(book, netWorth)}
             </div>
             <div style={{ fontSize: 12, fontWeight: 700, color: nwDiff >= 0 ? C.green : C.red, marginTop: 5, display: "flex", gap: 4 }}>
@@ -1966,7 +2026,7 @@ function DashHome({ book, go, onImport, onAdd, setTab, prices }) {
           {accounts.map((a, i) => (
             <span key={a.id} style={{
               width: i === cardIdx ? 18 : 6, height: 6, borderRadius: 999,
-              background: i === cardIdx ? C.accent : "rgba(255,255,255,.2)", transition: "width .25s ease",
+              background: i === cardIdx ? C.accent : C.overlayStrong, transition: "width .25s ease",
             }} />
           ))}
         </div>
@@ -2038,10 +2098,10 @@ function StatDetailSheet({ book, kind, pl, invested, investedBag, expDiffPct, to
                 </span>{" "}
                 than last month.
               </div>
-              <div style={{ fontSize: 13, fontWeight: 700, color: "#fff", marginTop: 2 }}>
+              <div style={{ fontSize: 13, fontWeight: 700, color: C.ink, marginTop: 2 }}>
                 {expDiffPct <= 0 ? "Keep it up!" : "Worth a look."}
               </div>
-              <div style={{ height: 5, borderRadius: 999, background: "rgba(255,255,255,.1)", marginTop: 12 }}>
+              <div style={{ height: 5, borderRadius: 999, background: C.overlayBorder, marginTop: 12 }}>
                 <div style={{ height: "100%", width: `${Math.min(100, Math.abs(expDiffPct))}%`, borderRadius: 999, background: expDiffPct <= 0 ? C.greenGrad : C.redGrad }} />
               </div>
             </div>
@@ -2053,7 +2113,7 @@ function StatDetailSheet({ book, kind, pl, invested, investedBag, expDiffPct, to
               <div style={{ fontSize: 13, fontWeight: 700, color: C.accentText, marginTop: 2 }}>
                 {money(book, topCat[1])} spent this month
               </div>
-              <div style={{ height: 5, borderRadius: 999, background: "rgba(255,255,255,.1)", marginTop: 12 }}>
+              <div style={{ height: 5, borderRadius: 999, background: C.overlayBorder, marginTop: 12 }}>
                 <div style={{ height: "100%", width: `${Math.round((topCat[1] / (pl.totalExpense || 1)) * 100)}%`, borderRadius: 999, background: `linear-gradient(90deg,${C.accent},${C.accentDeep})` }} />
               </div>
             </div>
@@ -2095,7 +2155,7 @@ function StatDetailSheet({ book, kind, pl, invested, investedBag, expDiffPct, to
         {rows.map(([h, a], i) => (
           <div key={h} style={{ display: "flex", alignItems: "center", padding: "12px 16px", borderTop: i ? `1px solid ${C.line}` : "none" }}>
             <div style={{ flex: 1, fontSize: 14, fontWeight: 700, color: C.soft }}>{h}</div>
-            <div style={{ fontSize: 14, fontWeight: 800, color: "#fff" }}>{money(book, a)}</div>
+            <div style={{ fontSize: 14, fontWeight: 800, color: C.ink }}>{money(book, a)}</div>
           </div>
         ))}
         {rows.length === 0 && <div style={{ padding: "20px 16px", fontSize: 13, color: C.muted, textAlign: "center" }}>Nothing this month.</div>}
@@ -2132,7 +2192,7 @@ function NetWorthPage({ book, go, prices }) {
                 {s.label}
               </div>
               <div style={{ textAlign: "right" }}>
-                <div style={{ fontSize: 12.5, fontWeight: 800, color: "#fff" }}>{compactMoney(book, s.value)}</div>
+                <div style={{ fontSize: 12.5, fontWeight: 800, color: C.ink }}>{compactMoney(book, s.value)}</div>
                 <div style={{ fontSize: 10.5, fontWeight: 600, color: C.faint }}>{s.pct}%</div>
               </div>
             </div>
@@ -2149,7 +2209,7 @@ function NetWorthPage({ book, go, prices }) {
         <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 13, fontWeight: 700, color: C.muted }}>
           Total Net Worth <Ic name="info" size={13} stroke={C.faint} />
         </div>
-        <div style={{ fontSize: 38, fontWeight: 800, color: "#fff", marginTop: 6, fontVariantNumeric: "tabular-nums" }}>
+        <div style={{ fontSize: 38, fontWeight: 800, color: C.ink, marginTop: 6, fontVariantNumeric: "tabular-nums" }}>
           {money(book, bs.totalEquity)}
         </div>
         <div style={{ fontSize: 13, fontWeight: 700, color: diff >= 0 ? C.green : C.red, marginTop: 6 }}>
@@ -2174,8 +2234,8 @@ function NetWorthPage({ book, go, prices }) {
               style={{
                 padding: "7px 14px", borderRadius: 999, fontSize: 12, fontWeight: 800,
                 fontFamily: F.sans, cursor: "pointer",
-                border: `1px solid ${months === m ? C.accentBorder : "rgba(255,255,255,.14)"}`,
-                background: months === m ? C.accentSoft : "rgba(255,255,255,.05)",
+                border: `1px solid ${months === m ? C.accentBorder : C.overlayBorder}`,
+                background: months === m ? C.accentSoft : C.overlayWash,
                 color: months === m ? C.accentText : C.muted,
               }}
             >
@@ -2196,7 +2256,7 @@ function NetWorthPage({ book, go, prices }) {
               <Orb size={32} grad={r.grad}><Ic name={r.icon} size={14} /></Orb>
               <div style={{ fontSize: 14, fontWeight: 700, color: C.soft }}>{r.label}</div>
             </div>
-            <div style={{ fontSize: 15, fontWeight: 800, color: "#fff" }}>{money(book, r.value)}</div>
+            <div style={{ fontSize: 15, fontWeight: 800, color: C.ink }}>{money(book, r.value)}</div>
           </div>
         ))}
         <div style={{ display: "flex", alignItems: "center", padding: "12px 0 0" }}>
@@ -2206,7 +2266,7 @@ function NetWorthPage({ book, go, prices }) {
       </div>
 
       <Breakdown title="Breakdown" slices={assets} accent={C.accentText} page="assets" />
-      <Breakdown title="Liability Breakdown" slices={liabilities} accent="#fca5a5" page="liabilities" />
+      <Breakdown title="Liability Breakdown" slices={liabilities} accent={C.red} page="liabilities" />
       <div style={{ height: 10 }} />
     </div>
   );
@@ -2293,11 +2353,11 @@ function InvestmentsPage({ book, prices, instruments, pricesLoaded, onClose, onA
         style={{
           width: "100%", maxWidth: 480, margin: "0 auto", maxHeight: "94vh",
           overflowY: "auto", boxSizing: "border-box", background: C.sheetBg,
-          border: C.border, borderTop: "1px solid rgba(255,255,255,.22)",
+          border: C.border, borderTop: `1px solid ${C.overlayStrong}`,
           borderRadius: "24px 24px 0 0", padding: "10px 18px calc(22px + env(safe-area-inset-bottom))",
         }}
       >
-        <div style={{ width: 40, height: 4, borderRadius: 999, background: "rgba(255,255,255,.2)", margin: "0 auto 12px" }} />
+        <div style={{ width: 40, height: 4, borderRadius: 999, background: C.overlayStrong, margin: "0 auto 12px" }} />
         <div style={{ display: "flex", alignItems: "center", marginBottom: 14 }}>
           <RoundBtn aria-label="Close" onClick={onClose}><Ic name="close" size={14} stroke={C.soft} /></RoundBtn>
           <div style={{ flex: 1, textAlign: "center", fontSize: 18, fontWeight: 800, color: C.ink }}>Investments</div>
@@ -2320,7 +2380,7 @@ function InvestmentsPage({ book, prices, instruments, pricesLoaded, onClose, onA
           </div>
           <div style={{ display: "flex", alignItems: "flex-end", gap: 12, marginTop: 14 }}>
             {pricesLoaded ? (
-              <div style={{ fontSize: 30, fontWeight: 800, color: "#fff", fontVariantNumeric: "tabular-nums" }}>
+              <div style={{ fontSize: 30, fontWeight: 800, color: C.ink, fontVariantNumeric: "tabular-nums" }}>
                 {mask(money(book, heroValue))}
               </div>
             ) : (
@@ -2345,8 +2405,8 @@ function InvestmentsPage({ book, prices, instruments, pricesLoaded, onClose, onA
                 style={{
                   padding: "7px 14px", borderRadius: 999, fontSize: 12, fontWeight: 800,
                   fontFamily: F.sans, cursor: "pointer",
-                  border: `1px solid ${months === m ? C.accentBorder : "rgba(255,255,255,.14)"}`,
-                  background: months === m ? C.accentSoft : "rgba(255,255,255,.05)",
+                  border: `1px solid ${months === m ? C.accentBorder : C.overlayBorder}`,
+                  background: months === m ? C.accentSoft : C.overlayWash,
                   color: months === m ? C.accentText : C.muted,
                 }}
               >
@@ -2358,7 +2418,7 @@ function InvestmentsPage({ book, prices, instruments, pricesLoaded, onClose, onA
           <div style={{ display: "flex", borderTop: `1px solid ${C.line}`, marginTop: 14, paddingTop: 12, gap: 10 }}>
             <div style={{ flex: 1 }}>
               <div style={{ fontSize: 10, fontWeight: 700, color: C.faint, textTransform: "uppercase", letterSpacing: ".04em" }}>Invested Amount</div>
-              <div style={{ fontSize: 15, fontWeight: 800, color: "#fff", marginTop: 4 }}>{mask(money(book, investedTotal))}</div>
+              <div style={{ fontSize: 15, fontWeight: 800, color: C.ink, marginTop: 4 }}>{mask(money(book, investedTotal))}</div>
             </div>
             <div style={{ flex: 1 }}>
               <div style={{ fontSize: 10, fontWeight: 700, color: C.faint, textTransform: "uppercase", letterSpacing: ".04em" }}>Total Returns</div>
@@ -2413,7 +2473,7 @@ function InvestmentsPage({ book, prices, instruments, pricesLoaded, onClose, onA
                   <div style={{ fontSize: 11, color: C.faint, marginTop: 1 }}>{investDetailLine(book, r)}</div>
                 </div>
                 <div style={{ textAlign: "right", fontVariantNumeric: "tabular-nums" }}>
-                  <div style={{ fontSize: 14, fontWeight: 800, color: "#fff" }}>{mask(money(book, r.value))}</div>
+                  <div style={{ fontSize: 14, fontWeight: 800, color: C.ink }}>{mask(money(book, r.value))}</div>
                   <div style={{ fontSize: 11, fontWeight: 700, color: r.gain >= 0 ? C.green : C.red, marginTop: 2 }}>
                     {mask(`${r.gain >= 0 ? "+" : ""}${money(book, r.gain)} (${r.gainPct}%)`)}
                   </div>
@@ -2466,12 +2526,12 @@ function AllocationPage({ book, kind, prices }) {
         <div style={{ fontSize: 13, fontWeight: 700, color: C.muted }}>
           Total {kind === "assets" ? "Assets" : "Liabilities"} Value
         </div>
-        <div style={{ fontSize: 38, fontWeight: 800, color: "#fff", marginTop: 6 }}>{money(book, total)}</div>
+        <div style={{ fontSize: 38, fontWeight: 800, color: C.ink, marginTop: 6 }}>{money(book, total)}</div>
       </div>
       <div style={{ ...glass(24), marginTop: 14, padding: "16px 18px 18px" }}>
         <div style={st.section}>{kind === "assets" ? "Asset" : "Liability"} Allocation</div>
         <div style={{ fontSize: 11.5, fontWeight: 600, color: C.faint, margin: "2px 0 12px" }}>By Category</div>
-        <div style={{ display: "flex", height: 10, borderRadius: 999, background: "rgba(255,255,255,.06)", overflow: "hidden" }}>
+        <div style={{ display: "flex", height: 10, borderRadius: 999, background: C.overlayWash, overflow: "hidden" }}>
           {slices.map((s) => (
             <div key={s.label} style={{ width: `${s.pct}%`, background: s.color }} />
           ))}
@@ -2481,7 +2541,7 @@ function AllocationPage({ book, kind, prices }) {
             <div key={s.label} style={{ display: "flex", alignItems: "center", gap: 6 }}>
               <span style={{ width: 8, height: 8, borderRadius: 999, background: s.color, display: "inline-block" }} />
               <div>
-                <div style={{ fontSize: 12.5, fontWeight: 800, color: "#fff" }}>{s.pct}%</div>
+                <div style={{ fontSize: 12.5, fontWeight: 800, color: C.ink }}>{s.pct}%</div>
                 <div style={{ fontSize: 10.5, fontWeight: 600, color: C.faint }}>{s.label}</div>
               </div>
             </div>
@@ -2492,12 +2552,12 @@ function AllocationPage({ book, kind, prices }) {
         <div style={{ ...st.section, marginBottom: 12 }}>All {kind === "assets" ? "Assets" : "Liabilities"}</div>
         {slices.map((s) => (
           <div key={s.label} style={{ display: "flex", alignItems: "center", gap: 10, padding: "12px 0", borderBottom: `1px solid ${C.line}` }}>
-            <div style={{ width: 34, height: 34, borderRadius: 999, background: "rgba(255,255,255,.06)", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+            <div style={{ width: 34, height: 34, borderRadius: 999, background: C.overlayWash, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
               <span style={{ width: 10, height: 10, borderRadius: 999, background: s.color, display: "inline-block" }} />
             </div>
             <div style={{ flex: 1, fontSize: 14, fontWeight: 700, color: C.soft }}>{s.label}</div>
             <div style={{ textAlign: "right" }}>
-              <div style={{ fontSize: 14, fontWeight: 800, color: "#fff" }}>{money(book, s.value)}</div>
+              <div style={{ fontSize: 14, fontWeight: 800, color: C.ink }}>{money(book, s.value)}</div>
               <div style={{ fontSize: 11, fontWeight: 600, color: C.faint, marginTop: 2 }}>{s.pct}%</div>
             </div>
           </div>
@@ -2636,7 +2696,7 @@ function TxView({ book, up, onEdit, onAdd, initialFilter }) {
   const accountLabel = account === "all" ? "All accounts" : account === "bank" ? "Bank" : account.slice(5);
 
   const Popover = ({ children }) => (
-    <div className="cb-view" style={{ background: C.tile, border: "1px solid rgba(255,255,255,.12)", borderRadius: 16, padding: "12px 14px", marginTop: 8 }}>
+    <div className="cb-view" style={{ background: C.tile, border: `1px solid ${C.overlayBorder}`, borderRadius: 16, padding: "12px 14px", marginTop: 8 }}>
       {children}
       <PrimaryBtn style={{ width: "100%", marginTop: 10, padding: "9px 0", fontSize: 12.5 }} onClick={() => setPopover("")}>Done</PrimaryBtn>
     </div>
@@ -2656,7 +2716,7 @@ function TxView({ book, up, onEdit, onAdd, initialFilter }) {
       {selectMode && (
         <div style={{
           width: 20, height: 20, borderRadius: 999, flexShrink: 0,
-          border: `1.5px solid ${selected.has(e.id) ? C.accent : "rgba(255,255,255,.3)"}`,
+          border: `1.5px solid ${selected.has(e.id) ? C.accent : C.overlayStrong}`,
           background: selected.has(e.id) ? C.grad : "transparent",
           display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12, color: "#fff",
         }}>
@@ -2990,7 +3050,7 @@ function PartyRow({ book, p, index, onOpen }) {
         <div style={{ fontSize: 14, fontWeight: 700, color: C.ink }}>{p.name}</div>
         <div style={{ fontSize: 11, fontWeight: 700, color: m.statusColor, marginTop: 1 }}>{m.statusLabel}</div>
       </div>
-      <div style={{ fontSize: 14.5, fontWeight: 800, color: "#fff", fontVariantNumeric: "tabular-nums" }}>{money(book, Math.abs(p.balance))}</div>
+      <div style={{ fontSize: 14.5, fontWeight: 800, color: C.ink, fontVariantNumeric: "tabular-nums" }}>{money(book, Math.abs(p.balance))}</div>
     </div>
   );
 }
@@ -3021,7 +3081,7 @@ function OwedView({ book, go, onAddMemo, onRecordPayment }) {
       <div style={{ display: "flex", alignItems: "flex-start", padding: "2px 0 4px" }}>
         <div style={{ flex: 1 }}>
           <div style={{ fontSize: 12.5, fontWeight: 700, color: C.muted }}>{label}</div>
-          <div style={{ fontSize: 30, fontWeight: 800, color: "#fff", marginTop: 4, fontVariantNumeric: "tabular-nums" }}>{money(book, total)}</div>
+          <div style={{ fontSize: 30, fontWeight: 800, color: C.ink, marginTop: 4, fontVariantNumeric: "tabular-nums" }}>{money(book, total)}</div>
           {d !== null && (
             <div style={{ fontSize: 12.5, fontWeight: 700, color: d >= 0 ? C.green : C.red, marginTop: 6 }}>
               {d >= 0 ? "▲" : "▼"} {Math.abs(d)}% <span style={{ color: C.faint, fontWeight: 600 }}>vs last month</span>
@@ -3059,11 +3119,11 @@ function OwedView({ book, go, onAddMemo, onRecordPayment }) {
           {net >= 0 ? "+" : "−"}{money(book, Math.abs(net))}
         </div>
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginTop: 12, fontVariantNumeric: "tabular-nums" }}>
-          <div style={{ background: "rgba(110,231,183,.12)", border: "1px solid rgba(110,231,183,.3)", borderRadius: 12, padding: "9px 10px" }}>
+          <div style={{ background: alpha(C.successTint, .12), border: `1px solid ${alpha(C.successTint, .3)}`, borderRadius: 12, padding: "9px 10px" }}>
             <div style={{ fontSize: 10, fontWeight: 700, color: C.faint, textTransform: "uppercase" }}>You'll receive</div>
             <div style={{ fontSize: 14, fontWeight: 800, color: C.green, marginTop: 3 }}>{money(book, owed.debtors)}</div>
           </div>
-          <div style={{ background: "rgba(251,113,133,.12)", border: "1px solid rgba(251,113,133,.3)", borderRadius: 12, padding: "9px 10px" }}>
+          <div style={{ background: alpha(C.dangerTint, .12), border: `1px solid ${alpha(C.dangerTint, .3)}`, borderRadius: 12, padding: "9px 10px" }}>
             <div style={{ fontSize: 10, fontWeight: 700, color: C.faint, textTransform: "uppercase" }}>You owe</div>
             <div style={{ fontSize: 14, fontWeight: 800, color: C.red, marginTop: 3 }}>{money(book, owed.creditors)}</div>
           </div>
@@ -3073,7 +3133,7 @@ function OwedView({ book, go, onAddMemo, onRecordPayment }) {
       {showRecv && (
         <div>
           <SectionHead grad={C.greenGrad} title="Receivables" sub="Money owed to you by people" />
-          <TotalsRow label="Total Receivables" total={owed.debtors} prevTotal={prevOwed.debtors} accent={C.green} border="1px solid rgba(110,231,183,.3)" bg="rgba(110,231,183,.1)" detailPage="recvDetail" />
+          <TotalsRow label="Total Receivables" total={owed.debtors} prevTotal={prevOwed.debtors} accent={C.green} border={`1px solid ${alpha(C.successTint, .3)}`} bg={alpha(C.successTint, .1)} detailPage="recvDetail" />
           <div style={{ margin: "12px 0 0", ...st.section }}>All Receivables</div>
           {receivables.length > 0 ? (
             <div style={{ ...glass(20), padding: "4px 16px", marginTop: 8 }}>
@@ -3092,7 +3152,7 @@ function OwedView({ book, go, onAddMemo, onRecordPayment }) {
       {showPay && (
         <div>
           <SectionHead grad={C.redGrad} title="Payables" sub="Money you owe to people" />
-          <TotalsRow label="Total Payables" total={owed.creditors} prevTotal={prevOwed.creditors} accent={C.red} border="1px solid rgba(251,113,133,.35)" bg="rgba(251,113,133,.1)" detailPage="payDetail" />
+          <TotalsRow label="Total Payables" total={owed.creditors} prevTotal={prevOwed.creditors} accent={C.red} border={`1px solid ${alpha(C.dangerTint, .35)}`} bg={alpha(C.dangerTint, .1)} detailPage="payDetail" />
           <div style={{ margin: "12px 0 0", ...st.section }}>All Payables</div>
           {payables.length > 0 ? (
             <div style={{ ...glass(20), padding: "4px 16px", marginTop: 8 }}>
@@ -3126,8 +3186,8 @@ function OwedDetailPage({ book, kind, go }) {
   const bucketTotal = buckets.reduce((s, b) => s + b.value, 0) || 1;
   const largest = list[0];
   const stats = [
-    { label: isRecv ? "People owe you" : "You owe people", value: `${list.length}`, color: "#fff" },
-    { label: "Average", value: money(book, list.length ? Math.round(total / list.length) : 0), color: "#fff" },
+    { label: isRecv ? "People owe you" : "You owe people", value: `${list.length}`, color: C.ink },
+    { label: "Average", value: money(book, list.length ? Math.round(total / list.length) : 0), color: C.ink },
     { label: "Largest", value: largest ? money(book, Math.abs(largest.balance)) : money(book, 0), color: isRecv ? C.green : C.red },
   ];
   return (
@@ -3143,7 +3203,7 @@ function OwedDetailPage({ book, kind, go }) {
       </div>
       <div style={{ padding: "2px 0 4px" }}>
         <div style={{ fontSize: 12.5, fontWeight: 700, color: C.muted }}>Total {isRecv ? "Receivables" : "Payables"}</div>
-        <div style={{ fontSize: 34, fontWeight: 800, color: "#fff", marginTop: 4 }}>{money(book, total)}</div>
+        <div style={{ fontSize: 34, fontWeight: 800, color: C.ink, marginTop: 4 }}>{money(book, total)}</div>
         {d !== null && (
           <div style={{ fontSize: 12.5, fontWeight: 700, color: d >= 0 ? C.green : C.red, marginTop: 6 }}>
             {d >= 0 ? "▲" : "▼"} {Math.abs(d)}% <span style={{ color: C.faint, fontWeight: 600 }}>vs last month</span>
@@ -3160,7 +3220,7 @@ function OwedDetailPage({ book, kind, go }) {
       </div>
       <div style={{ ...glass(22), marginTop: 16, padding: "16px 18px 18px" }}>
         <div style={{ fontSize: 13.5, fontWeight: 800, color: C.ink, marginBottom: 10 }}>Aging Summary</div>
-        <div style={{ display: "flex", height: 9, borderRadius: 999, background: "rgba(255,255,255,.06)", overflow: "hidden" }}>
+        <div style={{ display: "flex", height: 9, borderRadius: 999, background: C.overlayWash, overflow: "hidden" }}>
           {buckets.map((b) => (
             <div key={b.label} style={{ width: `${(b.value / bucketTotal) * 100}%`, background: b.color }} />
           ))}
@@ -3222,20 +3282,20 @@ function PartyProfilePage({ book, partyId, up, onRecordPayment, onSettle, onAddM
             {m.first ? `Since ${prettyDate(m.first)}` : "No activity yet"}
           </div>
         </div>
-        <span style={{ fontSize: 10.5, fontWeight: 800, color: m.statusColor, background: "rgba(255,255,255,.08)", padding: "4px 10px", borderRadius: 999 }}>
+        <span style={{ fontSize: 10.5, fontWeight: 800, color: m.statusColor, background: C.overlayWash, padding: "4px 10px", borderRadius: 999 }}>
           {m.statusLabel}
         </span>
       </div>
       <div style={{ padding: "4px 0" }}>
         <div style={{ fontSize: 12, fontWeight: 700, color: C.muted }}>Outstanding</div>
-        <div style={{ fontSize: 34, fontWeight: 800, color: "#fff", marginTop: 4, fontVariantNumeric: "tabular-nums" }}>
+        <div style={{ fontSize: 34, fontWeight: 800, color: C.ink, marginTop: 4, fontVariantNumeric: "tabular-nums" }}>
           {p.balance < 0 ? "−" : ""}{money(book, Math.abs(p.balance))}
         </div>
       </div>
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8, margin: "14px 0", fontVariantNumeric: "tabular-nums" }}>
         <div style={{ background: C.chip, border: C.borderSoft, borderRadius: 14, padding: 10 }}>
           <div style={{ fontSize: 10, fontWeight: 700, color: C.faint, textTransform: "uppercase" }}>Lent</div>
-          <div style={{ fontSize: 14, fontWeight: 800, color: "#fff", marginTop: 3 }}>{money(book, lent)}</div>
+          <div style={{ fontSize: 14, fontWeight: 800, color: C.ink, marginTop: 3 }}>{money(book, lent)}</div>
         </div>
         <div style={{ background: C.chip, border: C.borderSoft, borderRadius: 14, padding: 10 }}>
           <div style={{ fontSize: 10, fontWeight: 700, color: C.faint, textTransform: "uppercase" }}>Repaid</div>
@@ -3243,7 +3303,7 @@ function PartyProfilePage({ book, partyId, up, onRecordPayment, onSettle, onAddM
         </div>
         <div style={{ background: C.chip, border: C.borderSoft, borderRadius: 14, padding: 10 }}>
           <div style={{ fontSize: 10, fontWeight: 700, color: C.faint, textTransform: "uppercase" }}>Last activity</div>
-          <div style={{ fontSize: 12, fontWeight: 800, color: "#fff", marginTop: 5 }}>{m.last ? prettyDate(m.last) : "—"}</div>
+          <div style={{ fontSize: 12, fontWeight: 800, color: C.ink, marginTop: 5 }}>{m.last ? prettyDate(m.last) : "—"}</div>
         </div>
       </div>
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 18 }}>
@@ -3341,7 +3401,7 @@ function ReportsHub({ book, go, prices, onOpenInvestments }) {
     <div className="cb-press" onClick={onClick || (() => go(page))} style={{ ...glass(20), padding: 16, cursor: "pointer" }}>
       <div style={{ fontSize: 12, fontWeight: 700, color: C.soft }}>{title}</div>
       {children}
-      {big != null && <div style={{ fontSize: 18, fontWeight: 800, color: bigColor || "#fff", marginTop: 10 }}>{big}</div>}
+      {big != null && <div style={{ fontSize: 18, fontWeight: 800, color: bigColor || C.ink, marginTop: 10 }}>{big}</div>}
       {sub && <div style={{ fontSize: 10.5, color: C.muted, marginTop: 2 }}>{sub}</div>}
       {sub2 && <div style={{ fontSize: 10, fontWeight: 700, color: C.green, marginTop: 3 }}>{sub2}</div>}
     </div>
@@ -3354,7 +3414,7 @@ function ReportsHub({ book, go, prices, onOpenInvestments }) {
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
         <Card title="Budget" page="budget"
           big={budPct !== null ? `${budPct}%` : "Set up"}
-          bigColor={budPct !== null && budPct > 100 ? C.red : "#fff"}
+          bigColor={budPct !== null && budPct > 100 ? C.red : C.ink}
           sub={budPct !== null ? `${money(book, Math.max(0, bud.totalBudget - bud.totalSpent))} left` : "No budgets yet — tap to add"} />
         <Card title="Cash Flow" page="cashflow"
           big={`${pl.net >= 0 ? "+" : "−"}${compactMoney(book, Math.abs(pl.net))}`}
@@ -3449,7 +3509,7 @@ function PLPage({ book }) {
               <span style={{ flex: 1 }}>
                 <span style={{ color: C.faint, fontSize: 11, marginRight: 6 }}>{open ? "▾" : "▸"}</span>{h}
               </span>
-              <span style={{ fontWeight: 700, color: "#fff" }}>{money(book, a)}</span>
+              <span style={{ fontWeight: 700, color: C.ink }}>{money(book, a)}</span>
             </div>
             {plPrev && <div style={{ marginLeft: 17 }}><Variance book={book} current={a} prev={prevBag[h] || 0} goodWhenUp={goodWhenUp} /></div>}
             {open && (
@@ -3458,7 +3518,7 @@ function PLPage({ book }) {
                   <div key={e.id} className="cb-row" style={{ display: "flex", gap: 8, fontSize: 12, padding: "3px 0", color: C.faint }}>
                     <span style={{ flexShrink: 0 }}>{prettyDate(e.date)}</span>
                     <span style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", color: C.soft }}>{e.note || "—"}</span>
-                    <span style={{ color: "#fff", fontWeight: 600 }}>{money(book, e.amount)}</span>
+                    <span style={{ color: C.ink, fontWeight: 600 }}>{money(book, e.amount)}</span>
                   </div>
                 ))}
               </div>
@@ -3545,9 +3605,9 @@ function PLPage({ book }) {
             <div key={h} style={{ marginBottom: 9 }}>
               <div style={{ display: "flex", fontSize: 12, marginBottom: 3, color: C.soft }}>
                 <span style={{ flex: 1 }}>{h}</span>
-                <span style={{ fontWeight: 700, color: "#fff" }}>{money(book, a)}</span>
+                <span style={{ fontWeight: 700, color: C.ink }}>{money(book, a)}</span>
               </div>
-              <div style={{ height: 8, borderRadius: 4, background: "rgba(255,255,255,.06)", overflow: "hidden" }}>
+              <div style={{ height: 8, borderRadius: 4, background: C.overlayWash, overflow: "hidden" }}>
                 <div style={{ height: "100%", borderRadius: 4, background: C.grad, width: `${Math.max(2, Math.round((a / spendMax) * 100))}%`, transition: "width .4s ease" }} />
               </div>
             </div>
@@ -3600,7 +3660,7 @@ function BSPage({ book }) {
     <div style={{ padding: "5px 0" }}>
       <div style={{ display: "flex", fontSize: strong ? 15 : 14, fontWeight: strong ? 800 : 500, color: C.soft }}>
         <span style={{ flex: 1 }}>{name}</span>
-        <span style={{ color: color || "#fff", fontWeight: strong ? 800 : 600 }}>{money(book, amount)}</span>
+        <span style={{ color: color || C.ink, fontWeight: strong ? 800 : 600 }}>{money(book, amount)}</span>
       </div>
       {prev !== undefined && prev !== null && <Variance book={book} current={amount} prev={prev} goodWhenUp />}
     </div>
@@ -3673,9 +3733,9 @@ function CatSpendPage({ book }) {
                 <span style={{ width: 8, height: 8, borderRadius: 999, background: SLICE_COLORS[i % SLICE_COLORS.length] }} />
                 {h}
               </span>
-              <span style={{ fontWeight: 700, color: "#fff" }}>{money(book, a)}</span>
+              <span style={{ fontWeight: 700, color: C.ink }}>{money(book, a)}</span>
             </div>
-            <div style={{ height: 8, borderRadius: 4, background: "rgba(255,255,255,.06)", overflow: "hidden" }}>
+            <div style={{ height: 8, borderRadius: 4, background: C.overlayWash, overflow: "hidden" }}>
               <div style={{ height: "100%", borderRadius: 4, background: SLICE_COLORS[i % SLICE_COLORS.length], width: `${a > 0 ? Math.max(2, Math.round((a / max) * 100)) : 0}%` }} />
             </div>
           </div>
@@ -3770,13 +3830,13 @@ function BudgetPage({ book, up }) {
         <div style={{ ...st.section }}>This Month</div>
         {bud.totalBudget > 0 ? (
           <>
-            <div style={{ fontSize: 26, fontWeight: 800, color: pct > 100 ? C.red : "#fff", marginTop: 8 }}>
+            <div style={{ fontSize: 26, fontWeight: 800, color: pct > 100 ? C.red : C.ink, marginTop: 8 }}>
               {pct}% used
             </div>
             <div style={{ fontSize: 12, color: C.muted, marginTop: 2 }}>
               {money(book, bud.totalSpent)} spent of {money(book, bud.totalBudget)} · {money(book, Math.max(0, bud.totalBudget - bud.totalSpent))} left
             </div>
-            <div style={{ height: 8, borderRadius: 999, background: "rgba(255,255,255,.08)", marginTop: 12, overflow: "hidden" }}>
+            <div style={{ height: 8, borderRadius: 999, background: C.overlayBorder, marginTop: 12, overflow: "hidden" }}>
               <div style={{ height: "100%", borderRadius: 999, width: `${Math.min(100, pct)}%`, background: pct > 100 ? C.redGrad : C.grad }} />
             </div>
           </>
@@ -3804,7 +3864,7 @@ function BudgetPage({ book, up }) {
                   onCommit={(n) => up((b) => ((n > 0 ? (b.budgets[h] = n) : delete b.budgets[h]), b))} />
               </div>
               {budget > 0 && (
-                <div style={{ height: 5, borderRadius: 999, background: "rgba(255,255,255,.08)", marginTop: 8, overflow: "hidden" }}>
+                <div style={{ height: 5, borderRadius: 999, background: C.overlayBorder, marginTop: 8, overflow: "hidden" }}>
                   <div style={{ height: "100%", borderRadius: 999, width: `${Math.min(100, p)}%`, background: p > 100 ? C.redGrad : p > 80 ? C.amberGrad : C.greenGrad }} />
                 </div>
               )}
@@ -3835,7 +3895,7 @@ function BankBalancesPage({ book, go }) {
                 {a.kind === "liability" ? "Liability" : "Asset"}{a.last4 ? ` · •••• ${a.last4}` : ""}
               </div>
             </div>
-            <div style={{ fontSize: 14.5, fontWeight: 800, color: "#fff" }}>{money(book, a.balance)}</div>
+            <div style={{ fontSize: 14.5, fontWeight: 800, color: C.ink }}>{money(book, a.balance)}</div>
           </div>
         ))}
       </div>
@@ -3869,14 +3929,14 @@ function AccountDetailPage({ book, accId, onEdit }) {
             <div style={{ fontSize: 11.5, color: C.muted }}>{acc.kind === "liability" ? "Outstanding balance" : "Available balance"}</div>
           </div>
         </div>
-        <div style={{ fontSize: 32, fontWeight: 800, color: "#fff", marginTop: 12, fontVariantNumeric: "tabular-nums" }}>
+        <div style={{ fontSize: 32, fontWeight: 800, color: C.ink, marginTop: 12, fontVariantNumeric: "tabular-nums" }}>
           {money(book, shown)}
         </div>
         <div style={{ display: "flex", gap: 6, marginTop: 10, fontSize: 10.5 }}>
           <span style={{ background: C.accentBg, border: `1px solid ${C.accentBorderSoft}`, color: C.accentText, padding: "3px 8px", borderRadius: 999, fontWeight: 700 }}>
             in {money(book, acc.monthIn)} this month
           </span>
-          <span style={{ background: "rgba(255,255,255,.08)", border: "1px solid rgba(255,255,255,.16)", color: C.soft, padding: "3px 8px", borderRadius: 999, fontWeight: 700 }}>
+          <span style={{ background: C.overlayWash, border: `1px solid ${C.overlayBorder}`, color: C.soft, padding: "3px 8px", borderRadius: 999, fontWeight: 700 }}>
             out {money(book, acc.monthOut)}
           </span>
         </div>
@@ -3932,7 +3992,7 @@ function HoldingDetailPage({ book, prices, holdingId, onEdit, onAdd }) {
             <div style={{ fontSize: 11.5, color: C.muted }}>{INVEST_KIND_LABEL[row.kind]}</div>
           </div>
         </div>
-        <div style={{ fontSize: 32, fontWeight: 800, color: "#fff", marginTop: 12, fontVariantNumeric: "tabular-nums" }}>
+        <div style={{ fontSize: 32, fontWeight: 800, color: C.ink, marginTop: 12, fontVariantNumeric: "tabular-nums" }}>
           {money(book, shown)}
         </div>
         <div style={{ fontSize: 13, fontWeight: 700, color: row.gain >= 0 ? C.green : C.red, marginTop: 4 }}>
@@ -4115,7 +4175,7 @@ function SetupAccountsPage({ book, up }) {
   return (
     <div className="cb-stagger">
       {confirmDel && (
-        <div className="cb-view" style={{ background: "rgba(251,113,133,.1)", border: "1px solid rgba(251,113,133,.3)", borderRadius: 16, padding: 14, marginBottom: 14 }}>
+        <div className="cb-view" style={{ background: alpha(C.dangerTint, .1), border: `1px solid ${alpha(C.dangerTint, .3)}`, borderRadius: 16, padding: 14, marginBottom: 14 }}>
           <div style={{ fontSize: 13, fontWeight: 700, color: C.red }}>Delete {confirmDel}?</div>
           <div style={{ fontSize: 12, color: C.soft, marginTop: 4 }}>
             Past transactions keep their history; the account just stops being tracked on the balance sheet.
@@ -4157,7 +4217,7 @@ function SetupAccountsPage({ book, up }) {
                   if (x) x.kind = x.kind === "asset" ? "liability" : "asset";
                   return b;
                 })}
-                style={{ padding: "8px 10px", borderRadius: 10, border: "1px solid rgba(255,255,255,.16)", background: "rgba(255,255,255,.05)", color: C.soft, fontSize: 12, fontWeight: 700, fontFamily: F.sans, cursor: "pointer" }}>
+                style={{ padding: "8px 10px", borderRadius: 10, border: `1px solid ${C.overlayBorder}`, background: C.overlayWash, color: C.soft, fontSize: 12, fontWeight: 700, fontFamily: F.sans, cursor: "pointer" }}>
                 {a.kind}
               </button>
               <RoundBtn style={{ width: 30, height: 30 }} aria-label={`Delete ${a.name}`} onClick={() => setConfirmDel(a.name)}>
@@ -4175,7 +4235,7 @@ function SetupAccountsPage({ book, up }) {
 
       {!adding ? (
         <button className="cb-press" onClick={() => setAdding(true)}
-          style={{ width: "100%", marginTop: 14, padding: "13px 0", border: "1px dashed rgba(255,255,255,.25)", borderRadius: 14, background: "rgba(255,255,255,.04)", color: C.accentText, fontWeight: 700, fontSize: 13.5, fontFamily: F.sans, cursor: "pointer" }}>
+          style={{ width: "100%", marginTop: 14, padding: "13px 0", border: `1px dashed ${C.overlayBorder}`, borderRadius: 14, background: C.overlayWash, color: C.accentText, fontWeight: 700, fontSize: 13.5, fontFamily: F.sans, cursor: "pointer" }}>
           + Add Account
         </button>
       ) : (
@@ -4272,7 +4332,7 @@ function SetupHoldingsPage({ book, up, instruments }) {
   return (
     <div className="cb-stagger">
       {confirmDel && (
-        <div className="cb-view" style={{ background: "rgba(251,113,133,.1)", border: "1px solid rgba(251,113,133,.3)", borderRadius: 16, padding: 14, marginBottom: 14 }}>
+        <div className="cb-view" style={{ background: alpha(C.dangerTint, .1), border: `1px solid ${alpha(C.dangerTint, .3)}`, borderRadius: 16, padding: 14, marginBottom: 14 }}>
           <div style={{ fontSize: 13, fontWeight: 700, color: C.red }}>Remove this holding?</div>
           <div style={{ fontSize: 12, color: C.soft, marginTop: 4 }}>
             Only zero-unit holdings can be removed — past buy/sell entries keep their history either way.
@@ -4319,7 +4379,7 @@ function SetupHoldingsPage({ book, up, instruments }) {
 
       {!adding ? (
         <button className="cb-press" onClick={() => setAdding(true)}
-          style={{ width: "100%", marginTop: 14, padding: "13px 0", border: "1px dashed rgba(255,255,255,.25)", borderRadius: 14, background: "rgba(255,255,255,.04)", color: C.accentText, fontWeight: 700, fontSize: 13.5, fontFamily: F.sans, cursor: "pointer" }}>
+          style={{ width: "100%", marginTop: 14, padding: "13px 0", border: `1px dashed ${C.overlayBorder}`, borderRadius: 14, background: C.overlayWash, color: C.accentText, fontWeight: 700, fontSize: 13.5, fontFamily: F.sans, cursor: "pointer" }}>
           + Add Holding
         </button>
       ) : (
@@ -4345,8 +4405,8 @@ function SetupHoldingsPage({ book, up, instruments }) {
 function CategoryChips({ book, up, side, accent }) {
   const [adding, setAdding] = useState(false);
   const [name, setName] = useState("");
-  const border = accent === "green" ? "1px solid rgba(110,231,183,.3)" : `1px solid ${alpha(C.accent, .3)}`;
-  const bg = accent === "green" ? "rgba(110,231,183,.1)" : alpha(C.accent, .1);
+  const border = accent === "green" ? `1px solid ${alpha(C.successTint, .3)}` : `1px solid ${alpha(C.accent, .3)}`;
+  const bg = accent === "green" ? alpha(C.successTint, .1) : alpha(C.accent, .1);
   const color = accent === "green" ? C.green : C.accentText;
   return (
     <>
@@ -4359,7 +4419,7 @@ function CategoryChips({ book, up, side, accent }) {
                 className="cb-press"
                 aria-label={`Remove ${h}`}
                 onClick={() => up((b) => ((b.heads[side] = b.heads[side].filter((x) => x !== h)), delete b.headClass[h], delete b.budgets[h], b))}
-                style={{ width: 18, height: 18, borderRadius: 999, border: "none", background: "rgba(255,255,255,.14)", color: "#fff", fontSize: 11, padding: 0, cursor: "pointer", lineHeight: "18px" }}
+                style={{ width: 18, height: 18, borderRadius: 999, border: "none", background: C.overlayBorder, color, fontSize: 11, padding: 0, cursor: "pointer", lineHeight: "18px" }}
               >
                 ×
               </button>
@@ -4367,7 +4427,7 @@ function CategoryChips({ book, up, side, accent }) {
           </div>
         ))}
         <button className="cb-press" onClick={() => setAdding(!adding)}
-          style={{ padding: "7px 14px", borderRadius: 999, border: "1px dashed rgba(255,255,255,.3)", background: "none", color: C.accentText, fontSize: 12.5, fontWeight: 700, fontFamily: F.sans, cursor: "pointer" }}>
+          style={{ padding: "7px 14px", borderRadius: 999, border: `1px dashed ${C.overlayStrong}`, background: "none", color: C.accentText, fontSize: 12.5, fontWeight: 700, fontFamily: F.sans, cursor: "pointer" }}>
           + Add
         </button>
       </div>
@@ -4383,7 +4443,7 @@ function CategoryChips({ book, up, side, accent }) {
             Save
           </button>
           <button className="cb-press" onClick={() => { setAdding(false); setName(""); }}
-            style={{ padding: "10px 14px", border: "1px solid rgba(255,255,255,.18)", borderRadius: 10, background: "none", color: C.ink, fontWeight: 700, fontSize: 13, fontFamily: F.sans, cursor: "pointer" }}>
+            style={{ padding: "10px 14px", border: `1px solid ${C.overlayBorder}`, borderRadius: 10, background: "none", color: C.ink, fontWeight: 700, fontSize: 13, fontFamily: F.sans, cursor: "pointer" }}>
             Cancel
           </button>
         </div>
@@ -4439,7 +4499,7 @@ function SetupCategoriesPage({ book, up }) {
         </div>
         <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
           {(book.codingRules || []).map((r, i) => (
-            <span key={`${r.match}-${i}`} style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 12, border: "1px solid rgba(255,255,255,.14)", borderRadius: 999, padding: "4px 8px", color: C.soft }}>
+            <span key={`${r.match}-${i}`} style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 12, border: `1px solid ${C.overlayBorder}`, borderRadius: 999, padding: "4px 8px", color: C.soft }}>
               {r.match} → {r.head}
               <button className="cb-press" aria-label={`Remove rule ${r.match}`}
                 onClick={() => up((b) => ((b.codingRules = b.codingRules.filter((x) => !(x.match === r.match && x.head === r.head))), b))}
@@ -4485,7 +4545,7 @@ function SetupPartiesPage({ book, up }) {
   return (
     <div className="cb-stagger">
       {confirmDel && (
-        <div className="cb-view" style={{ background: "rgba(251,113,133,.1)", border: "1px solid rgba(251,113,133,.3)", borderRadius: 16, padding: 14, marginBottom: 14 }}>
+        <div className="cb-view" style={{ background: alpha(C.dangerTint, .1), border: `1px solid ${alpha(C.dangerTint, .3)}`, borderRadius: 16, padding: 14, marginBottom: 14 }}>
           <div style={{ fontSize: 13, fontWeight: 700, color: C.red }}>Remove {partyName(book, confirmDel)}?</div>
           <div style={{ fontSize: 12, color: C.soft, marginTop: 4 }}>Their past entries stay in your records.</div>
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginTop: 12 }}>
@@ -4534,8 +4594,8 @@ function SetupPrefsPage({ book, up }) {
     <button className="cb-press" onClick={onClick}
       style={{
         flex: 1, padding: "11px 0", borderRadius: 12, fontFamily: F.sans, cursor: "pointer",
-        border: `1px solid ${active ? C.accentBorder : "rgba(255,255,255,.16)"}`,
-        background: active ? C.accentSoft : "rgba(255,255,255,.05)",
+        border: `1px solid ${active ? C.accentBorder : C.overlayBorder}`,
+        background: active ? C.accentSoft : C.overlayWash,
         color: active ? C.accentText : C.soft, fontSize: big ? 16 : 13.5, fontWeight: big ? 800 : 700,
       }}>
       {label}
@@ -4563,7 +4623,7 @@ function SetupPrefsPage({ book, up }) {
       </div>
       <div style={{ ...glass(20), padding: 18, marginBottom: 8 }}>
         <div style={{ fontSize: 11, color: C.muted, textTransform: "uppercase", letterSpacing: ".06em" }}>Preview</div>
-        <div style={{ fontSize: 26, fontWeight: 800, color: "#fff", marginTop: 8 }}>{money(book, 125430)}</div>
+        <div style={{ fontSize: 26, fontWeight: 800, color: C.ink, marginTop: 8 }}>{money(book, 125430)}</div>
         <div style={{ fontSize: 12, color: C.muted, marginTop: 4 }}>{fmtDate(book, today())}</div>
       </div>
     </div>
@@ -4572,30 +4632,39 @@ function SetupPrefsPage({ book, up }) {
 
 function SetupThemePage({ book, up }) {
   const current = book.prefs.theme || "blue";
+  const entries = Object.entries(THEMES);
+  const dark = entries.filter(([, t]) => t.mode !== "light");
+  const light = entries.filter(([, t]) => t.mode === "light");
+
+  const renderCard = ([key, t]) => {
+    const active = current === key;
+    return (
+      <div key={key} className="cb-press" onClick={() => up((b) => ((b.prefs.theme = key), b))}
+        style={{
+          ...glass(18), display: "flex", alignItems: "center", gap: 12,
+          padding: "14px 16px", marginBottom: 10, cursor: "pointer",
+          border: active ? `1px solid ${C.accentBorder}` : C.borderSoft,
+          background: active ? C.accentSoft : C.glassSoft,
+        }}>
+        <div style={{ width: 40, height: 40, borderRadius: 12, background: t.swatch, flexShrink: 0, boxShadow: `0 6px 14px -4px ${alpha(t.accentDeep, .55)}` }} />
+        <div style={{ flex: 1 }}>
+          <div style={{ fontSize: 14.5, fontWeight: 700, color: C.ink }}>{t.label}</div>
+          <div style={{ fontSize: 11.5, color: C.muted, marginTop: 1 }}>{t.tagline}</div>
+        </div>
+        {active && <Ic name="check" size={18} stroke={C.accentText} sw={2.6} />}
+      </div>
+    );
+  };
+
   return (
     <div className="cb-stagger">
       <div style={{ fontSize: 12, color: C.muted, padding: "0 2px 12px" }}>
-        Changes the app's accent color everywhere — chips, buttons, the lock screen glow, and the credit-card glow. Takes effect immediately.
+        Changes the app's look everywhere — colors, surfaces, and glow effects. Takes effect immediately.
       </div>
-      {Object.entries(THEMES).map(([key, t]) => {
-        const active = current === key;
-        return (
-          <div key={key} className="cb-press" onClick={() => up((b) => ((b.prefs.theme = key), b))}
-            style={{
-              ...glass(18), display: "flex", alignItems: "center", gap: 12,
-              padding: "14px 16px", marginBottom: 10, cursor: "pointer",
-              border: active ? `1px solid ${C.accentBorder}` : C.borderSoft,
-              background: active ? C.accentSoft : C.glassSoft,
-            }}>
-            <div style={{ width: 40, height: 40, borderRadius: 12, background: t.swatch, flexShrink: 0, boxShadow: `0 6px 14px -4px ${alpha(t.accentDeep, .55)}` }} />
-            <div style={{ flex: 1 }}>
-              <div style={{ fontSize: 14.5, fontWeight: 700, color: C.ink }}>{t.label}</div>
-              <div style={{ fontSize: 11.5, color: C.muted, marginTop: 1 }}>{key === "blue" ? "New default" : "The original look"}</div>
-            </div>
-            {active && <Ic name="check" size={18} stroke={C.accentText} sw={2.6} />}
-          </div>
-        );
-      })}
+      {dark.length > 0 && <div style={st.eyebrow}>Dark</div>}
+      {dark.map(renderCard)}
+      {light.length > 0 && <div style={{ ...st.eyebrow, marginTop: 6 }}>Light</div>}
+      {light.map(renderCard)}
     </div>
   );
 }
@@ -4721,12 +4790,12 @@ function SetupDataPage({ book, up }) {
           </div>
         )}
       </div>
-      <div style={{ ...glass(20), padding: 18, marginBottom: 8, border: "1px solid rgba(251,113,133,.25)" }}>
+      <div style={{ ...glass(20), padding: 18, marginBottom: 8, border: `1px solid ${alpha(C.dangerTint, .25)}` }}>
         <div style={{ fontSize: 15, fontWeight: 700, color: C.red, marginBottom: 6 }}>Reset All Data</div>
         <div style={{ fontSize: 12, color: C.muted, marginBottom: 12 }}>Erase everything and start fresh. This can't be undone.</div>
         {!confirmReset ? (
           <button className="cb-press" onClick={() => setConfirmReset(true)}
-            style={{ width: "100%", padding: "12px 0", border: "1px solid rgba(251,113,133,.4)", borderRadius: 12, background: "rgba(251,113,133,.1)", color: C.red, fontWeight: 700, fontSize: 14, fontFamily: F.sans, cursor: "pointer" }}>
+            style={{ width: "100%", padding: "12px 0", border: `1px solid ${alpha(C.dangerTint, .4)}`, borderRadius: 12, background: alpha(C.dangerTint, .1), color: C.red, fontWeight: 700, fontSize: 14, fontFamily: F.sans, cursor: "pointer" }}>
             Reset All Data
           </button>
         ) : (
@@ -4959,7 +5028,7 @@ function EntrySheet({ book, initial, instruments, onSave, onSaveSplit, onClose, 
   return (
     <Sheet title={editing ? "Re-code entry" : "New entry"} onClose={onClose}>
       {confirmDelete && (
-        <div style={{ background: "rgba(251,113,133,.1)", border: "1px solid rgba(251,113,133,.3)", borderRadius: 16, padding: 14, marginBottom: 14 }}>
+        <div style={{ background: alpha(C.dangerTint, .1), border: `1px solid ${alpha(C.dangerTint, .3)}`, borderRadius: 16, padding: 14, marginBottom: 14 }}>
           <div style={{ fontSize: 13, fontWeight: 700, color: C.red }}>Delete this entry?</div>
           <div style={{ fontSize: 12, color: C.soft, marginTop: 4 }}>
             It's still unexplained (Suspense), so this is the one case entries
@@ -5046,7 +5115,7 @@ function EntrySheet({ book, initial, instruments, onSave, onSaveSplit, onClose, 
           </div>
           <div style={{
             fontSize: 13, fontWeight: 700, marginTop: 12, padding: "10px 12px", borderRadius: 12,
-            background: yourShare < 0 ? "rgba(251,113,133,.12)" : "rgba(255,255,255,.05)",
+            background: yourShare < 0 ? alpha(C.dangerTint, .12) : C.overlayWash,
             color: yourShare < 0 ? C.red : C.soft,
           }}>
             Your share: {money(book, Math.max(0, isNaN(yourShare) ? 0 : yourShare))}
@@ -5331,7 +5400,7 @@ function ImportSheet({ book, onDone, onClose }) {
             fix categories, then add. Fixes are remembered for next time.
           </div>
           {rows.map((r, i) => (
-            <div key={i} className="cb-row" style={{ display: "flex", alignItems: "center", gap: 8, padding: "9px 0", borderTop: "1px solid rgba(255,255,255,.1)", opacity: r.include ? 1 : 0.45 }}>
+            <div key={i} className="cb-row" style={{ display: "flex", alignItems: "center", gap: 8, padding: "9px 0", borderTop: `1px solid ${C.overlayBorder}`, opacity: r.include ? 1 : 0.45 }}>
               <input type="checkbox" checked={r.include}
                 onChange={(e) => setRow(i, { include: e.target.checked })}
                 style={{ width: 18, height: 18, accentColor: C.accent }} />
@@ -5421,22 +5490,25 @@ function lockGreeting() {
   return "Good night";
 }
 
-const LOCK_KEY = {
-  aspectRatio: "1", borderRadius: 999,
-  background: "linear-gradient(160deg, rgba(255,255,255,.10), rgba(255,255,255,.03))",
-  border: "1px solid rgba(255,255,255,.12)",
-  display: "flex", alignItems: "center", justifyContent: "center",
-  fontSize: 23, fontWeight: 500, color: C.ink, fontFamily: F.sans, cursor: "pointer",
-};
-const LOCK_KEY_GHOST = {
-  aspectRatio: "1", display: "flex", alignItems: "center", justifyContent: "center",
-  border: "none", background: "none", cursor: "pointer",
-};
-
 function LockScreen({ pin, onUnlock }) {
   const [entered, setEntered] = useState("");
   const [status, setStatus] = useState("idle"); // idle | wrong | ok
   const busy = status !== "idle";
+
+  // Component-scope (not module-scope) so these re-read C fresh on every
+  // render -- LockScreen already re-renders on every keypress and on the
+  // parent's theme-triggered re-render, so no getter trick is needed here.
+  const LOCK_KEY = {
+    aspectRatio: "1", borderRadius: 999,
+    background: `linear-gradient(160deg, ${alpha(C.overlayTint, .10)}, ${alpha(C.overlayTint, .03)})`,
+    border: `1px solid ${alpha(C.overlayTint, .12)}`,
+    display: "flex", alignItems: "center", justifyContent: "center",
+    fontSize: 23, fontWeight: 500, color: C.ink, fontFamily: F.sans, cursor: "pointer",
+  };
+  const LOCK_KEY_GHOST = {
+    aspectRatio: "1", display: "flex", alignItems: "center", justifyContent: "center",
+    border: "none", background: "none", cursor: "pointer",
+  };
 
   const press = (d) => {
     if (busy || entered.length >= 4) return;
@@ -5543,7 +5615,7 @@ function ExitConfirmDialog({ onCancel, onExit }) {
         <div style={{ display: "flex", gap: 10, marginTop: 18 }}>
           <button
             className="cb-press" onClick={onCancel}
-            style={{ flex: 1, padding: "11px 0", border: "1px solid rgba(255,255,255,.16)", borderRadius: 12, background: "rgba(255,255,255,.06)", color: C.ink, fontWeight: 700, fontSize: 14, fontFamily: F.sans, cursor: "pointer" }}
+            style={{ flex: 1, padding: "11px 0", border: `1px solid ${C.overlayBorder}`, borderRadius: 12, background: C.overlayWash, color: C.ink, fontWeight: 700, fontSize: 14, fontFamily: F.sans, cursor: "pointer" }}
           >
             Cancel
           </button>
@@ -5637,6 +5709,10 @@ export default function CashBook() {
     if (!book) return;
     applyTheme(book.prefs.theme || "blue");
     try { localStorage.setItem(THEME_LS_KEY, book.prefs.theme || "blue"); } catch {}
+    try {
+      const meta = document.querySelector('meta[name="theme-color"]');
+      if (meta) meta.content = C.bg;
+    } catch {}
     forceThemeRepaint((n) => n + 1);
   }, [book?.prefs?.theme]);
 
@@ -5874,10 +5950,15 @@ export default function CashBook() {
     }}>
       <style>{ANIM_CSS}</style>
       {/* ANIM_CSS above is a frozen static string with no interpolation --
-          the focus ring lives in its own render-time style tag so it
-          re-reads C.accent/C.accentRing on every render and stays
-          theme-reactive. */}
-      <style>{`input:focus, select:focus { border-color: ${C.accent} !important; box-shadow: 0 0 0 3px ${C.accentRing}; }`}</style>
+          every rule that depends on the active theme lives in this second,
+          render-time style tag instead, so it re-reads C on every render
+          and stays theme-reactive. */}
+      <style>{`
+        input:focus, select:focus { border-color: ${C.accent} !important; box-shadow: 0 0 0 3px ${C.accentRing}; }
+        .cb-header { background: ${C.headerBg}; border-bottom: 1px solid ${C.line}; }
+        .cb-skeleton { background: linear-gradient(90deg, ${alpha(C.overlayTint, .06)}, ${alpha(C.overlayTint, .14)}, ${alpha(C.overlayTint, .06)}); }
+        input::placeholder { color: ${C.faint}; }
+      `}</style>
 
       <div className="cb-header">
         <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "16px 20px 12px", maxWidth: 480, margin: "0 auto" }}>
@@ -5918,7 +5999,7 @@ export default function CashBook() {
                   {notifCount > 0 && (
                     <span style={{
                       position: "absolute", top: -3, right: -3, minWidth: 15, height: 15, padding: "0 3px",
-                      borderRadius: 999, background: C.grad, border: "1.5px solid #0c0716",
+                      borderRadius: 999, background: C.grad, border: `1.5px solid ${C.bg}`,
                       fontSize: 9, fontWeight: 800, color: "#fff", display: "flex",
                       alignItems: "center", justifyContent: "center",
                     }}>
@@ -5964,7 +6045,7 @@ export default function CashBook() {
         <div style={{
           maxWidth: 480, margin: "0 auto",
           background: C.navBg, backdropFilter: "blur(20px)", WebkitBackdropFilter: "blur(20px)",
-          borderTop: "1px solid rgba(255,255,255,.1)", borderRadius: "20px 20px 0 0",
+          borderTop: `1px solid ${C.overlayBorder}`, borderRadius: "20px 20px 0 0",
           padding: "10px 6px calc(10px + env(safe-area-inset-bottom))",
           display: "flex", boxShadow: "0 -12px 30px -14px rgba(0,0,0,.5)",
         }}>
