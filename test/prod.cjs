@@ -442,36 +442,30 @@ async function main() {
   assert.ok(fresh.parties.length >= 2, "placeholder parties seeded");
   assert.strictEqual(fresh.prefs.bankName, "Bank", "fresh books default the primary account's display name to Bank");
 
-  // Theme: Blue is the shipped default, and applyTheme swaps the shared C
-  // token object's FULL palette in place (accent family + bg/ink/surface/
-  // overlay tokens) -- the mechanism the whole live theme-switcher relies
-  // on, now covering real light themes as well as the two dark ones.
-  assert.strictEqual(fresh.prefs.theme, "blue", "fresh books default to the blue theme");
-  assert.ok(E.THEMES && E.THEMES.blue && E.THEMES.violet, "both dark themes are registered");
-  assert.ok(E.THEMES.paperWhite && E.THEMES.mintAir && E.THEMES.roseQuartz, "all three light themes are registered");
-  assert.strictEqual(E.THEMES.blue.mode, "dark");
-  assert.strictEqual(E.THEMES.paperWhite.mode, "light");
+  // Theme: the 5-theme picker was replaced by a single "Emerald Gold" glass
+  // identity with a light/dark pair. applyTheme swaps the shared C token
+  // object's FULL palette in place (accent family + bg/ink/surface/overlay
+  // tokens) -- the mechanism the whole live theme-switcher relies on.
+  assert.strictEqual(fresh.prefs.theme, "dark", "fresh books default to the dark Emerald Gold theme");
+  assert.ok(E.THEMES && E.THEMES.dark && E.THEMES.light, "both Emerald Gold theme entries are registered");
+  assert.strictEqual(E.THEMES.dark.mode, "dark");
+  assert.strictEqual(E.THEMES.light.mode, "light");
 
-  E.applyTheme("violet");
-  assert.strictEqual(E.C.accent, "#a78bfa", "applyTheme('violet') swaps C.accent to the legacy violet");
-  assert.strictEqual(E.C.grad, "linear-gradient(135deg,#a78bfa,#6d28d9)", "C.grad follows the active theme too");
-  assert.strictEqual(E.C.bg, "#050308", "violet keeps the same dark background as blue (only the accent differs)");
-
-  E.applyTheme("paperWhite");
+  E.applyTheme("light");
+  assert.strictEqual(E.C.accent, "#10b981", "applyTheme('light') swaps C.accent to the light Emerald Gold accent");
+  assert.strictEqual(E.C.grad, "linear-gradient(135deg,#10b981,#065f46)", "C.grad follows the active theme too");
   assert.strictEqual(E.C.mode, "light", "a light theme flips C.mode");
   assert.strictEqual(E.C.colorScheme, "light", "a light theme flips the native form-control color-scheme too");
-  assert.strictEqual(E.C.bg, "#f6f5f3", "a light theme actually changes the background, not just the accent");
-  assert.notStrictEqual(E.C.ink, "#f1ecfb", "ink flips to a dark color on a light theme (not the dark theme's near-white)");
-  assert.ok(/^rgba\(0,0,0,/.test(E.C.overlayBorder), "Paper White's neutral overlay scale is black-based, not white-based");
+  assert.strictEqual(E.C.bg, "#eef7f2", "a light theme actually changes the background, not just the accent");
+  assert.notStrictEqual(E.C.ink, "#eafdf6", "ink flips to a dark color on the light theme (not the dark theme's near-white)");
+  assert.ok(/^rgba\(12,33,28,/.test(E.C.overlayBorder), "the light theme's overlay scale is ink-tinted, not the dark theme's white-based scale");
 
-  E.applyTheme("mintAir");
-  assert.ok(/^rgba\(13,148,136,/.test(E.C.overlayBorder), "Mint Air's overlay scale is tinted with its own accent, not neutral black");
-
-  E.applyTheme("blue");
-  assert.strictEqual(E.C.accent, "#6366f1", "applyTheme('blue') restores the default indigo");
-  assert.strictEqual(E.C.mode, "dark", "switching back to blue restores dark mode");
+  E.applyTheme("dark");
+  assert.strictEqual(E.C.accent, "#34d399", "applyTheme('dark') restores the dark Emerald Gold accent");
+  assert.strictEqual(E.C.bg, "#061410", "switching back to dark restores the dark background");
+  assert.strictEqual(E.C.mode, "dark", "switching back to dark restores dark mode");
   E.applyTheme("nonexistent");
-  assert.strictEqual(E.C.accent, "#6366f1", "an unknown theme name falls back to blue rather than throwing");
+  assert.strictEqual(E.C.accent, "#34d399", "an unknown theme name falls back to dark rather than throwing");
 
   console.log("ok — app renders and the balance sheet foots to the rupee");
   window.close();
@@ -523,12 +517,12 @@ async function main() {
     };
     readBack.onerror = () => reject(readBack.error);
   });
-  assert.strictEqual(migratedBook.v, 9, "a v6 book is migrated to v9 on load");
-  assert.strictEqual(migratedBook.prefs.theme, "blue", "the v7 migration backfills prefs.theme to blue");
+  assert.strictEqual(migratedBook.v, 10, "a v6 book is migrated to v10 on load");
+  assert.strictEqual(migratedBook.prefs.theme, "dark", "the v7+v10 migrations backfill prefs.theme to the dark Emerald Gold default");
   assert.deepStrictEqual(migratedBook.trips, [], "the v8 migration backfills an empty trips array");
   assert.strictEqual(migratedBook.prefs.bankName, "Bank", "the v9 migration backfills prefs.bankName to Bank");
 
-  console.log("ok — v6 book migrates to v9 with prefs.theme/bankName defaulted and trips backfilled");
+  console.log("ok — v6 book migrates to v10 with prefs.theme/bankName defaulted and trips backfilled");
   migDom.window.close();
 }
 
