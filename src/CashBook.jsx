@@ -533,7 +533,11 @@ export function tripSpendAsOf(db, asOf) {
   return (db.trips || []).map((t) => {
     let spent = 0, count = 0;
     for (const e of db.entries) {
-      if (e.tripId === t.id && e.date <= asOf && isExplained(e)) {
+      // A split expense's participant shares carry the same tripId as the
+      // "your share" entry (so TripDetailPage's entry list shows the full
+      // split), but those are type "party" — pure owed-tracking, never a
+      // real spend — so they must never be summed here.
+      if (e.tripId === t.id && (e.type === "out" || e.type === "in") && e.date <= asOf && isExplained(e)) {
         spent += e.type === "out" ? e.amount : -e.amount;
         count++;
       }
@@ -1184,7 +1188,13 @@ const HOLDING_VISUALS = {
   mf: { icon: "clock", color: "#a78bfa" },
   stock: { icon: "bars", color: "#34d399" },
   gold: { icon: "coins", color: "#fbbf24" },
+  land: { icon: "home", color: "#38bdf8" },
 };
+
+// Kinds with no live price feed — valued permanently at cost basis (see
+// holdingsValue's fallback), and given a synthetic instrumentId + free-text
+// label instead of an instrument search, same as gold has always worked.
+const MANUAL_KINDS = new Set(["gold", "land"]);
 
 function entryVisual(book, e) {
   if (e.type === "party") {
@@ -2262,14 +2272,33 @@ function StatDetailSheet({ book, kind, pl, invested, investedBag, expDiffPct, to
 }
 
 /* ────────────────────────── Net worth + breakdowns ────────────────────────── */
-function NetWorthPage({ book, go, prices }) {
+function NetWorthPage({ book, go, prices, onOpenInvestments }) {
   const [months, setMonths] = useState(6);
+  const [bsSheet, setBsSheet] = useState(null); // null | "assets" | "liabilities"
   const t = today();
   const { bs, assets, liabilities } = bsSlices(book, t, prices);
   const series = useMemo(() => equitySeries(book, months, prices), [book, months, prices]);
   const prev = computeBS(book, addDays(t.slice(0, 8) + "01", -1), prices).totalEquity;
   const diff = bs.totalEquity - prev;
   const pct = prev !== 0 ? Math.round((diff / Math.abs(prev)) * 100) : null;
+
+  // Built from structural data (accountModels/owedAsOf/holdings), not by
+  // parsing computeBS's display labels — a bsAccount can legitimately be
+  // named anything (including something colliding with a hardcoded label),
+  // so each row carries its own ready-made navigation target.
+  const accModels = accountModels(book);
+  const owed = owedAsOf(book, t);
+  const holdingsList = holdingsAsOf(book, t).filter((h) => h.units > 0.0001 || Math.abs(h.costBasis) > 0.0001);
+  const holdingsTotal = holdingsList.reduce((s, h) => s + holdingsValue(h, prices), 0);
+  const assetRows = [
+    ...accModels.filter((a) => a.kind !== "liability").map((a) => ({ label: a.name, value: a.balance, nav: () => go("account", a.id) })),
+    { label: "Debtors", value: owed.debtors, nav: () => go("recvDetail") },
+    ...(holdingsList.length ? [{ label: "Investments (holdings)", value: holdingsTotal, nav: () => onOpenInvestments && onOpenInvestments() }] : []),
+  ];
+  const liabilityRows = [
+    ...accModels.filter((a) => a.kind === "liability").map((a) => ({ label: a.name, value: a.balance, nav: () => go("account", a.id) })),
+    { label: "Creditors", value: owed.creditors, nav: () => go("payDetail") },
+  ];
 
   const Breakdown = ({ title, slices, accent, page }) => (
     <div style={{ ...glass(24), marginTop: 14, padding: "18px 16px" }}>
@@ -2345,15 +2374,17 @@ function NetWorthPage({ book, go, prices }) {
       <div style={{ ...glass(24), marginTop: 14, padding: "16px 18px 18px" }}>
         <div style={{ ...st.section, marginBottom: 12 }}>Summary</div>
         {[
-          { label: "Total Assets", value: bs.totalAssets, grad: C.greenGrad, icon: "trend" },
-          { label: "Total Liabilities", value: bs.totalLiabilities, grad: C.redGrad, icon: "card" },
+          { label: "Total Assets", value: bs.totalAssets, grad: C.greenGrad, icon: "trend", key: "assets" },
+          { label: "Total Liabilities", value: bs.totalLiabilities, grad: C.redGrad, icon: "card", key: "liabilities" },
         ].map((r) => (
-          <div key={r.label} style={{ display: "flex", alignItems: "center", padding: "10px 0", borderBottom: `1px solid ${C.line}` }}>
+          <div key={r.label} className="cb-press" onClick={() => setBsSheet(r.key)}
+            style={{ display: "flex", alignItems: "center", padding: "10px 0", borderBottom: `1px solid ${C.line}`, cursor: "pointer" }}>
             <div style={{ display: "flex", alignItems: "center", gap: 10, flex: 1 }}>
               <Orb size={32} grad={r.grad}><Ic name={r.icon} size={14} /></Orb>
               <div style={{ fontSize: 14, fontWeight: 700, color: C.soft }}>{r.label}</div>
             </div>
-            <div style={{ fontSize: 15, fontWeight: 800, color: C.ink }}>{money(book, r.value)}</div>
+            <div style={{ fontSize: 15, fontWeight: 800, color: C.ink, marginRight: 6 }}>{money(book, r.value)}</div>
+            <span style={{ fontSize: 13, color: C.faint }}>›</span>
           </div>
         ))}
         <div style={{ display: "flex", alignItems: "center", padding: "12px 0 0" }}>
@@ -2365,12 +2396,31 @@ function NetWorthPage({ book, go, prices }) {
       <Breakdown title="Breakdown" slices={assets} accent={C.accentText} page="assets" />
       <Breakdown title="Liability Breakdown" slices={liabilities} accent={C.red} page="liabilities" />
       <div style={{ height: 10 }} />
+
+      {bsSheet && createPortal(
+        <Sheet title={bsSheet === "assets" ? "Total Assets" : "Total Liabilities"} onClose={() => setBsSheet(null)}>
+          <div style={{ fontSize: 26, fontWeight: 800, color: C.ink, marginBottom: 14, fontVariantNumeric: "tabular-nums" }}>
+            {money(book, bsSheet === "assets" ? bs.totalAssets : bs.totalLiabilities)}
+          </div>
+          <div style={{ ...glass(18), padding: "4px 16px" }}>
+            {(bsSheet === "assets" ? assetRows : liabilityRows).map((r, i) => (
+              <div key={r.label + i} className="cb-press" onClick={() => { setBsSheet(null); r.nav(); }}
+                style={{ display: "flex", alignItems: "center", padding: "12px 0", borderTop: i ? `1px solid ${C.line}` : "none", cursor: "pointer" }}>
+                <div style={{ flex: 1, fontSize: 14, fontWeight: 700, color: C.soft }}>{r.label}</div>
+                <div style={{ fontSize: 14.5, fontWeight: 800, color: C.ink, marginRight: 6, fontVariantNumeric: "tabular-nums" }}>{money(book, r.value)}</div>
+                <span style={{ fontSize: 13, color: C.faint }}>›</span>
+              </div>
+            ))}
+          </div>
+        </Sheet>,
+        document.body
+      )}
     </div>
   );
 }
 
 /* ────────────────────────── Investments ────────────────────────── */
-const INVEST_KIND_LABEL = { mf: "Mutual Fund", stock: "Stock", gold: "Gold" };
+const INVEST_KIND_LABEL = { mf: "Mutual Fund", stock: "Stock", gold: "Gold", land: "Real Estate" };
 
 // Per-holding display figures (market value, gain/loss, live price if any)
 // shared between InvestmentsPage's list and HoldingDetailPage's summary.
@@ -2386,6 +2436,7 @@ function investDetailLine(book, r) {
   const unit = r.price != null ? r.price : (r.units ? r.costBasis / r.units : 0);
   if (r.kind === "mf") return `Units ${r.units.toFixed(3)} · NAV ${navPrice(book, unit)}`;
   if (r.kind === "stock") return `Qty ${r.units.toFixed(0)} · Avg ${navPrice(book, r.units ? r.costBasis / r.units : 0)} · CMP ${navPrice(book, unit)}`;
+  if (r.kind === "land") return `Invested ${money(book, r.costBasis)}`;
   return `${r.units.toFixed(2)}g · ${navPrice(book, unit)}/g`;
 }
 
@@ -2527,7 +2578,7 @@ function InvestmentsPage({ book, prices, instruments, pricesLoaded, onClose, onA
         </div>
 
         <div className="cb-carousel" style={{ display: "flex", gap: 8, marginTop: 14, overflowX: "auto" }}>
-          {[["all", "All"], ["mf", "Mutual Funds"], ["stock", "Stocks"], ["gold", "Gold"]].map(([v, label]) => (
+          {[["all", "All"], ["mf", "Mutual Funds"], ["stock", "Stocks"], ["gold", "Gold"], ["land", "Real Estate"]].map(([v, label]) => (
             <FilterChip key={v} label={label} active={filterKind === v} onClick={() => setFilterKind(v)} />
           ))}
         </div>
@@ -3622,6 +3673,24 @@ function TripDetailPage({ book, up, tripId, onEdit, onAddExpense, go }) {
     : "No dates set";
   const entries = book.entries.filter((e) => e.tripId === tripId).sort((a, b) => b.date.localeCompare(a.date));
 
+  // Per-category breakdown of this trip's own spend (same netting rule as
+  // computePL — a refund nets against its own head), and how much of the
+  // month THIS TRIP happened in that category ended up being, against the
+  // regular monthly category budget — scoped to the trip's own month, not
+  // always "this month," so a past trip still shows a meaningful number.
+  const catAmounts = {};
+  for (const e of entries) {
+    if ((e.type !== "out" && e.type !== "in") || !e.head) continue;
+    catAmounts[e.head] = (catAmounts[e.head] || 0) + (e.type === "out" ? e.amount : -e.amount);
+  }
+  const catRows = Object.entries(catAmounts).filter(([, amt]) => amt > 0).sort((a, b) => b[1] - a[1]);
+  const catMax = Math.max(1, catRows.length ? catRows[0][1] : 0);
+  const monthOfTrip = trip.startDate || (entries[0] && entries[0].date) || t;
+  const [tripY, tripM] = monthOfTrip.split("-");
+  const tripMonthStart = `${tripY}-${tripM}-01`;
+  const tripMonthEnd = `${tripY}-${tripM}-${pad2(new Date(Number(tripY), Number(tripM), 0).getDate())}`;
+  const tripMonthPL = computePL(book, tripMonthStart, tripMonthEnd);
+
   return (
     <div className="cb-stagger">
       {confirmDel && (
@@ -3673,6 +3742,38 @@ function TripDetailPage({ book, up, tripId, onEdit, onAddExpense, go }) {
           <div style={{ fontSize: 16, fontWeight: 800, color: C.ink, marginTop: 3 }}>{hasBudget ? money(book, trip.budget) : "Not set"}</div>
         </div>
       </div>
+      {catRows.length > 0 && (
+        <div style={{ ...glass(20), padding: 16, marginBottom: 18 }}>
+          <div style={{ ...st.section, marginBottom: 4 }}>Category Breakdown</div>
+          <div style={{ fontSize: 11, color: C.faint, marginBottom: 12 }}>
+            How this trip's own spend breaks down, and its effect on your monthly category budgets.
+          </div>
+          {catRows.map(([h, tripAmt], i) => {
+            const monthAmt = tripMonthPL.expense[h] || 0;
+            const budget = book.budgets[h] || 0;
+            const budgetPct = budget ? Math.round((monthAmt / budget) * 100) : null;
+            return (
+              <div key={h} style={{ marginBottom: 12 }}>
+                <div style={{ display: "flex", fontSize: 12.5, marginBottom: 3, color: C.soft }}>
+                  <span style={{ display: "flex", alignItems: "center", gap: 6, flex: 1 }}>
+                    <span style={{ width: 8, height: 8, borderRadius: 999, background: SLICE_COLORS[i % SLICE_COLORS.length] }} />
+                    {h}
+                  </span>
+                  <span style={{ fontWeight: 700, color: C.ink }}>{money(book, tripAmt)}</span>
+                </div>
+                <div style={{ height: 8, borderRadius: 4, background: C.overlayWash, overflow: "hidden" }}>
+                  <div style={{ height: "100%", borderRadius: 4, background: SLICE_COLORS[i % SLICE_COLORS.length], width: `${Math.max(2, Math.round((tripAmt / catMax) * 100))}%` }} />
+                </div>
+                {budget > 0 && (
+                  <div style={{ fontSize: 11, color: budgetPct > 100 ? C.red : C.faint, marginTop: 4 }}>
+                    Part of {money(book, monthAmt)} spent on {h} that month — {budgetPct}% of your {money(book, budget)} budget
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
       <PrimaryBtn style={{ width: "100%", marginBottom: 18 }} onClick={onAddExpense}>Add Expense</PrimaryBtn>
       <div style={{ fontSize: 14, fontWeight: 800, color: C.ink, marginBottom: 8 }}>Entries</div>
       <div style={{ ...glass(18), overflow: "hidden", marginBottom: 18 }}>
@@ -4602,11 +4703,18 @@ function SetupAccountsPage({ book, up }) {
   );
 }
 
+const HOLDING_KIND_ORDER = ["mf", "stock", "gold", "land"];
+
 function SetupHoldingsPage({ book, up, instruments }) {
   const [confirmDel, setConfirmDel] = useState("");
   const [sheet, setSheet] = useState(null); // null | "new" | a holding id
+  const [openGroup, setOpenGroup] = useState(null); // which kind is expanded
   const rows = holdingsAsOf(book, today());
   const editingHolding = sheet && sheet !== "new" ? rows.find((h) => h.id === sheet) : null;
+
+  const groups = HOLDING_KIND_ORDER
+    .map((kind) => ({ kind, items: rows.filter((h) => h.kind === kind) }))
+    .filter((g) => g.items.length > 0);
 
   const renameHolding = (id, newLabel) =>
     up((b) => {
@@ -4636,29 +4744,48 @@ function SetupHoldingsPage({ book, up, instruments }) {
         </div>
       )}
       <div style={{ fontSize: 12, color: C.muted, marginBottom: 10 }}>
-        Tap a holding to correct its opening units/cost. Rename inline, or remove it below.
+        Tap a group to expand it. Tap a holding to correct its opening units/cost, rename inline, or remove it.
       </div>
-      <div style={{ ...glass(18), padding: "4px 16px", background: C.glassSoft, border: C.borderSoft }}>
-        {rows.map((h) => {
-          const v = HOLDING_VISUALS[h.kind];
-          const removable = h.units <= 0.0001 && Math.abs(h.costBasis) <= 0.0001;
-          return (
-            <div key={h.id} className="cb-press" onClick={() => setSheet(h.id)}
-              style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 0", borderBottom: `1px solid ${C.line}`, cursor: "pointer" }}>
-              <Orb size={32} grad={`linear-gradient(135deg, ${v.color}, ${v.color}99)`}><Ic name={v.icon} size={14} /></Orb>
-              <div onClick={(e) => e.stopPropagation()} style={{ flex: 1, minWidth: 0 }}>
-                <NameEditor value={h.label} onCommit={(n) => renameHolding(h.id, n)} />
+      {groups.map(({ kind, items }) => {
+        const v = HOLDING_VISUALS[kind];
+        const open = openGroup === kind;
+        const subtotal = items.reduce((s, h) => s + h.costBasis, 0);
+        return (
+          <div key={kind} style={{ ...glass(18), padding: "4px 16px", marginBottom: 12, background: C.glassSoft, border: C.borderSoft }}>
+            <div className="cb-press" onClick={() => setOpenGroup(open ? null : kind)}
+              style={{ display: "flex", alignItems: "center", gap: 10, padding: "12px 0", cursor: "pointer" }}>
+              <Orb size={34} grad={`linear-gradient(135deg, ${v.color}, ${v.color}99)`}><Ic name={v.icon} size={15} /></Orb>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontSize: 14.5, fontWeight: 700, color: C.ink }}>{INVEST_KIND_LABEL[kind]}</div>
+                <div style={{ fontSize: 11.5, color: C.muted, marginTop: 1 }}>
+                  {items.length} {items.length === 1 ? "holding" : "holdings"} · {money(book, subtotal)}
+                </div>
               </div>
-              <span style={{ fontSize: 11, color: C.muted, flexShrink: 0 }}>{INVEST_KIND_LABEL[h.kind]}</span>
-              <RoundBtn style={{ width: 32, height: 32, opacity: removable ? 1 : 0.35 }} aria-label={`Remove ${h.label}`} disabled={!removable}
-                onClick={(e) => { e.stopPropagation(); removable && setConfirmDel(h.id); }}>
-                <Ic name="trash" size={13} stroke={C.red} />
-              </RoundBtn>
+              <div style={{ transform: open ? "rotate(180deg)" : "none", transition: "transform .15s ease" }}>
+                <Ic name="chevronDown" size={16} stroke={C.faint} sw={2.2} />
+              </div>
             </div>
-          );
-        })}
-        {rows.length === 0 && <div style={{ fontSize: 13, color: C.muted, padding: "14px 0" }}>No holdings yet.</div>}
-      </div>
+            {open && items.map((h) => {
+              const removable = h.units <= 0.0001 && Math.abs(h.costBasis) <= 0.0001;
+              return (
+                <div key={h.id} className="cb-press" onClick={() => setSheet(h.id)}
+                  style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 0", borderTop: `1px solid ${C.line}`, cursor: "pointer" }}>
+                  <div onClick={(e) => e.stopPropagation()} style={{ flex: 1, minWidth: 0, paddingLeft: 44 }}>
+                    <NameEditor value={h.label} onCommit={(n) => renameHolding(h.id, n)} />
+                  </div>
+                  <RoundBtn style={{ width: 32, height: 32, opacity: removable ? 1 : 0.35 }} aria-label={`Remove ${h.label}`} disabled={!removable}
+                    onClick={(e) => { e.stopPropagation(); removable && setConfirmDel(h.id); }}>
+                    <Ic name="trash" size={13} stroke={C.red} />
+                  </RoundBtn>
+                </div>
+              );
+            })}
+          </div>
+        );
+      })}
+      {groups.length === 0 && (
+        <div style={{ ...glass(18), padding: "20px 16px", fontSize: 13, color: C.muted, textAlign: "center" }}>No holdings yet.</div>
+      )}
 
       <button className="cb-press" onClick={() => setSheet("new")}
         style={{ width: "100%", marginTop: 14, padding: "13px 0", border: `1px dashed ${C.overlayBorder}`, borderRadius: 14, background: C.overlayWash, color: C.accentText, fontWeight: 700, fontSize: 13.5, fontFamily: F.sans, cursor: "pointer" }}>
@@ -4685,7 +4812,7 @@ function HoldingSheet({ book, up, instruments, holding, onClose }) {
   const [units, setUnits] = useState(openingExisting.units ? String(openingExisting.units) : "");
   const [cost, setCost] = useState(openingExisting.costBasis ? String(openingExisting.costBasis) : "");
 
-  const canAddNew = !newSel.holdingId && (newSel.kind === "gold" ? newSel.label.trim() : newSel.instrumentId);
+  const canAddNew = !newSel.holdingId && (MANUAL_KINDS.has(newSel.kind) ? newSel.label.trim() : newSel.instrumentId);
   const valid = editing || canAddNew;
 
   const save = () => {
@@ -4697,8 +4824,8 @@ function HoldingSheet({ book, up, instruments, holding, onClose }) {
       if (!editing) {
         b.holdings.push({
           id, kind: newSel.kind,
-          instrumentId: newSel.kind === "gold" ? "gold:" + uid() : newSel.instrumentId,
-          label: newSel.label.trim() || "Gold",
+          instrumentId: MANUAL_KINDS.has(newSel.kind) ? newSel.kind + ":" + uid() : newSel.instrumentId,
+          label: newSel.label.trim() || INVEST_KIND_LABEL[newSel.kind] || "Holding",
           units: 0, costBasis: 0,
         });
       }
@@ -5225,7 +5352,7 @@ function HoldingPicker({ book, instruments, initial, onChange }) {
   const instrumentList = kind === "mf" ? (instruments?.mf || []) : (instruments?.stock || []);
   const instrumentIdKey = kind === "mf" ? "code" : "symbol";
   const searchResults = useMemo(() => {
-    if (kind === "gold" || query.trim().length < 2) return [];
+    if (MANUAL_KINDS.has(kind) || query.trim().length < 2) return [];
     const q = query.trim().toLowerCase();
     const out = [];
     for (const item of instrumentList) {
@@ -5248,7 +5375,7 @@ function HoldingPicker({ book, instruments, initial, onChange }) {
   return (
     <>
       <label style={st.label}>Instrument Type</label>
-      <Seg value={kind} onChange={changeKind} options={[{ v: "mf", label: "Mutual Fund" }, { v: "stock", label: "Stock" }, { v: "gold", label: "Gold" }]} />
+      <Seg value={kind} onChange={changeKind} options={[{ v: "mf", label: "Mutual Fund" }, { v: "stock", label: "Stock" }, { v: "gold", label: "Gold" }, { v: "land", label: "Real Estate" }]} />
       <label style={st.label}>Holding</label>
       {holdingsOfKind.length > 0 && (
         <DropdownField
@@ -5257,15 +5384,15 @@ function HoldingPicker({ book, instruments, initial, onChange }) {
           options={[{ v: "", label: "+ New holding…" }, ...holdingsOfKind.map((h) => ({ v: h.id, label: h.label }))]}
         />
       )}
-      {!selectedHoldingId && kind === "gold" && (
+      {!selectedHoldingId && MANUAL_KINDS.has(kind) && (
         <input
           style={{ ...st.input, marginTop: holdingsOfKind.length > 0 ? 8 : 0 }}
           value={label}
-          placeholder="e.g. Gold Coins, SGB 2023"
+          placeholder={kind === "land" ? "e.g. Flat in Pune, 2 Acres Farmland" : "e.g. Gold Coins, SGB 2023"}
           onChange={(e) => setLabel(e.target.value)}
         />
       )}
-      {!selectedHoldingId && kind !== "gold" && (
+      {!selectedHoldingId && !MANUAL_KINDS.has(kind) && (
         <div style={{ marginTop: holdingsOfKind.length > 0 ? 8 : 0 }}>
           <input
             style={st.input}
@@ -5337,7 +5464,7 @@ function EntrySheet({ book, initial, instruments, onSave, onSaveSplit, onClose, 
     !isNaN(amt) && amt > 0 && date &&
     (type === "transfer" ? !!account
       : type === "party" ? !!partyId
-      : type === "invest" ? (investUnitsNum > 0 && (investSel.holdingId || (investSel.kind === "gold" ? investSel.label.trim() : investSel.instrumentId)))
+      : type === "invest" ? (investUnitsNum > 0 && (investSel.holdingId || (MANUAL_KINDS.has(investSel.kind) ? investSel.label.trim() : investSel.instrumentId)))
       : !!effHead);
 
   const save = (overrides = {}) => {
@@ -5351,8 +5478,8 @@ function EntrySheet({ book, initial, instruments, onSave, onSaveSplit, onClose, 
       e.charge = investDir === "buy" ? (parseAmount(investCharge) || 0) : 0;
       if (investSel.holdingId) e.holdingId = investSel.holdingId;
       else {
-        e.newHolding = investSel.kind === "gold"
-          ? { kind: "gold", instrumentId: "gold:" + uid(), label: investSel.label.trim() || "Gold" }
+        e.newHolding = MANUAL_KINDS.has(investSel.kind)
+          ? { kind: investSel.kind, instrumentId: investSel.kind + ":" + uid(), label: investSel.label.trim() || INVEST_KIND_LABEL[investSel.kind] }
           : { kind: investSel.kind, instrumentId: investSel.instrumentId, label: investSel.label.trim() };
       }
     }
@@ -5382,7 +5509,7 @@ function EntrySheet({ book, initial, instruments, onSave, onSaveSplit, onClose, 
   const saveSplit = () => {
     if (!splitValid) return;
     onSaveSplit({
-      date, note: note.trim(), head: effHead, yourShare,
+      date, note: note.trim(), head: effHead, yourShare, tripId: tripId || null,
       participants: participants.map((p) => ({
         partyId: p.partyId || null,
         newName: p.partyId ? null : p.newName.trim(),
@@ -5415,7 +5542,7 @@ function EntrySheet({ book, initial, instruments, onSave, onSaveSplit, onClose, 
       <label style={st.label}>Kind</label>
       <Seg
         value={type}
-        onChange={(v) => { setType(v); if (v !== "in") setRefund(false); }}
+        onChange={(v) => { setType(v); if (v !== "in") setRefund(false); setDir("out"); }}
         options={[
           { v: "out", label: "Out" },
           { v: "in", label: "In" },
@@ -5442,7 +5569,7 @@ function EntrySheet({ book, initial, instruments, onSave, onSaveSplit, onClose, 
           />
         </>
       )}
-      {(type === "out" || type === "in") && book.trips.length > 0 && (
+      {(type === "out" || type === "in" || type === "split") && book.trips.length > 0 && (
         <>
           <label style={st.label}>Trip (optional)</label>
           <DropdownField
@@ -5540,7 +5667,7 @@ function EntrySheet({ book, initial, instruments, onSave, onSaveSplit, onClose, 
             initial={{ holdingId: initial?.type === "holding" ? initial.holdingId : "", kind: editingHolding?.kind }}
             onChange={setInvestSel}
           />
-          <label style={st.label}>{investSel.kind === "gold" ? "Grams" : investSel.kind === "stock" ? "Quantity" : "Units"}</label>
+          <label style={st.label}>{investSel.kind === "gold" ? "Grams" : investSel.kind === "stock" ? "Quantity" : investSel.kind === "land" ? "Count (usually 1)" : "Units"}</label>
           <input style={st.input} inputMode="decimal" value={investUnits} placeholder="0" onChange={(e) => setInvestUnits(e.target.value)} />
           {investDir === "buy" && (
             <>
@@ -6233,10 +6360,12 @@ export default function CashBook() {
   // participant's share posts as a party "paid them" entry (money you
   // fronted for them) — so it hits Owed as a receivable and never touches
   // your P&L. New-name participants become real parties first.
-  const saveSplitExpense = ({ date, note, head, yourShare, participants }) => {
+  const saveSplitExpense = ({ date, note, head, yourShare, tripId, participants }) => {
     up((b) => {
       if (yourShare > 0) {
-        b.entries.push({ id: uid(), date, amount: yourShare, type: "out", head, note });
+        const e = { id: uid(), date, amount: yourShare, type: "out", head, note };
+        if (tripId) e.tripId = tripId;
+        b.entries.push(e);
       }
       for (const p of participants) {
         let partyId = p.partyId;
@@ -6246,10 +6375,16 @@ export default function CashBook() {
           partyId = party.id;
         }
         if (!partyId) continue;
-        b.entries.push({
+        // Tagged with the same tripId as "your share" above (purely for
+        // TripDetailPage's entry list to show the full split) — never
+        // counted as trip spend itself, since tripSpendAsOf only sums
+        // out/in entries and this is type "party".
+        const pe = {
           id: uid(), date, amount: p.amount, type: "party", partyId, dir: "out",
           note: note ? `${note} — split` : "Split expense",
-        });
+        };
+        if (tripId) pe.tripId = tripId;
+        b.entries.push(pe);
       }
       return b;
     });
@@ -6285,7 +6420,7 @@ export default function CashBook() {
     });
 
   const pageEl = page && (
-    page.name === "networth" ? <NetWorthPage book={book} go={go} prices={prices} />
+    page.name === "networth" ? <NetWorthPage book={book} go={go} prices={prices} onOpenInvestments={() => setInvestmentsOpen(true)} />
     : page.name === "assets" ? <AllocationPage book={book} kind="assets" prices={prices} />
     : page.name === "liabilities" ? <AllocationPage book={book} kind="liabilities" prices={prices} />
     : page.name === "party" ? (
