@@ -2443,10 +2443,10 @@ function investDetailLine(book, r) {
 function InvestmentsPage({ book, prices, instruments, pricesLoaded, onClose, onAdd, onOpenHolding, onManage, onRefresh }) {
   const [months, setMonths] = useState(3);
   const [valueMode, setValueMode] = useState("market"); // market | invested
-  const [filterKind, setFilterKind] = useState("all"); // all | mf | stock | gold
   const [sortBy, setSortBy] = useState("value"); // value | name | gain
   const [hidden, setHidden] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
+  const [openGroup, setOpenGroup] = useState(null); // which kind is expanded
 
   const t = today();
   const holdings = holdingsAsOf(book, t).filter((h) => h.units > 0.0001 || Math.abs(h.costBasis) > 0.0001);
@@ -2462,12 +2462,36 @@ function InvestmentsPage({ book, prices, instruments, pricesLoaded, onClose, onA
   const seriesPct = series.length >= 2 && series[series.length - 2].value
     ? Math.round((seriesDiff / Math.abs(series[series.length - 2].value)) * 1000) / 10 : null;
 
-  const filtered = rows.filter((r) => filterKind === "all" || r.kind === filterKind);
-  const sorted = [...filtered].sort((a, b) =>
+  const sorted = [...rows].sort((a, b) =>
     sortBy === "name" ? a.label.localeCompare(b.label)
     : sortBy === "gain" ? b.gainPct - a.gainPct
     : b.value - a.value
   );
+
+  // Groups by kind (Mutual Funds/Stocks/Gold/Real Estate) instead of one
+  // flat 13-row list; a group's own value/gain are its holdings' totals, and
+  // groups are ordered by the same sortBy comparator used for holdings.
+  const groups = HOLDING_KIND_ORDER.map((kind) => {
+    const items = sorted.filter((r) => r.kind === kind);
+    const value = items.reduce((s, r) => s + r.value, 0);
+    const costBasis = items.reduce((s, r) => s + r.costBasis, 0);
+    const gain = value - costBasis;
+    const gainPct = costBasis ? Math.round((gain / costBasis) * 1000) / 10 : 0;
+    return { kind, items, value, costBasis, gain, gainPct };
+  }).filter((g) => g.items.length > 0)
+    .sort((a, b) =>
+      sortBy === "name" ? INVEST_KIND_LABEL[a.kind].localeCompare(INVEST_KIND_LABEL[b.kind])
+      : sortBy === "gain" ? b.gainPct - a.gainPct
+      : b.value - a.value
+    );
+
+  // Before prices load, `prices` is still {} so holdingsValue would fall back
+  // to cost basis for everything (a misleadingly flat "0% gain" that jumps
+  // once real prices resolve) — kind/count don't depend on prices at all, so
+  // real group headers can render immediately with just the figures shimmering.
+  const holdingsByKind = HOLDING_KIND_ORDER.map((kind) => ({
+    kind, count: holdings.filter((h) => h.kind === kind).length,
+  })).filter((g) => g.count > 0);
 
   const latestAsOf = Object.values(prices || {}).reduce((max, p) => (p && p.asOf && p.asOf > max ? p.asOf : max), "");
 
@@ -2512,141 +2536,149 @@ function InvestmentsPage({ book, prices, instruments, pricesLoaded, onClose, onA
           <RoundBtn aria-label="Manage holdings" onClick={onManage}><Ic name="dots" size={16} stroke={C.soft} /></RoundBtn>
         </div>
 
-        <div style={{ ...glass(22), padding: "18px 18px 16px" }}>
+        <div style={{ ...glass(20), padding: "14px 16px 12px" }}>
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
-            <button className="cb-press" onClick={() => setHidden((x) => !x)} style={{ display: "flex", alignItems: "center", gap: 6, border: "none", background: "none", padding: 0, cursor: "pointer", fontSize: 13, fontWeight: 700, color: C.soft }}>
+            <button className="cb-press" onClick={() => setHidden((x) => !x)} style={{ display: "flex", alignItems: "center", gap: 5, border: "none", background: "none", padding: 0, cursor: "pointer", fontSize: 12, fontWeight: 700, color: C.soft }}>
               Total Investment Value
-              <Ic name={hidden ? "eyeOff" : "eye"} size={13} stroke={C.faint} />
+              <Ic name={hidden ? "eyeOff" : "eye"} size={12} stroke={C.faint} />
             </button>
             <DropdownField
               value={valueMode}
               onChange={setValueMode}
               options={[{ v: "market", label: "Market Value" }, { v: "invested", label: "Invested Amount" }]}
-              style={{ padding: "6px 12px", borderRadius: 999, fontSize: 12, color: C.soft }}
+              style={{ padding: "5px 10px", borderRadius: 999, fontSize: 11, color: C.soft }}
               wrapStyle={{ flexShrink: 0 }}
             />
           </div>
-          <div style={{ display: "flex", alignItems: "flex-end", gap: 12, marginTop: 14 }}>
+          <div style={{ display: "flex", alignItems: "baseline", gap: 10, marginTop: 8 }}>
             {pricesLoaded ? (
-              <div style={{ fontSize: 30, fontWeight: 800, color: C.ink, fontVariantNumeric: "tabular-nums" }}>
+              <div style={{ fontSize: 27, fontWeight: 800, color: C.ink, fontVariantNumeric: "tabular-nums" }}>
                 {mask(money(book, heroValue))}
               </div>
             ) : (
-              <div className="cb-skeleton" style={{ width: 140, height: 30 }} />
+              <div className="cb-skeleton" style={{ width: 130, height: 27 }} />
+            )}
+            {pricesLoaded && !hidden && (
+              <div style={{ fontSize: 11.5, fontWeight: 700, color: seriesDiff >= 0 ? C.green : C.red }}>
+                {seriesDiff >= 0 ? "▲" : "▼"} {money(book, Math.abs(seriesDiff))}{seriesPct !== null ? ` (${Math.abs(seriesPct)}%)` : ""}
+              </div>
             )}
           </div>
-          {pricesLoaded && !hidden && (
-            <div style={{ fontSize: 12, fontWeight: 700, color: seriesDiff >= 0 ? C.green : C.red, marginTop: 5 }}>
-              {seriesDiff >= 0 ? "▲" : "▼"} {money(book, Math.abs(seriesDiff))}{seriesPct !== null ? ` (${Math.abs(seriesPct)}%)` : ""} vs last month
-            </div>
-          )}
 
-          <div style={{ marginTop: 14 }}>
-            <Sparkline points={series.map((s) => s.value)} />
-          </div>
-          <div style={{ display: "flex", gap: 6, marginTop: 4, paddingBottom: 2 }}>
-            {[["3M", 3], ["6M", 6], ["1Y", 12], ["All", 24]].map(([label, m]) => (
-              <button
-                key={label}
-                className="cb-press"
-                onClick={() => setMonths(m)}
-                style={{
-                  padding: "7px 14px", borderRadius: 999, fontSize: 12, fontWeight: 800,
-                  fontFamily: F.sans, cursor: "pointer",
-                  border: `1px solid ${months === m ? C.accentBorder : C.overlayBorder}`,
-                  background: months === m ? C.accentSoft : C.overlayWash,
-                  color: months === m ? C.accentText : C.muted,
-                }}
-              >
-                {label}
-              </button>
-            ))}
+          <div style={{ display: "flex", alignItems: "center", gap: 10, marginTop: 10 }}>
+            <div style={{ flex: 1, height: 26 }}>
+              <Sparkline points={series.map((s) => s.value)} />
+            </div>
+            <div style={{ display: "flex", gap: 4, flexShrink: 0 }}>
+              {[["3M", 3], ["6M", 6], ["1Y", 12], ["All", 24]].map(([label, m]) => (
+                <button
+                  key={label}
+                  className="cb-press"
+                  onClick={() => setMonths(m)}
+                  style={{
+                    padding: "4px 9px", borderRadius: 999, fontSize: 10.5, fontWeight: 800,
+                    fontFamily: F.sans, cursor: "pointer",
+                    border: `1px solid ${months === m ? C.accentBorder : C.overlayBorder}`,
+                    background: months === m ? C.accentSoft : C.overlayWash,
+                    color: months === m ? C.accentText : C.muted,
+                  }}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
           </div>
 
-          <div style={{ display: "flex", borderTop: `1px solid ${C.line}`, marginTop: 14, paddingTop: 12, gap: 10 }}>
+          <div style={{ display: "flex", borderTop: `1px solid ${C.line}`, marginTop: 10, paddingTop: 9, gap: 10 }}>
             <div style={{ flex: 1 }}>
-              <div style={{ fontSize: 10, fontWeight: 700, color: C.faint, textTransform: "uppercase", letterSpacing: ".04em" }}>Invested Amount</div>
-              <div style={{ fontSize: 15, fontWeight: 800, color: C.ink, marginTop: 4 }}>{mask(money(book, investedTotal))}</div>
+              <div style={{ fontSize: 9.5, fontWeight: 700, color: C.faint, textTransform: "uppercase", letterSpacing: ".04em" }}>Invested</div>
+              <div style={{ fontSize: 13.5, fontWeight: 800, color: C.ink, marginTop: 3 }}>{mask(money(book, investedTotal))}</div>
             </div>
             <div style={{ flex: 1 }}>
-              <div style={{ fontSize: 10, fontWeight: 700, color: C.faint, textTransform: "uppercase", letterSpacing: ".04em" }}>Total Returns</div>
-              <div style={{ fontSize: 15, fontWeight: 800, color: totalGain >= 0 ? C.green : C.red, marginTop: 4 }}>
+              <div style={{ fontSize: 9.5, fontWeight: 700, color: C.faint, textTransform: "uppercase", letterSpacing: ".04em" }}>Total Returns</div>
+              <div style={{ fontSize: 13.5, fontWeight: 800, color: totalGain >= 0 ? C.green : C.red, marginTop: 3 }}>
                 {mask(`${totalGain >= 0 ? "+" : ""}${money(book, totalGain)} (${totalGainPct}%)`)}
               </div>
             </div>
           </div>
         </div>
 
-        <div className="cb-carousel" style={{ display: "flex", gap: 8, marginTop: 14, overflowX: "auto" }}>
-          {[["all", "All"], ["mf", "Mutual Funds"], ["stock", "Stocks"], ["gold", "Gold"], ["land", "Real Estate"]].map(([v, label]) => (
-            <FilterChip key={v} label={label} active={filterKind === v} onClick={() => setFilterKind(v)} />
-          ))}
-        </div>
-
-        <div style={{ display: "flex", alignItems: "center", marginTop: 16, marginBottom: 4 }}>
-          <div style={{ flex: 1, fontSize: 15, fontWeight: 800, color: C.ink }}>All Investments ({sorted.length})</div>
+        <div style={{ display: "flex", alignItems: "center", marginTop: 14, marginBottom: 6 }}>
+          <div style={{ flex: 1, fontSize: 13.5, fontWeight: 800, color: C.soft }}>By Category</div>
           <DropdownField
             value={sortBy}
             onChange={setSortBy}
             options={[{ v: "value", label: "Sort: Value" }, { v: "name", label: "Sort: Name" }, { v: "gain", label: "Sort: Gain %" }]}
-            style={{ border: "none", background: "none", padding: 0, color: C.accentText, fontSize: 12 }}
+            style={{ border: "none", background: "none", padding: 0, color: C.accentText, fontSize: 11 }}
             wrapStyle={{ flexShrink: 0 }}
           />
         </div>
 
-        <div style={{ ...glass(18), overflow: "hidden", background: C.glassSoft, border: C.borderSoft }}>
-          {!pricesLoaded && holdings.length > 0 && [0, 1, 2].map((i) => (
-            <div key={i} style={{ display: "flex", alignItems: "center", gap: 10, padding: "13px 16px", borderTop: i === 0 ? "none" : `1px solid ${C.line}` }}>
-              <div className="cb-skeleton" style={{ width: 38, height: 38, borderRadius: 999, flexShrink: 0 }} />
-              <div style={{ flex: 1 }}>
-                <div className="cb-skeleton" style={{ width: "60%", height: 14, marginBottom: 6 }} />
-                <div className="cb-skeleton" style={{ width: "40%", height: 11 }} />
-              </div>
-              <div className="cb-skeleton" style={{ width: 64, height: 14 }} />
-            </div>
-          ))}
-          {pricesLoaded && sorted.map((r, i) => {
-            const v = HOLDING_VISUALS[r.kind];
+        <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+          {!pricesLoaded && holdingsByKind.map(({ kind, count }) => {
+            const v = HOLDING_VISUALS[kind];
             return (
-              <div
-                key={r.id}
-                className="cb-press"
-                onClick={() => onOpenHolding(r)}
-                style={{ display: "flex", alignItems: "center", gap: 10, padding: "13px 16px", borderTop: i === 0 ? "none" : `1px solid ${C.line}`, cursor: "pointer" }}
-              >
-                <Orb size={38} radius={999} grad={`linear-gradient(135deg, ${v.color}, ${v.color}99)`}><Ic name={v.icon} size={16} /></Orb>
+              <div key={kind} style={{ ...glass(15), background: C.glassSoft, border: C.borderSoft, padding: "9px 12px", display: "flex", alignItems: "center", gap: 9 }}>
+                <Orb size={30} radius={999} grad={`linear-gradient(135deg, ${v.color}, ${v.color}99)`}><Ic name={v.icon} size={14} /></Orb>
                 <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontSize: 14, fontWeight: 700, color: C.ink, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{r.label}</div>
-                  <div style={{ fontSize: 11, color: C.muted, marginTop: 1 }}>{INVEST_KIND_LABEL[r.kind]}</div>
-                  <div style={{ fontSize: 11, color: C.faint, marginTop: 1 }}>{investDetailLine(book, r)}</div>
+                  <div style={{ fontSize: 13, fontWeight: 700, color: C.ink }}>{INVEST_KIND_LABEL[kind]}</div>
+                  <div style={{ fontSize: 10.5, color: C.muted, marginTop: 1 }}>{count} {count === 1 ? "holding" : "holdings"}</div>
                 </div>
-                <div style={{ textAlign: "right", fontVariantNumeric: "tabular-nums" }}>
-                  <div style={{ fontSize: 14, fontWeight: 800, color: C.ink }}>{mask(money(book, r.value))}</div>
-                  <div style={{ fontSize: 11, fontWeight: 700, color: r.gain >= 0 ? C.green : C.red, marginTop: 2 }}>
-                    {mask(`${r.gain >= 0 ? "+" : ""}${money(book, r.gain)} (${r.gainPct}%)`)}
-                  </div>
-                  <div style={{ fontSize: 10.5, color: C.faint, marginTop: 1 }}>Invested {mask(money(book, r.costBasis))}</div>
-                </div>
+                <div className="cb-skeleton" style={{ width: 60, height: 13 }} />
               </div>
             );
           })}
-          {sorted.length === 0 && (
-            <div style={{ padding: "20px 16px", fontSize: 13, color: C.muted, textAlign: "center" }}>
-              No investments {filterKind !== "all" ? `in ${INVEST_KIND_LABEL[filterKind]}` : "yet"} — tap Add Investment to start tracking.
+
+          {pricesLoaded && groups.map((g) => {
+            const v = HOLDING_VISUALS[g.kind];
+            const open = openGroup === g.kind;
+            const gval = valueMode === "market" ? g.value : g.costBasis;
+            return (
+              <div key={g.kind} style={{ ...glass(15), background: C.glassSoft, border: C.borderSoft, overflow: "hidden" }}>
+                <div className="cb-press" onClick={() => setOpenGroup(open ? null : g.kind)}
+                  style={{ display: "flex", alignItems: "center", gap: 9, padding: "9px 12px", cursor: "pointer" }}>
+                  <Orb size={30} radius={999} grad={`linear-gradient(135deg, ${v.color}, ${v.color}99)`}><Ic name={v.icon} size={14} /></Orb>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontSize: 13, fontWeight: 700, color: C.ink }}>{INVEST_KIND_LABEL[g.kind]}</div>
+                    <div style={{ fontSize: 10.5, color: C.muted, marginTop: 1 }}>
+                      {g.items.length} {g.items.length === 1 ? "holding" : "holdings"} · Invested {mask(money(book, g.costBasis))}
+                    </div>
+                  </div>
+                  <div style={{ textAlign: "right", flexShrink: 0 }}>
+                    <div style={{ fontSize: 13, fontWeight: 800, color: C.ink, fontVariantNumeric: "tabular-nums" }}>{mask(money(book, gval))}</div>
+                    <div style={{ fontSize: 10, fontWeight: 700, color: g.gain >= 0 ? C.green : C.red, marginTop: 1 }}>
+                      {mask(`${g.gain >= 0 ? "+" : ""}${money(book, g.gain)} (${g.gainPct}%)`)}
+                    </div>
+                  </div>
+                  <div style={{ transform: open ? "rotate(180deg)" : "none", transition: "transform .15s ease", flexShrink: 0 }}>
+                    <Ic name="chevronDown" size={14} stroke={C.faint} sw={2.2} />
+                  </div>
+                </div>
+                {open && (
+                  <div style={{ borderTop: `1px solid ${C.line}` }}>
+                    {g.items.map((r, i) => (
+                      <div key={r.id} className="cb-press" onClick={() => onOpenHolding(r)}
+                        style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 12px 8px 51px", borderTop: i ? `1px solid ${C.line}` : "none", cursor: "pointer" }}>
+                        <div style={{ flex: 1, minWidth: 0, fontSize: 12, fontWeight: 600, color: C.soft, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{r.label}</div>
+                        <div style={{ fontSize: 12, fontWeight: 700, color: C.ink, fontVariantNumeric: "tabular-nums", flexShrink: 0 }}>
+                          {mask(money(book, valueMode === "market" ? r.value : r.costBasis))}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+
+          {pricesLoaded && groups.length === 0 && (
+            <div style={{ ...glass(15), padding: "20px 16px", fontSize: 13, color: C.muted, textAlign: "center" }}>
+              No investments yet — tap Add Investment to start tracking.
             </div>
           )}
         </div>
 
-        <div style={{ display: "flex", ...glass(18), marginTop: 14, padding: "14px 16px", gap: 10 }}>
-          <div style={{ flex: 1 }}>
-            <div style={{ fontSize: 10, fontWeight: 700, color: C.faint, textTransform: "uppercase", letterSpacing: ".04em" }}>Unrealized Returns</div>
-            <div style={{ fontSize: 14, fontWeight: 800, color: totalGain >= 0 ? C.green : C.red, marginTop: 4 }}>
-              {mask(`${totalGain >= 0 ? "+" : ""}${money(book, totalGain)} (${totalGainPct}%)`)}
-            </div>
-          </div>
-        </div>
-
-        <button className="cb-press" onClick={onAdd} style={{ width: "100%", marginTop: 14, padding: "13px 0", border: `1px dashed ${C.accentBorderSoft}`, borderRadius: 14, background: alpha(C.accent, .08), color: C.accentText, fontWeight: 800, fontSize: 13.5, fontFamily: F.sans, cursor: "pointer" }}>
+        <button className="cb-press" onClick={onAdd} style={{ width: "100%", marginTop: 12, padding: "11px 0", border: `1px dashed ${C.accentBorderSoft}`, borderRadius: 13, background: alpha(C.accent, .08), color: C.accentText, fontWeight: 800, fontSize: 13, fontFamily: F.sans, cursor: "pointer" }}>
           + Add Investment
         </button>
 
