@@ -121,6 +121,13 @@ const MIGRATIONS = [
     if (!book.trips) book.trips = [];
     return book;
   },
+  // v9: bankName — the primary (implicit) bank account's display name.
+  // id "bank" stays a fixed routing key everywhere; only the label shown
+  // in the UI becomes customizable.
+  (book) => {
+    if (!book.prefs.bankName) book.prefs.bankName = "Bank";
+    return book;
+  },
 ];
 
 // Starter keywords for the local importer; the review screen adds to these

@@ -329,6 +329,81 @@ async function main() {
   assert.deepStrictEqual([dep.date, dep.amount, dep.type], ["2025-06-03", 80000, "in"], "deposit column recognised despite balance also saying Cr");
   assert.ok(/SALARY/.test(dep.note) && /HDFC0001234/.test(dep.note), "note stitches wrapped narration for the deposit row too, got: " + dep.note);
 
+  // Columnar PDF table parser, second shape: an HDFC-style savings-account
+  // statement, where date + the START of the narration + every numeric
+  // column sit on ONE line (not split across a before/after wrap like the
+  // Union Bank case above), and a second date-shaped "Value Dt" column sits
+  // just left of Withdrawal. Column x/y below are synthetic but mirror the
+  // real layout exactly (verified against an actual HDFC PDF, not just
+  // guessed): a Withdrawal figure can land almost exactly equidistant
+  // between the Withdrawal and Deposit header LABELS' own x (since data is
+  // right-aligned within a column that starts at the label's x) — nearest-
+  // single-point-distance picks the wrong column on a near-tie like that;
+  // range-based classification (this column starts here, the next starts
+  // there) does not. The statement also spans 2 pages where only the FIRST
+  // page repeats the column header — a real, common statement-generator
+  // behavior this parser must carry the header forward through, while still
+  // skipping the repeated letterhead/address block above it on the
+  // continuation page (which would otherwise be misread as narration).
+  const hdfcPage1 = [
+    // repeated per-page letterhead, above the header
+    { x: 290, y: 820, s: "Page No .: 1" },
+    { x: 34, y: 790, s: "MR. JOHN Q TESTER" },
+    { x: 340, y: 760, s: "Statement of account" },
+    // header row
+    { x: 40, y: 602, s: "Date" }, { x: 144, y: 602, s: "Narration" }, { x: 284, y: 602, s: "Chq./Ref.No." },
+    { x: 362, y: 602, s: "Value Dt" }, { x: 405, y: 602, s: "Withdrawal Amt." }, { x: 491, y: 602, s: "Deposit Amt." },
+    { x: 564, y: 602, s: "Closing Balance" },
+    // tx1: withdrawal, date+narration-start+numbers on one line, one wrap after
+    { x: 34, y: 584, s: "01/05/26" }, { x: 72, y: 584, s: "PAYMENT TO ACME CORP" }, { x: 289, y: 584, s: "0000111122223333" },
+    { x: 362, y: 584, s: "01/05/26" }, { x: 442, y: 584, s: "5,000.00" }, { x: 599, y: 584, s: "12,000.00" },
+    { x: 72, y: 567, s: "REF NUMBER TAIL 998877" },
+    // tx2: withdrawal figure (448) sits almost exactly equidistant between
+    // the Withdrawal (405) and Deposit (491) header labels' own x — the
+    // exact real-world near-tie this fix targets.
+    { x: 34, y: 550, s: "02/05/26" }, { x: 72, y: 550, s: "COFFEE SHOP PURCHASE" }, { x: 289, y: 550, s: "0000222233334444" },
+    { x: 362, y: 550, s: "02/05/26" }, { x: 448, y: 550, s: "150.00" }, { x: 599, y: 550, s: "11,850.00" },
+    // tx3: deposit
+    { x: 34, y: 516, s: "03/05/26" }, { x: 72, y: 516, s: "SALARY CREDIT ACME" }, { x: 289, y: 516, s: "0000333344445555" },
+    { x: 362, y: 516, s: "03/05/26" }, { x: 534, y: 516, s: "2,000.00" }, { x: 599, y: 516, s: "13,850.00" },
+    { x: 72, y: 499, s: "EMPLOYER PAYROLL REF" },
+  ];
+  const hdfcPage2 = [
+    // same letterhead Y positions as page 1, but different page-number text
+    // — the continuation-page skip must key off Y, not exact text, since
+    // "Page No .: 2" legitimately differs from "Page No .: 1".
+    { x: 290, y: 820, s: "Page No .: 2" },
+    { x: 34, y: 790, s: "MR. JOHN Q TESTER" },
+    { x: 340, y: 760, s: "Statement of account" },
+    // NO header row repeated on this page — real data starts right after
+    // the letterhead, at y=610: ABOVE where page 1's own header sat
+    // (y=602), which is exactly the off-by-one-line trap a naive "skip
+    // everything above the carried header's Y" cutoff falls into.
+    { x: 34, y: 610, s: "05/05/26" }, { x: 72, y: 610, s: "ONLINE STORE PURCHASE" }, { x: 289, y: 610, s: "0000444455556666" },
+    { x: 362, y: 610, s: "05/05/26" }, { x: 442, y: 610, s: "300.00" }, { x: 599, y: 610, s: "13,550.00" },
+    { x: 34, y: 580, s: "06/05/26" }, { x: 72, y: 580, s: "REFUND FROM STORE" }, { x: 289, y: 580, s: "0000555566667777" },
+    { x: 362, y: 580, s: "06/05/26" }, { x: 534, y: 580, s: "500.00" }, { x: 599, y: 580, s: "14,050.00" },
+  ];
+  const hdfcRows = E.parsePdfTable([hdfcPage1, hdfcPage2]);
+  assert.strictEqual(hdfcRows.length, 5, "all 5 transactions recovered across both pages, got: " + JSON.stringify(hdfcRows));
+  const [h1, h2, h3, h4, h5] = hdfcRows;
+  assert.deepStrictEqual([h1.date, h1.amount, h1.type], ["2026-05-01", 5000, "out"]);
+  assert.ok(/ACME CORP/.test(h1.note), "note includes the payee, got: " + h1.note);
+  assert.deepStrictEqual(
+    [h2.date, h2.amount, h2.type], ["2026-05-02", 150, "out"],
+    "a withdrawal figure almost equidistant between the two column labels' own x still resolves to Withdrawal, not Deposit"
+  );
+  assert.deepStrictEqual([h3.date, h3.amount, h3.type], ["2026-05-03", 2000, "in"]);
+  assert.ok(!/Value Dt|Ref\.?No/i.test(h1.note + h2.note + h3.note), "the Value Dt/Ref No columns never leak into a note as if they were narration");
+  assert.deepStrictEqual(
+    [h4.date, h4.amount, h4.type], ["2026-05-05", 300, "out"],
+    "page 2's transactions are recovered even though it never repeats the column header"
+  );
+  assert.deepStrictEqual([h5.date, h5.amount, h5.type], ["2026-05-06", 500, "in"]);
+  for (const r of hdfcRows) {
+    assert.ok(!/Page No|Statement of account|JOHN Q TESTER/.test(r.note), "the repeated per-page letterhead never leaks into a transaction's note, got: " + r.note);
+  }
+
   // Keyword coder + learning keyword extraction.
   const ruleDb = { codingRules: [{ match: "swiggy", head: "Food out" }] };
   assert.strictEqual(E.suggestHead(ruleDb, "UPI-SWIGGY BANGALORE"), "Food out");
@@ -354,6 +429,7 @@ async function main() {
   assert.ok(E.computeBS(fresh, "2099-12-31").balanced, "fresh book balances");
   assert.ok(fresh.heads.expense.includes("Suspense"), "Suspense head present");
   assert.ok(fresh.parties.length >= 2, "placeholder parties seeded");
+  assert.strictEqual(fresh.prefs.bankName, "Bank", "fresh books default the primary account's display name to Bank");
 
   // Theme: Blue is the shipped default, and applyTheme swaps the shared C
   // token object's FULL palette in place (accent family + bg/ink/surface/
@@ -436,11 +512,12 @@ async function main() {
     };
     readBack.onerror = () => reject(readBack.error);
   });
-  assert.strictEqual(migratedBook.v, 8, "a v6 book is migrated to v8 on load");
+  assert.strictEqual(migratedBook.v, 9, "a v6 book is migrated to v9 on load");
   assert.strictEqual(migratedBook.prefs.theme, "blue", "the v7 migration backfills prefs.theme to blue");
   assert.deepStrictEqual(migratedBook.trips, [], "the v8 migration backfills an empty trips array");
+  assert.strictEqual(migratedBook.prefs.bankName, "Bank", "the v9 migration backfills prefs.bankName to Bank");
 
-  console.log("ok — v6 book migrates to v8 with prefs.theme defaulted to blue and trips backfilled");
+  console.log("ok — v6 book migrates to v9 with prefs.theme/bankName defaulted and trips backfilled");
   migDom.window.close();
 }
 
