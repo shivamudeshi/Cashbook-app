@@ -56,46 +56,50 @@ function alpha(hex, a) {
   return `rgba(${r},${g},${b},${a})`;
 }
 
-// Single theme identity ("Emerald Gold" glass) with a light/dark pair --
-// replaces the old 5-theme picker (Blue/Violet/Paper White/Mint Air/Rose
-// Quartz). Both entries carry the FULL legacy palette shape (every field
-// below was already read by ~700 call sites across the file via C.xxx),
-// so recoloring is safe everywhere immediately -- no call site needs to
-// change. `gold`/`goldDeep`/`bgImage`/`stripeGrad`/`heavyGlassFill` are
-// NEW fields, additive, used only by the glass/photo treatment currently
-// built for Dashboard (src/CashBook.jsx DashHome/AccountCard) -- other
-// tabs simply ignore them until their own redesign round.
+// "Royal Sapphire" (dark) / "Navy Professional" (light) -- replaces
+// Round 18's "Emerald Gold". Both entries carry the FULL legacy palette
+// shape (every field below was already read by ~700 call sites across
+// the file via C.xxx), so recoloring is safe everywhere immediately --
+// no call site needs to change. Values are copied verbatim from the
+// approved mockup (stage2-royal-sapphire-v7.html's :root custom
+// properties), not re-derived by eye. `dc` is a new 13-slot decorative-
+// color array (dark = today's exact slice hexes, light = navy-only
+// tints) -- see sliceColor() below for how it's consumed. `iconBg`/
+// `iconGlow` back the bottom-nav
+// active-icon + header bell glow (dark-only by design; light resolves
+// to "transparent"/"none", a guaranteed no-op).
 export const THEMES = {
   dark: {
-    label: "Emerald Gold", swatch: "linear-gradient(135deg,#34d399,#d4a017)", mode: "dark", tagline: "Dark",
-    accent: "#34d399", accentDeep: "#10b981", accentText: "#6ee7b7",
-    gold: "#fbbf24", goldDeep: "#d97706",
-    bg: "#061410", ink: "#eafdf6", soft: "#cfe8dd", muted: "#93b3a7", faint: "#587067",
-    glass: "linear-gradient(160deg, rgba(255,255,255,.09), rgba(255,255,255,.02))",
-    glassSoft: "linear-gradient(160deg, rgba(255,255,255,.07), rgba(255,255,255,.02))",
-    border: "1px solid rgba(255,255,255,.11)", borderSoft: "1px solid rgba(255,255,255,.08)",
-    line: "rgba(255,255,255,.08)", chip: "rgba(255,255,255,.06)", tile: "rgba(255,255,255,.05)",
-    shadow: "0 24px 54px -24px rgba(0,0,0,.75)",
-    sheetBg: "linear-gradient(170deg,#0d2b22,#061410)", navBg: "rgba(6,20,16,.94)", headerBg: "rgba(3,10,8,.55)",
-    green: "#34d399", red: "#f87171", amberText: "#fbbf24", dangerTint: "#f87171", successTint: "#34d399",
-    overlayTint: "#ffffff", overlayWash: "rgba(255,255,255,.06)", overlayBorder: "rgba(255,255,255,.16)", overlayStrong: "rgba(255,255,255,.22)",
-    bgImage: "bg-emerald.png", heavyGlassFill: "rgba(255,255,255,.06)", scrim: "rgba(3,12,10,.34)",
-    stripeGrad: "linear-gradient(90deg,#10b981,#d4a017,#fde68a)",
+    label: "Royal Sapphire", swatch: "linear-gradient(135deg,#3b82f6,#1e3a8a)", mode: "dark", tagline: "Dark",
+    accent: "#3b82f6", accentDeep: "#1e3a8a", accentText: "#93c5fd",
+    bg: "#050912", ink: "#eef3fb", soft: "#cfdbee", muted: "#8fa2c0", faint: "#5c6f8f",
+    glass: "linear-gradient(160deg, rgba(226,235,250,.065), rgba(226,235,250,.015))",
+    glassSoft: "linear-gradient(160deg, rgba(226,235,250,.045), rgba(226,235,250,.012))",
+    border: "1px solid rgba(147,197,253,.22)", borderSoft: "1px solid rgba(203,220,245,.10)",
+    line: "rgba(203,220,245,.10)", chip: "rgba(203,220,245,.06)", tile: "rgba(203,220,245,.05)",
+    shadow: "0 0 0 1px rgba(59,130,246,.08), 0 24px 54px -20px rgba(0,0,0,.65), 0 10px 30px -12px rgba(59,130,246,.24)",
+    sheetBg: "linear-gradient(170deg,#0d1a30,#050912)", navBg: "rgba(5,9,18,.94)", headerBg: "rgba(4,7,14,.55)",
+    green: "#4ade80", red: "#f87171", amberText: "#fbbf24", dangerTint: "#f87171", successTint: "#4ade80",
+    overlayTint: "#cbdcf5", overlayWash: "rgba(203,220,245,.06)", overlayBorder: "rgba(203,220,245,.16)", overlayStrong: "rgba(203,220,245,.22)",
+    bgImage: "bg-sapphire.png", heavyGlassFill: "rgba(13,21,38,.55)", scrim: "linear-gradient(180deg, rgba(4,7,14,.16) 0%, rgba(4,7,14,.48) 55%, rgba(4,7,14,.84) 100%)",
+    iconBg: "rgba(147,197,253,.14)", iconGlow: "0 0 22px 3px rgba(59,130,246,.38), 0 0 0 1px rgba(147,197,253,.28)",
+    dc: ["#3b82f6", "#38bdf8", "#f59e0b", "#fb7185", "#2dd4bf", "#fbbf24", "#a78bfa", "#fb923c", "#6366f1", "#0ea5a5", "#d946ef", "#14b8a6", "#4ade80"],
   },
   light: {
-    label: "Emerald Gold", swatch: "linear-gradient(135deg,#10b981,#d4a017)", mode: "light", tagline: "Light",
-    accent: "#10b981", accentDeep: "#065f46", accentText: "#065f46",
-    gold: "#d4a017", goldDeep: "#92400e",
-    bg: "#eef7f2", ink: "#0c211c", soft: "#2f4d45", muted: "#5c7a72", faint: "#8fada4",
-    glass: "linear-gradient(170deg,#ffffff,#f4faf7)", glassSoft: "linear-gradient(170deg,#fdfffe,#f1f8f5)",
-    border: "1px solid rgba(12,33,28,.08)", borderSoft: "1px solid rgba(12,33,28,.05)",
-    line: "rgba(12,33,28,.06)", chip: "rgba(12,33,28,.045)", tile: "rgba(12,33,28,.035)",
-    shadow: "0 26px 50px -18px rgba(6,95,70,.22), 0 10px 22px -12px rgba(12,33,28,.16)",
-    sheetBg: "linear-gradient(170deg,#ffffff,#eff7f3)", navBg: "rgba(255,255,255,.92)", headerBg: "rgba(238,247,242,.82)",
-    green: "#059669", red: "#dc2626", amberText: "#b45309", dangerTint: "#dc2626", successTint: "#059669",
-    overlayTint: "#000000", overlayWash: "rgba(12,33,28,.045)", overlayBorder: "rgba(12,33,28,.10)", overlayStrong: "rgba(12,33,28,.16)",
-    bgImage: "bg-emerald.png", heavyGlassFill: "rgba(255,255,255,.68)", scrim: "rgba(244,250,247,.88)",
-    stripeGrad: "linear-gradient(90deg,#10b981,#d4a017,#fde68a)",
+    label: "Navy Professional", swatch: "linear-gradient(135deg,#16357a,#0b1d45)", mode: "light", tagline: "Light",
+    accent: "#16357a", accentDeep: "#0b1d45", accentText: "#16357a",
+    bg: "#f3f5f9", ink: "#0a1830", soft: "#1e3358", muted: "#55677f", faint: "#8794a8",
+    glass: "linear-gradient(170deg, rgba(255,255,255,.62), rgba(235,239,247,.40))",
+    glassSoft: "linear-gradient(170deg, rgba(255,255,255,.50), rgba(235,239,247,.30))",
+    border: "1px solid rgba(11,24,53,.20)", borderSoft: "1px solid rgba(11,24,53,.09)",
+    line: "rgba(10,24,53,.09)", chip: "rgba(11,24,53,.045)", tile: "rgba(11,24,53,.035)",
+    shadow: "0 0 0 1px rgba(11,24,53,.08), 0 26px 50px -18px rgba(11,24,53,.20), 0 10px 22px -12px rgba(10,20,40,.13)",
+    sheetBg: "linear-gradient(170deg,#ffffff,#eef1f6)", navBg: "rgba(243,245,249,.92)", headerBg: "rgba(243,245,249,.82)",
+    green: "#0d8f52", red: "#c23b3b", amberText: "#b45309", dangerTint: "#c23b3b", successTint: "#0d8f52",
+    overlayTint: "#0a1835", overlayWash: "rgba(11,24,53,.045)", overlayBorder: "rgba(11,24,53,.10)", overlayStrong: "rgba(11,24,53,.16)",
+    bgImage: "bg-navy.png", heavyGlassFill: "rgba(255,255,255,.68)", scrim: "linear-gradient(180deg, rgba(243,245,249,.35) 0%, rgba(243,245,249,.70) 55%, rgba(243,245,249,.92) 100%)",
+    iconBg: "transparent", iconGlow: "none",
+    dc: ["#16357a", "#3b5bdb", "#4d6db3", "#7a93cf", "#2f4f96", "#0b1d45", "#5678b8", "#a7bbe3", "#16357a", "#3b5bdb", "#4d6db3", "#7a93cf", "#2f4f96"],
   },
 };
 
@@ -119,9 +123,15 @@ function deriveTokens(t) {
     overlayTint: t.overlayTint, overlayWash: t.overlayWash, overlayBorder: t.overlayBorder, overlayStrong: t.overlayStrong,
     // legacy aliases still used by the money-direction coloring
     credit: t.green, debit: t.red,
-    // Glass/photo treatment (currently Dashboard-only, see THEMES comment).
-    gold: t.gold, goldDeep: t.goldDeep, bgImage: t.bgImage,
-    heavyGlassFill: t.heavyGlassFill, scrim: t.scrim, stripeGrad: t.stripeGrad,
+    // Glass/photo treatment (currently the 8 core screens, see Round 22).
+    bgImage: t.bgImage, heavyGlassFill: t.heavyGlassFill, scrim: t.scrim,
+    // Bottom-nav/header icon glow (dark-only by design -- light is a no-op).
+    iconBg: t.iconBg, iconGlow: t.iconGlow,
+    // Decorative slice colors (donut/bar-chart legends) -- dark keeps
+    // today's exact hexes, light maps every one to a navy tint. Consumed
+    // via C.dc[i] fresh on every call (see sliceColor() below), never
+    // baked into a frozen literal.
+    dc: t.dc,
   };
 }
 
@@ -146,7 +156,6 @@ export const C = {
   indigoGrad: "linear-gradient(135deg,#6366f1,#4338ca)",
   tealGrad: "linear-gradient(135deg,#2dd4bf,#0f766e)",
   pinkGrad: "linear-gradient(135deg,#e879f9,#a21caf)",
-  grayGrad: "linear-gradient(135deg,#71717a,#3f3f46)",
   amber: "#fbbf24",
 };
 
@@ -160,14 +169,8 @@ try {
   if (savedTheme && THEMES[savedTheme]) applyTheme(savedTheme);
 } catch {}
 
-// F.serif (Gloock) is the Emerald Gold glass design's heading/label face --
-// currently used by Dashboard only (see THEMES comment); every other
-// screen still reads F.sans (Plus Jakarta Sans) unchanged. F.mono
-// (JetBrains Mono) is for tabular money figures on the same glass cards.
 export const F = {
-  serif: '"Gloock", serif',
   sans: '"Plus Jakarta Sans", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif',
-  mono: '"JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace',
 };
 
 /* Keyframes and state-driven styles (:active, :focus) can't be inline —
@@ -996,7 +999,7 @@ if (typeof window !== "undefined") {
     inr, parseAmount, fyOf, quarterOf, fyRange, monthRange,
     computePL, balancesAsOf, owedAsOf, computeBS, defaultBook,
     parseStatementText, suggestHead, keywordOf, parseBankSms, parsePdfTable,
-    isExplained, isRefund, entryVisual, holdingsAsOf, holdingsValue,
+    isExplained, isRefund, holdingsAsOf, holdingsValue,
     money, navPrice, C, THEMES, applyTheme, tripSpendAsOf,
   };
 }
@@ -1122,41 +1125,10 @@ function entryLabel(book, e) {
   return e.head;
 }
 
-// Curated icon+color per common category, matched by keyword against the
-// head/account name. First match wins.
-const CATEGORY_VISUALS = [
-  { match: /rent/i, icon: "home", color: "#818cf8" },
-  { match: /food/i, icon: "fork", color: "#fb923c" },
-  { match: /grocer/i, icon: "cart", color: "#4ade80" },
-  { match: /transport/i, icon: "car", color: "#60a5fa" },
-  { match: /petrol|fuel/i, icon: "fuel", color: "#fb923c" },
-  { match: /utilit|electric/i, icon: "bolt", color: "#fbbf24" },
-  { match: /shop/i, icon: "bag", color: "#f472b6" },
-  { match: /health|medical/i, icon: "heart", color: "#fb7185" },
-  { match: /invest|sip/i, icon: "trend", color: "#2dd4bf" },
-  { match: /salary/i, icon: "briefcase", color: "#34d399" },
-  { match: /emi|loan/i, icon: "bank", color: "#a78bfa" },
-  { match: /subscription/i, icon: "repeat", color: "#c084fc" },
-  { match: /maintenance/i, icon: "wrench", color: "#94a3b8" },
-];
-
-// Deterministic string -> number, so an unrecognized category still always
-// gets *some* consistent color across renders (same palette as party
-// avatars) instead of nothing.
-function strHash(s) {
-  let h = 0;
-  for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) | 0;
-  return Math.abs(h);
-}
-
-// Row leading icon/avatar — presentation only, purely derived from the
-// entry, never stored. Party entries reuse that party's own Avatar (same
-// one shown on Owed); everything else matches a curated category icon or
-// falls back to a deterministic colored-letter Avatar for an unmatched
-// head/account, so every row always shows something meaningful.
-// icon + color per holding kind — reused by entryVisual and InvestmentsPage
-// row/orb rendering so a fund/stock/gold holding always reads the same way
-// wherever it appears in the app.
+// icon + color per holding kind, keyed by kind -- used by HoldingDetailPage's
+// header and InvestmentsPage/SetupHoldingsPage's kind lookups (their row
+// icons themselves were removed, see Round 22's "no row icon badges" rule,
+// but a holding's own detail-page header still shows its kind identity).
 const HOLDING_VISUALS = {
   mf: { icon: "clock", color: "#a78bfa" },
   stock: { icon: "bars", color: "#34d399" },
@@ -1169,24 +1141,6 @@ const HOLDING_VISUALS = {
 // label instead of an instrument search, same as gold has always worked.
 const MANUAL_KINDS = new Set(["gold", "land"]);
 
-function entryVisual(book, e) {
-  if (e.type === "party") {
-    const idx = book.parties.findIndex((p) => p.id === e.partyId);
-    return { kind: "avatar", name: partyName(book, e.partyId), index: idx < 0 ? 0 : idx };
-  }
-  if (e.type === "holding") {
-    const h = (book.holdings || []).find((x) => x.id === e.holdingId);
-    const v = HOLDING_VISUALS[h ? h.kind : "mf"];
-    return { kind: "icon", icon: v.icon, color: v.color };
-  }
-  if ((e.type === "in" || e.type === "out") && e.head === "Suspense") {
-    return { kind: "icon", icon: "tag", color: C.faint };
-  }
-  const key = e.type === "transfer" ? e.account : e.head;
-  const hit = CATEGORY_VISUALS.find((v) => v.match.test(key || ""));
-  if (hit) return { kind: "icon", icon: hit.icon, color: hit.color };
-  return { kind: "avatar", name: key || "?", index: strHash(key || "") };
-}
 const entrySign = (e) =>
   e.type === "in" || ((e.type === "transfer" || e.type === "party") && e.dir === "in") ? 1 : -1;
 
@@ -1223,13 +1177,10 @@ function Ic({ name, size = 15, stroke = "#fff", sw = 2.2 }) {
     card: <><rect x="2" y="5" width="20" height="14" rx="2.5" /><line x1="2" y1="10" x2="22" y2="10" /></>,
     bell: <><path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9" /><path d="M13.7 21a2 2 0 0 1-3.4 0" /></>,
     search: <><circle cx="11" cy="11" r="7" /><line x1="21" y1="21" x2="16.5" y2="16.5" /></>,
-    people: <><circle cx="9" cy="8" r="3.4" /><path d="M2.5 20c0-3.6 2.9-6 6.5-6s6.5 2.4 6.5 6" /><circle cx="17.5" cy="9" r="2.6" /><path d="M16 14.4c3 .3 5.5 2.4 5.5 5.6" /></>,
-    pie: <><path d="M21.2 12A9.2 9.2 0 1 1 12 2.8" /><path d="M12 2.8V12h9.2" /></>,
-    grid: <><rect x="3" y="3" width="7" height="7" rx="1.5" /><rect x="14" y="3" width="7" height="7" rx="1.5" /><rect x="3" y="14" width="7" height="7" rx="1.5" /><rect x="14" y="14" width="7" height="7" rx="1.5" /></>,
+    people: <><circle cx="8.5" cy="8" r="3" /><circle cx="16.5" cy="9.5" r="2.4" /><path d="M2.5 20c0-3.3 2.7-6 6-6s6 2.7 6 6" /><path d="M14.5 20c0-2.3 1-4.3 2.7-5.4" /></>,
     list: <><line x1="8" y1="6" x2="21" y2="6" /><line x1="8" y1="12" x2="21" y2="12" /><line x1="8" y1="18" x2="21" y2="18" /><circle cx="4" cy="6" r="1" /><circle cx="4" cy="12" r="1" /><circle cx="4" cy="18" r="1" /></>,
     shield: <><path d="M12 22s8-3.6 8-10V5l-8-3-8 3v7c0 6.4 8 10 8 10z" /></>,
     download: <><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" /><polyline points="7 10 12 15 17 10" /><line x1="12" y1="15" x2="12" y2="3" /></>,
-    gear: <><circle cx="12" cy="12" r="3.2" /><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M19.1 4.9L17 7M7 17l-2.1 2.1" /></>,
     trend: <><polyline points="3 17 9 11 13 15 21 7" /><polyline points="15 7 21 7 21 13" /></>,
     wallet: <><rect x="2" y="6" width="20" height="14" rx="3" /><path d="M2 10h20" /><circle cx="17" cy="15" r="1.2" /></>,
     coins: <><circle cx="9" cy="9" r="6" /><path d="M15.5 6.6A6 6 0 1 1 8.6 15.5" /></>,
@@ -1238,8 +1189,8 @@ function Ic({ name, size = 15, stroke = "#fff", sw = 2.2 }) {
     check: <><polyline points="20 6 9 17 4 12" /></>,
     flip: <><polyline points="17 1 21 5 17 9" /><path d="M3 11V9a4 4 0 0 1 4-4h14" /><polyline points="7 23 3 19 7 15" /><path d="M21 13v2a4 4 0 0 1-4 4H3" /></>,
     info: <><circle cx="12" cy="12" r="9" /><line x1="12" y1="10" x2="12" y2="16" /><circle cx="12" cy="7.4" r="0.6" /></>,
-    home: <><path d="M3 10.5 12 3l9 7.5" /><path d="M5 9.5V21h14V9.5" /></>,
-    swap: <><polyline points="7 4 3 8 7 12" /><path d="M3 8h13" /><polyline points="17 12 21 16 17 20" /><path d="M21 16H8" /></>,
+    home: <><path d="M3 11.5 12 4l9 7.5" /><path d="M5.5 10v8.5a1 1 0 0 0 1 1H9v-6h6v6h2.5a1 1 0 0 0 1-1V10" /></>,
+    swap: <><path d="M4 7h14M15 4l3 3-3 3" /><path d="M20 17H6M9 20l-3-3 3-3" /></>,
     calendar: <><rect x="3" y="4" width="18" height="17" rx="2.5" /><line x1="3" y1="9.5" x2="21" y2="9.5" /><line x1="8" y1="2.5" x2="8" y2="6" /><line x1="16" y1="2.5" x2="16" y2="6" /></>,
     trash: <><polyline points="3 6 5 6 21 6" /><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6" /><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" /></>,
     fork: <><line x1="7" y1="2" x2="7" y2="9" /><line x1="10" y1="2" x2="10" y2="9" /><line x1="13" y1="2" x2="13" y2="9" /><path d="M7 9c0 2 1.5 3 3 3s3-1 3-3" /><line x1="10" y1="12" x2="10" y2="22" /></>,
@@ -1257,7 +1208,8 @@ function Ic({ name, size = 15, stroke = "#fff", sw = 2.2 }) {
     refresh: <><polyline points="1 4 1 10 7 10" /><polyline points="23 20 23 14 17 14" /><path d="M20.5 9A9 9 0 0 0 4.6 5.6L1 10m22 4-3.6 4.4A9 9 0 0 1 3.5 15" /></>,
     chevronDown: <><polyline points="6 9 12 15 18 9" /></>,
     clock: <><circle cx="12" cy="12" r="9" /><polyline points="12 7 12 12 15.5 14" /></>,
-    bars: <><line x1="5" y1="20" x2="5" y2="13" /><line x1="12" y1="20" x2="12" y2="8" /><line x1="19" y1="20" x2="19" y2="4" /></>,
+    bars: <><path d="M4 20V11" /><path d="M12 20V5" /><path d="M20 20v-7" /></>,
+    sliders: <><path d="M3 6h7" /><path d="M17 6h4" /><circle cx="13" cy="6" r="2" /><path d="M3 12h2" /><path d="M9 12h12" /><circle cx="6" cy="12" r="2" /><path d="M3 18h10" /><path d="M19 18h2" /><circle cx="16" cy="18" r="2" /></>,
     eye: <><path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7-11-7-11-7z" /><circle cx="12" cy="12" r="3" /></>,
     eyeOff: <><path d="M17.9 17.9A10.6 10.6 0 0 1 12 20c-7 0-11-8-11-8a19 19 0 0 1 5-5.6M9.9 4.2A10.4 10.4 0 0 1 12 4c7 0 11 8 11 8a18.7 18.7 0 0 1-2.4 3.5" /><path d="M9.5 9.7a3 3 0 0 0 4.2 4.2" /><line x1="2" y1="2" x2="22" y2="22" /></>,
     scan: <><path d="M3 7V5a2 2 0 0 1 2-2h2" /><path d="M17 3h2a2 2 0 0 1 2 2v2" /><path d="M21 17v2a2 2 0 0 1-2 2h-2" /><path d="M7 21H5a2 2 0 0 1-2-2v-2" /></>,
@@ -1276,7 +1228,10 @@ function Ic({ name, size = 15, stroke = "#fff", sw = 2.2 }) {
 // stays theme-reactive -- a frozen array would snapshot C.grad's string
 // value once at import time and never see later theme mutations.
 const avatarBg = (i) => [C.grad, C.greenGrad, C.blueGrad, C.amberGrad, C.pinkGrad, C.tealGrad, C.indigoGrad, C.redGrad][i % 8];
-const SLICE_COLORS = ["#a78bfa", "#60a5fa", "#34d399", "#fbbf24", "#e879f9", "#2dd4bf", "#fb7185", "#71717a"];
+// Same "read C fresh on every call" pattern as avatarBg -- a frozen array
+// would snapshot dark-mode hexes forever and never pick up the light
+// theme's navy-tint remap.
+const sliceColor = (i) => C.dc[i % C.dc.length];
 
 /* glass primitives */
 const glass = (r = 24) => ({
@@ -1752,8 +1707,8 @@ function AccountCard({ book, acc, active, onImport, onTransactions, pending, onV
   };
   // Glass card matching the surrounding theme (light or dark), backed by
   // the tab's own background image via backdrop-filter blur -- previously
-  // a fixed always-dark "physical card" face; the Emerald Gold glass
-  // design reads the bank/credit-card face as just another glass surface.
+  // a fixed always-dark "physical card" face; the current glass design
+  // reads the bank/credit-card face as just another glass surface.
   const face = {
     position: "absolute", inset: 0, backfaceVisibility: "hidden",
     WebkitBackfaceVisibility: "hidden", borderRadius: 22, boxSizing: "border-box",
@@ -1784,9 +1739,6 @@ function AccountCard({ book, acc, active, onImport, onTransactions, pending, onV
           <div style={{ position: "absolute", inset: 0, opacity: 0.5, mixBlendMode: "overlay", pointerEvents: "none", ...grainBg }} />
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", position: "relative" }}>
             <div style={{ display: "flex", alignItems: "center", gap: 9, minWidth: 0 }}>
-              <Orb size={32} grad={isCard ? C.grad : C.blueGrad} shadow={isCard ? `0 4px 10px -3px ${alpha(C.accentDeep, .6)}` : "0 4px 10px -3px rgba(37,99,235,.6)"}>
-                <Ic name={isCard ? "card" : "bank"} size={15} />
-              </Orb>
               <div style={{ minWidth: 0 }}>
                 <div style={{ fontSize: 15, fontWeight: 800, color: C.ink, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", maxWidth: 190 }}>
                   {acc.name}
@@ -1802,7 +1754,7 @@ function AccountCard({ book, acc, active, onImport, onTransactions, pending, onV
             <div style={{ fontSize: 11, letterSpacing: ".08em", textTransform: "uppercase", color: C.faint, fontWeight: 700 }}>
               {isCard ? "Outstanding balance" : "Available balance"}
             </div>
-            <div style={{ fontFamily: F.mono, fontSize: 28, fontWeight: 700, color: C.ink, marginTop: 6, fontVariantNumeric: "tabular-nums", lineHeight: 1.1 }}>
+            <div style={{ fontFamily: F.sans, fontSize: 28, fontWeight: 700, color: C.ink, marginTop: 6, fontVariantNumeric: "tabular-nums", lineHeight: 1.1 }}>
               {money(book, acc.balance)}
             </div>
             {pending && pending.count > 0 ? (
@@ -1937,7 +1889,7 @@ function bsSlices(book, asOf, prices) {
     return pos
       .sort((a, b) => b.amount - a.amount)
       .map((r, i) => ({
-        label: r.name, value: r.amount, color: SLICE_COLORS[i % SLICE_COLORS.length],
+        label: r.name, value: r.amount, color: sliceColor(i),
         pct: Math.round((r.amount / total) * 100),
       }));
   };
@@ -1996,18 +1948,20 @@ function StatChip({ grad, value, label, onClick }) {
   );
 }
 
-function QuickAction({ grad, shadow, icon, label, onClick }) {
+// Icon-free pill (see Round 22's "no row/card icon badges" rule) --
+// label only, tap to trigger the shortcut.
+function QuickAction({ label, onClick }) {
   return (
-    <button className="cb-press" onClick={onClick} style={{ display: "flex", flexDirection: "column", alignItems: "center", border: "none", background: "none", padding: 0, cursor: "pointer", textAlign: "center" }}>
-      <Orb size={38} radius={13} grad={grad} shadow={shadow}><Ic name={icon} size={17} /></Orb>
-      <div style={{ fontSize: 10, fontWeight: 700, color: C.muted, marginTop: 6, whiteSpace: "nowrap" }}>
-        {label}
-      </div>
+    <button className="cb-press" onClick={onClick} style={{
+      flex: 1, border: C.borderSoft, background: C.glassSoft, borderRadius: 12,
+      padding: "9px 2px 8px", cursor: "pointer", textAlign: "center", fontFamily: F.sans,
+    }}>
+      <div style={{ fontSize: 9.5, fontWeight: 700, color: C.soft, whiteSpace: "nowrap" }}>{label}</div>
     </button>
   );
 }
 
-function DashHome({ book, go, onImport, onAdd, setTab, prices }) {
+function DashHome({ book, go, onImport, onAdd, setTab, prices, onOpenInvestments }) {
   const t = today();
   const monthStart = t.slice(0, 8) + "01";
   const { bs } = bsSlices(book, t, prices);
@@ -2018,12 +1972,6 @@ function DashHome({ book, go, onImport, onAdd, setTab, prices }) {
   const nwPct = nwPrev !== 0 ? Math.round((nwDiff / Math.abs(nwPrev)) * 100) : null;
 
   const pl = computePL(book, monthStart, t);
-  const pFrom = addDays(monthStart, -31).slice(0, 8) + "01";
-  const plPrev = computePL(book, pFrom, prevEnd);
-  const expDiffPct = plPrev.totalExpense
-    ? Math.round(((pl.totalExpense - plPrev.totalExpense) / plPrev.totalExpense) * 100)
-    : null;
-  const topCat = Object.entries(pl.expense).sort((a, b) => b[1] - a[1])[0];
   let invested = 0;
   const investedBag = {}; // label (holding / account / head) -> amount, for the Invested detail sheet
   for (const e of book.entries) {
@@ -2060,20 +2008,28 @@ function DashHome({ book, go, onImport, onAdd, setTab, prices }) {
 
   const [statSheet, setStatSheet] = useState(null); // "income" | "expense" | "savings" | null
 
+  const invHoldings = holdingsAsOf(book, t).filter((h) => h.units > 0.0001 || Math.abs(h.costBasis) > 0.0001);
+  const invRows = invHoldings.map((h) => holdingRow(h, prices));
+  const invMarketTotal = invRows.reduce((s, r) => s + r.value, 0);
+  const invSeries = holdingsValueSeries(book, 6, prices);
+  const invSeriesDiff = invSeries.length >= 2 ? invSeries[invSeries.length - 1].value - invSeries[invSeries.length - 2].value : 0;
+  const invSeriesPct = invSeries.length >= 2 && invSeries[invSeries.length - 2].value
+    ? Math.round((invSeriesDiff / Math.abs(invSeries[invSeries.length - 2].value)) * 1000) / 10 : null;
+  const invByKind = HOLDING_KIND_ORDER.map((kind, i) => ({
+    kind, color: sliceColor(i), count: invHoldings.filter((h) => h.kind === kind).length,
+  })).filter((g) => g.count > 0);
+
   return (
     // Full-bleed background image behind the whole tab (breaks out of the
     // shared content wrapper's 18px/16px padding, same negative-margin
-    // technique already used for the account carousel below) -- this is
-    // the pilot for the Emerald Gold glass design; other tabs stay on
-    // their current flat C.bg until their own round.
+    // technique already used for the account carousel below).
     <div style={{ position: "relative", margin: "-18px -16px 0", padding: "18px 16px 4px", overflow: "hidden" }}>
       <div style={{ position: "absolute", inset: 0, backgroundImage: `url(${C.bgImage})`, backgroundSize: "cover", backgroundPosition: "center" }} />
       <div style={{ position: "absolute", inset: 0, background: C.scrim }} />
       <div className="cb-stagger" style={{ position: "relative" }}>
       <div className="cb-press" onClick={() => go("networth")} style={{ ...glass(22), padding: "18px 18px 18px", cursor: "pointer", position: "relative", overflow: "hidden" }}>
-        <div style={{ position: "absolute", top: 0, left: 0, right: 0, height: 5, background: C.stripeGrad }} />
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 15, fontWeight: 400, fontFamily: F.serif, color: C.soft }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 15, fontWeight: 800, fontFamily: F.sans, color: C.soft }}>
             Net Worth
             <Ic name="info" size={13} stroke={C.faint} />
           </div>
@@ -2087,7 +2043,7 @@ function DashHome({ book, go, onImport, onAdd, setTab, prices }) {
         </div>
         <div style={{ display: "flex", alignItems: "flex-end", gap: 12, marginTop: 14 }}>
           <div>
-            <div style={{ fontFamily: F.mono, fontSize: 29, fontWeight: 700, color: C.ink, fontVariantNumeric: "tabular-nums" }}>
+            <div style={{ fontFamily: F.sans, fontSize: 29, fontWeight: 700, color: C.ink, fontVariantNumeric: "tabular-nums" }}>
               {money(book, netWorth)}
             </div>
             <div style={{ fontSize: 12, fontWeight: 700, color: nwDiff >= 0 ? C.green : C.red, marginTop: 5, display: "flex", gap: 4 }}>
@@ -2133,43 +2089,56 @@ function DashHome({ book, go, onImport, onAdd, setTab, prices }) {
         <StatChip grad={C.amberGrad} value={compactMoney(book, invested)} label="Invested" onClick={() => setStatSheet("invested")} />
       </div>
 
-      <div style={{ ...glass(24), marginTop: 14, padding: "14px 16px 16px" }}>
-        <div style={{ ...st.section, marginBottom: 10, fontSize: 13 }}>Quick Actions</div>
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(5, 1fr)", gap: 6 }}>
-          <QuickAction grad={C.indigoGrad} shadow="0 6px 14px -4px rgba(67,56,202,.55)" icon="download" label="Import" onClick={onImport} />
-          <QuickAction grad={C.skyGrad} shadow="0 6px 14px -4px rgba(3,105,161,.55)" icon="plus" label="Add" onClick={onAdd} />
-          <QuickAction grad={C.grad} shadow={`0 6px 14px -4px ${alpha(C.accentDeep, .55)}`} icon="pie" label="Reports" onClick={() => setTab("reports")} />
-          <QuickAction grad={C.pinkGrad} shadow="0 6px 14px -4px rgba(162,28,175,.55)" icon="tag" label="Budget" onClick={() => { setTab("reports"); go("budget"); }} />
-          <QuickAction grad={C.tealGrad} shadow="0 6px 14px -4px rgba(15,118,110,.55)" icon="people" label="Owed" onClick={() => setTab("owed")} />
-        </div>
-      </div>
-
-      {(expDiffPct !== null || topCat) && (
-        <div
-          className="cb-press"
-          onClick={() => setStatSheet("insights")}
-          style={{ ...glass(20), marginTop: 14, marginBottom: 8, padding: "14px 16px", display: "flex", alignItems: "center", gap: 12, cursor: "pointer" }}
-        >
-          <Orb size={34} grad={C.grad}><Ic name="trend" size={15} /></Orb>
-          <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{ fontSize: 11, fontWeight: 700, color: C.faint, textTransform: "uppercase", letterSpacing: ".04em" }}>Insights</div>
-            <div style={{ fontSize: 13, fontWeight: 700, color: C.soft, marginTop: 2, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
-              {expDiffPct !== null ? (
-                <>You spent <span style={{ color: expDiffPct <= 0 ? C.green : C.red, fontWeight: 800 }}>{Math.abs(expDiffPct)}% {expDiffPct <= 0 ? "less" : "more"}</span> than last month</>
-              ) : (
-                <>{topCat[0]} is your top expense category</>
-              )}
+      {invRows.length > 0 && (
+        <>
+          <div style={{ ...st.section, fontSize: 13, marginTop: 14, marginBottom: 6, padding: "0 2px" }}>Investments</div>
+          <div className="cb-press" onClick={() => onOpenInvestments && onOpenInvestments()} style={{ ...glass(20), padding: "16px 18px", position: "relative", overflow: "hidden", cursor: "pointer" }}>
+            <div style={{
+              position: "absolute", inset: 0, pointerEvents: "none",
+              background: `linear-gradient(135deg, ${alpha(C.accent, .16)}, ${alpha(C.green, .05)} 60%, transparent)`,
+            }} />
+            <div style={{ position: "relative", display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 12, marginBottom: 14 }}>
+              <div>
+                <div style={{ fontSize: 10.5, color: C.muted, textTransform: "uppercase", letterSpacing: ".06em", fontWeight: 700, marginBottom: 5 }}>Portfolio Value</div>
+                <div style={{ fontSize: 23, fontWeight: 800, color: C.ink, letterSpacing: "-0.01em", marginBottom: 4, fontVariantNumeric: "tabular-nums" }}>
+                  {money(book, invMarketTotal)}
+                </div>
+                {invSeriesDiff !== 0 && (
+                  <div style={{ fontSize: 11.5, fontWeight: 700, color: invSeriesDiff >= 0 ? C.green : C.red }}>
+                    {invSeriesDiff >= 0 ? "▲" : "▼"} {money(book, Math.abs(invSeriesDiff))}{invSeriesPct !== null ? ` (${Math.abs(invSeriesPct)}%)` : ""} this month
+                  </div>
+                )}
+              </div>
+              <div style={{ width: 88, height: 36, flexShrink: 0, marginTop: 4 }}>
+                <Sparkline points={invSeries.map((s) => s.value)} width={88} height={36} color={C.accentText} />
+              </div>
+            </div>
+            <div style={{ position: "relative", display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+              {invByKind.map((g) => (
+                <div key={g.kind} style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 10, fontWeight: 600, color: C.soft }}>
+                  <span style={{ width: 7, height: 7, borderRadius: 999, background: g.color, display: "inline-block" }} />
+                  {INVEST_KIND_LABEL[g.kind]}
+                </div>
+              ))}
+              <span style={{ marginLeft: "auto", color: C.muted, fontSize: 15 }}>›</span>
             </div>
           </div>
-          <span style={{ fontSize: 15, color: C.faint, fontWeight: 700, flexShrink: 0 }}>›</span>
-        </div>
+        </>
       )}
+
+      <div style={{ ...st.section, fontSize: 13, marginTop: 14, marginBottom: 6, padding: "0 2px" }}>Quick Actions</div>
+      <div style={{ display: "flex", gap: 6, marginBottom: 8 }}>
+        <QuickAction label="Import" onClick={onImport} />
+        <QuickAction label="Add" onClick={onAdd} />
+        <QuickAction label="Reports" onClick={() => setTab("reports")} />
+        <QuickAction label="Budget" onClick={() => { setTab("reports"); go("budget"); }} />
+        <QuickAction label="Owed" onClick={() => setTab("owed")} />
+      </div>
 
       {statSheet && (
         <StatDetailSheet
           book={book} kind={statSheet} pl={pl}
           invested={invested} investedBag={investedBag}
-          expDiffPct={expDiffPct} topCat={topCat}
           onClose={() => setStatSheet(null)}
         />
       )}
@@ -2178,45 +2147,7 @@ function DashHome({ book, go, onImport, onAdd, setTab, prices }) {
   );
 }
 
-function StatDetailSheet({ book, kind, pl, invested, investedBag, expDiffPct, topCat, onClose }) {
-  if (kind === "insights") {
-    return (
-      <Sheet title="Insights — This Month" onClose={onClose}>
-        <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-          {expDiffPct !== null && (
-            <div style={{ ...glass(18), padding: 14 }}>
-              <Orb size={34} grad={C.greenGrad}><Ic name="trend" size={15} /></Orb>
-              <div style={{ fontSize: 13, color: C.soft, marginTop: 10 }}>
-                You spent{" "}
-                <span style={{ fontWeight: 800, color: expDiffPct <= 0 ? C.green : C.red }}>
-                  {Math.abs(expDiffPct)}% {expDiffPct <= 0 ? "less" : "more"}
-                </span>{" "}
-                than last month.
-              </div>
-              <div style={{ fontSize: 13, fontWeight: 700, color: C.ink, marginTop: 2 }}>
-                {expDiffPct <= 0 ? "Keep it up!" : "Worth a look."}
-              </div>
-              <div style={{ height: 5, borderRadius: 999, background: C.overlayBorder, marginTop: 12 }}>
-                <div style={{ height: "100%", width: `${Math.min(100, Math.abs(expDiffPct))}%`, borderRadius: 999, background: expDiffPct <= 0 ? C.greenGrad : C.redGrad }} />
-              </div>
-            </div>
-          )}
-          {topCat && (
-            <div style={{ ...glass(18), padding: 14 }}>
-              <Orb size={34} grad={C.grad}><Ic name="tag" size={15} /></Orb>
-              <div style={{ fontSize: 13, color: C.soft, marginTop: 10 }}>{topCat[0]} is your top expense category.</div>
-              <div style={{ fontSize: 13, fontWeight: 700, color: C.accentText, marginTop: 2 }}>
-                {money(book, topCat[1])} spent this month
-              </div>
-              <div style={{ height: 5, borderRadius: 999, background: C.overlayBorder, marginTop: 12 }}>
-                <div style={{ height: "100%", width: `${Math.round((topCat[1] / (pl.totalExpense || 1)) * 100)}%`, borderRadius: 999, background: `linear-gradient(90deg,${C.accent},${C.accentDeep})` }} />
-              </div>
-            </div>
-          )}
-        </div>
-      </Sheet>
-    );
-  }
+function StatDetailSheet({ book, kind, pl, invested, investedBag, onClose }) {
   if (kind === "savings") {
     return (
       <Sheet title="Savings — This Month" onClose={onClose}>
@@ -2362,15 +2293,12 @@ function NetWorthPage({ book, go, prices, onOpenInvestments }) {
       <div style={{ ...glass(24), marginTop: 14, padding: "16px 18px 18px" }}>
         <div style={{ ...st.section, marginBottom: 12 }}>Summary</div>
         {[
-          { label: "Total Assets", value: bs.totalAssets, grad: C.greenGrad, icon: "trend", key: "assets" },
-          { label: "Total Liabilities", value: bs.totalLiabilities, grad: C.redGrad, icon: "card", key: "liabilities" },
+          { label: "Total Assets", value: bs.totalAssets, key: "assets" },
+          { label: "Total Liabilities", value: bs.totalLiabilities, key: "liabilities" },
         ].map((r) => (
           <div key={r.label} className="cb-press" onClick={() => setBsSheet(r.key)}
             style={{ display: "flex", alignItems: "center", padding: "10px 0", borderBottom: `1px solid ${C.line}`, cursor: "pointer" }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 10, flex: 1 }}>
-              <Orb size={32} grad={r.grad}><Ic name={r.icon} size={14} /></Orb>
-              <div style={{ fontSize: 14, fontWeight: 700, color: C.soft }}>{r.label}</div>
-            </div>
+            <div style={{ fontSize: 14, fontWeight: 700, color: C.soft, flex: 1 }}>{r.label}</div>
             <div style={{ fontSize: 15, fontWeight: 800, color: C.ink, marginRight: 6 }}>{money(book, r.value)}</div>
             <span style={{ fontSize: 13, color: C.faint }}>›</span>
           </div>
@@ -2604,10 +2532,8 @@ function InvestmentsPage({ book, prices, instruments, pricesLoaded, onClose, onA
 
         <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
           {!pricesLoaded && holdingsByKind.map(({ kind, count }) => {
-            const v = HOLDING_VISUALS[kind];
             return (
               <div key={kind} style={{ ...glass(15), background: C.glassSoft, border: C.borderSoft, padding: "9px 12px", display: "flex", alignItems: "center", gap: 9 }}>
-                <Orb size={30} radius={999} grad={`linear-gradient(135deg, ${v.color}, ${v.color}99)`}><Ic name={v.icon} size={14} /></Orb>
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{ fontSize: 13, fontWeight: 700, color: C.ink }}>{INVEST_KIND_LABEL[kind]}</div>
                   <div style={{ fontSize: 10.5, color: C.muted, marginTop: 1 }}>{count} {count === 1 ? "holding" : "holdings"}</div>
@@ -2618,14 +2544,12 @@ function InvestmentsPage({ book, prices, instruments, pricesLoaded, onClose, onA
           })}
 
           {pricesLoaded && groups.map((g) => {
-            const v = HOLDING_VISUALS[g.kind];
             const open = openGroup === g.kind;
             const gval = valueMode === "market" ? g.value : g.costBasis;
             return (
               <div key={g.kind} style={{ ...glass(15), background: C.glassSoft, border: C.borderSoft, overflow: "hidden" }}>
                 <div className="cb-press" onClick={() => setOpenGroup(open ? null : g.kind)}
                   style={{ display: "flex", alignItems: "center", gap: 9, padding: "9px 12px", cursor: "pointer" }}>
-                  <Orb size={30} radius={999} grad={`linear-gradient(135deg, ${v.color}, ${v.color}99)`}><Ic name={v.icon} size={14} /></Orb>
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <div style={{ fontSize: 13, fontWeight: 700, color: C.ink }}>{INVEST_KIND_LABEL[g.kind]}</div>
                     <div style={{ fontSize: 10.5, color: C.muted, marginTop: 1 }}>
@@ -2646,7 +2570,7 @@ function InvestmentsPage({ book, prices, instruments, pricesLoaded, onClose, onA
                   <div style={{ borderTop: `1px solid ${C.line}` }}>
                     {g.items.map((r, i) => (
                       <div key={r.id} className="cb-press" onClick={() => onOpenHolding(r)}
-                        style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 12px 8px 51px", borderTop: i ? `1px solid ${C.line}` : "none", cursor: "pointer" }}>
+                        style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 12px", borderTop: i ? `1px solid ${C.line}` : "none", cursor: "pointer" }}>
                         <div style={{ flex: 1, minWidth: 0, fontSize: 12, fontWeight: 600, color: C.soft, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{r.label}</div>
                         <div style={{ fontSize: 12, fontWeight: 700, color: C.ink, fontVariantNumeric: "tabular-nums", flexShrink: 0 }}>
                           {mask(money(book, valueMode === "market" ? r.value : r.costBasis))}
@@ -2877,7 +2801,6 @@ function TxView({ book, up, onEdit, onAdd, initialFilter }) {
   );
 
   const Row = ({ e, showDate }) => {
-    const v = entryVisual(book, e);
     return (
     <div
       className="cb-row cb-press"
@@ -2898,11 +2821,6 @@ function TxView({ book, up, onEdit, onAdd, initialFilter }) {
         <div style={{ width: 46, fontSize: 11, color: C.faint, fontWeight: 600, flexShrink: 0 }}>
           {prettyDate(e.date).replace(/^\w+, /, "")}
         </div>
-      )}
-      {v.kind === "icon" ? (
-        <Orb size={30} grad={v.color}><Ic name={v.icon} size={14} /></Orb>
-      ) : (
-        <Avatar name={v.name} index={v.index} size={30} />
       )}
       <div style={{ flex: 1, minWidth: 0 }}>
         <div style={{ fontSize: 14, fontWeight: 600, color: C.ink }}>
@@ -3237,7 +3155,6 @@ function PartyRow({ book, p, index, onOpen }) {
   const m = partyMeta(book, p, index);
   return (
     <div className="cb-press cb-row" onClick={() => onOpen(p.id)} style={{ display: "flex", alignItems: "center", gap: 10, padding: "12px 0", borderBottom: `1px solid ${C.line}`, cursor: "pointer" }}>
-      <Avatar name={p.name} index={index} />
       <div style={{ flex: 1, minWidth: 0 }}>
         <div style={{ fontSize: 14, fontWeight: 700, color: C.ink }}>{p.name}</div>
         <div style={{ fontSize: 11, fontWeight: 700, color: m.statusColor, marginTop: 1 }}>{m.statusLabel}</div>
@@ -3257,13 +3174,10 @@ function OwedView({ book, go, onAddMemo, onRecordPayment }) {
   const net = owed.debtors - owed.creditors;
   const delta = (nowV, prevV) => (prevV ? Math.round(((nowV - prevV) / prevV) * 100) : null);
 
-  const SectionHead = ({ grad, title, sub }) => (
-    <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 16 }}>
-      <Orb size={38} grad={grad}><Ic name="people" size={17} /></Orb>
-      <div>
-        <div style={{ fontSize: 20, fontWeight: 800, color: C.ink }}>{title}</div>
-        <div style={{ fontSize: 12, color: C.muted, fontWeight: 600 }}>{sub}</div>
-      </div>
+  const SectionHead = ({ title, sub }) => (
+    <div style={{ marginBottom: 16 }}>
+      <div style={{ fontSize: 20, fontWeight: 800, color: C.ink }}>{title}</div>
+      <div style={{ fontSize: 12, color: C.muted, fontWeight: 600 }}>{sub}</div>
     </div>
   );
 
@@ -3322,9 +3236,24 @@ function OwedView({ book, go, onAddMemo, onRecordPayment }) {
         </div>
       </div>
 
+      {seg === "all" && (
+        <div>
+          <div style={{ margin: "0 0 8px", ...st.section }}>All Activity</div>
+          {receivables.length + payables.length > 0 ? (
+            <div style={{ ...glass(20), padding: "4px 16px" }}>
+              {[...receivables, ...payables].map((p, i) => (
+                <PartyRow key={p.id} book={book} p={p} index={i} onOpen={(id) => go("party", id)} />
+              ))}
+            </div>
+          ) : (
+            <div style={{ fontSize: 13, color: C.muted, padding: "20px 10px" }}>No one owes you, and you don't owe anybody right now.</div>
+          )}
+        </div>
+      )}
+
       {showRecv && (
         <div>
-          <SectionHead grad={C.greenGrad} title="Receivables" sub="Money owed to you by people" />
+          <SectionHead title="Receivables" sub="Money owed to you by people" />
           <TotalsRow label="Total Receivables" total={owed.debtors} prevTotal={prevOwed.debtors} accent={C.green} border={`1px solid ${alpha(C.successTint, .3)}`} bg={alpha(C.successTint, .1)} detailPage="recvDetail" />
           <div style={{ margin: "12px 0 0", ...st.section }}>All Receivables</div>
           {receivables.length > 0 ? (
@@ -3343,7 +3272,7 @@ function OwedView({ book, go, onAddMemo, onRecordPayment }) {
 
       {showPay && (
         <div>
-          <SectionHead grad={C.redGrad} title="Payables" sub="Money you owe to people" />
+          <SectionHead title="Payables" sub="Money you owe to people" />
           <TotalsRow label="Total Payables" total={owed.creditors} prevTotal={prevOwed.creditors} accent={C.red} border={`1px solid ${alpha(C.dangerTint, .35)}`} bg={alpha(C.dangerTint, .1)} detailPage="payDetail" />
           <div style={{ margin: "12px 0 0", ...st.section }}>All Payables</div>
           {payables.length > 0 ? (
@@ -3621,7 +3550,6 @@ function TripRow({ book, trip, onOpen }) {
   return (
     <div className="cb-press cb-row" onClick={onOpen} style={{ padding: "12px 0", borderBottom: `1px solid ${C.line}`, cursor: "pointer" }}>
       <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-        <Orb size={34} grad={C.skyGrad}><Ic name="plane" size={15} /></Orb>
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ fontSize: 14, fontWeight: 700, color: C.ink }}>{trip.name}</div>
           <div style={{ fontSize: 11, color: C.muted, marginTop: 1 }}>{dateRange}</div>
@@ -3776,13 +3704,13 @@ function TripDetailPage({ book, up, tripId, onEdit, onAddExpense, go }) {
               <div key={h} style={{ marginBottom: 12 }}>
                 <div style={{ display: "flex", fontSize: 12.5, marginBottom: 3, color: C.soft }}>
                   <span style={{ display: "flex", alignItems: "center", gap: 6, flex: 1 }}>
-                    <span style={{ width: 8, height: 8, borderRadius: 999, background: SLICE_COLORS[i % SLICE_COLORS.length] }} />
+                    <span style={{ width: 8, height: 8, borderRadius: 999, background: sliceColor(i) }} />
                     {h}
                   </span>
                   <span style={{ fontWeight: 700, color: C.ink }}>{money(book, tripAmt)}</span>
                 </div>
                 <div style={{ height: 8, borderRadius: 4, background: C.overlayWash, overflow: "hidden" }}>
-                  <div style={{ height: "100%", borderRadius: 4, background: SLICE_COLORS[i % SLICE_COLORS.length], width: `${Math.max(2, Math.round((tripAmt / catMax) * 100))}%` }} />
+                  <div style={{ height: "100%", borderRadius: 4, background: sliceColor(i), width: `${Math.max(2, Math.round((tripAmt / catMax) * 100))}%` }} />
                 </div>
                 {budget > 0 && (
                   <div style={{ fontSize: 11, color: budgetPct > 100 ? C.red : C.faint, marginTop: 4 }}>
@@ -3798,16 +3726,10 @@ function TripDetailPage({ book, up, tripId, onEdit, onAddExpense, go }) {
       <div style={{ fontSize: 14, fontWeight: 800, color: C.ink, marginBottom: 8 }}>Entries</div>
       <div style={{ ...glass(18), overflow: "hidden", marginBottom: 18 }}>
         {entries.map((e, i) => {
-          const v = entryVisual(book, e);
           return (
             <div key={e.id} className="cb-row cb-press" onClick={() => onEdit(e)}
               style={{ display: "flex", alignItems: "center", gap: 10, padding: "11px 16px", borderTop: i ? `1px solid ${C.line}` : "none", cursor: "pointer" }}>
               <div style={{ width: 52, fontSize: 11, color: C.faint, fontWeight: 600, flexShrink: 0 }}>{prettyDate(e.date).replace(/^\w+, /, "")}</div>
-              {v.kind === "icon" ? (
-                <Orb size={32} grad={v.color}><Ic name={v.icon} size={14} /></Orb>
-              ) : (
-                <Avatar name={v.name} index={v.index} size={32} />
-              )}
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div style={{ fontSize: 14, fontWeight: 600, color: C.ink }}>{entryLabel(book, e)}</div>
                 {e.note && <div style={{ fontSize: 12, color: C.muted, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{e.note}</div>}
@@ -4189,13 +4111,13 @@ function CatSpendPage({ book }) {
           <div key={h} style={{ marginBottom: 10 }}>
             <div style={{ display: "flex", fontSize: 12.5, marginBottom: 3, color: C.soft }}>
               <span style={{ display: "flex", alignItems: "center", gap: 6, flex: 1 }}>
-                <span style={{ width: 8, height: 8, borderRadius: 999, background: SLICE_COLORS[i % SLICE_COLORS.length] }} />
+                <span style={{ width: 8, height: 8, borderRadius: 999, background: sliceColor(i) }} />
                 {h}
               </span>
               <span style={{ fontWeight: 700, color: C.ink }}>{money(book, a)}</span>
             </div>
             <div style={{ height: 8, borderRadius: 4, background: C.overlayWash, overflow: "hidden" }}>
-              <div style={{ height: "100%", borderRadius: 4, background: SLICE_COLORS[i % SLICE_COLORS.length], width: `${a > 0 ? Math.max(2, Math.round((a / max) * 100)) : 0}%` }} />
+              <div style={{ height: "100%", borderRadius: 4, background: sliceColor(i), width: `${a > 0 ? Math.max(2, Math.round((a / max) * 100)) : 0}%` }} />
             </div>
           </div>
         ))}
@@ -4403,19 +4325,13 @@ function AccountDetailPage({ book, accId, onEdit }) {
       <div style={{ margin: "16px 0 8px", ...st.section }}>Recent activity</div>
       <div style={{ ...glass(18), overflow: "hidden", marginBottom: 8 }}>
         {related.map((e, i) => {
-          const v = entryVisual(book, e);
           return (
           <div key={e.id} className="cb-row cb-press" onClick={() => onEdit(e)}
             style={{ display: "flex", alignItems: "center", gap: 10, padding: "11px 16px", borderTop: i ? `1px solid ${C.line}` : "none", cursor: "pointer" }}>
             <div style={{ width: 52, fontSize: 11, color: C.faint, fontWeight: 600, flexShrink: 0 }}>{prettyDate(e.date).replace(/^\w+, /, "")}</div>
-            {v.kind === "icon" ? (
-              <Orb size={32} grad={v.color}><Ic name={v.icon} size={14} /></Orb>
-            ) : (
-              <Avatar name={v.name} index={v.index} size={32} />
-            )}
             <div style={{ flex: 1, minWidth: 0 }}>
               <div style={{ fontSize: 14, fontWeight: 600, color: C.ink }}>{entryLabel(book, e)}</div>
-              {e.note && <div style={{ fontSize: 12, color: C.muted, whiteSpace: "nowrap", overflow: "hidden", textOverflowe: "ellipsis" }}>{e.note}</div>}
+              {e.note && <div style={{ fontSize: 12, color: C.muted, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{e.note}</div>}
             </div>
             <div style={{ fontSize: 14, fontWeight: 700, color: entrySign(e) > 0 ? C.green : C.red, fontVariantNumeric: "tabular-nums" }}>
               {entrySign(e) > 0 ? "+" : "−"}{money(book, e.amount)}
@@ -4468,12 +4384,10 @@ function HoldingDetailPage({ book, prices, holdingId, onEdit, onAdd }) {
       <div style={{ margin: "16px 0 8px", ...st.section }}>Recent activity</div>
       <div style={{ ...glass(18), overflow: "hidden", marginBottom: 8 }}>
         {related.map((e, i) => {
-          const ev = entryVisual(book, e);
           return (
             <div key={e.id} className="cb-row cb-press" onClick={() => onEdit(e)}
               style={{ display: "flex", alignItems: "center", gap: 10, padding: "11px 16px", borderTop: i ? `1px solid ${C.line}` : "none", cursor: "pointer" }}>
               <div style={{ width: 52, fontSize: 11, color: C.faint, fontWeight: 600, flexShrink: 0 }}>{prettyDate(e.date).replace(/^\w+, /, "")}</div>
-              <Orb size={32} grad={ev.color}><Ic name={ev.icon} size={14} /></Orb>
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div style={{ fontSize: 14, fontWeight: 600, color: C.ink }}>{entryLabel(book, e)}</div>
                 <div style={{ fontSize: 12, color: C.muted, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
@@ -4498,10 +4412,9 @@ function HoldingDetailPage({ book, prices, holdingId, onEdit, onAdd }) {
   );
 }
 /* ────────────────────────── Setup suite ────────────────────────── */
-function SetupRow({ grad, icon, title, sub, onClick, last }) {
+function SetupRow({ title, sub, onClick, last }) {
   return (
     <div className="cb-press" onClick={onClick} style={{ display: "flex", alignItems: "center", gap: 12, padding: "13px 16px", borderTop: last === 0 ? "none" : `1px solid ${C.line}`, cursor: "pointer" }}>
-      <Orb size={38} radius={11} grad={grad}><Ic name={icon} size={16} /></Orb>
       <div style={{ flex: 1 }}>
         <div style={{ fontSize: 14.5, fontWeight: 700, color: C.ink }}>{title}</div>
         <div style={{ fontSize: 11.5, color: C.muted, marginTop: 1 }}>{sub}</div>
@@ -4521,22 +4434,22 @@ function SetupHub({ book, go }) {
       <div style={st.sub}>Accounts, categories, preferences, and your data</div>
       <div style={st.eyebrow}>Account</div>
       <div style={{ ...glass(18), marginBottom: 18, overflow: "hidden", background: C.glassSoft, border: C.borderSoft }}>
-        <SetupRow last={0} grad={C.skyGrad} icon="bank" title="Accounts" sub={`${book.bsAccounts.length + 1} linked`} onClick={() => go("setupAccounts")} />
-        <SetupRow grad={C.grad} icon="tag" title="Categories" sub={`${cats} categories`} onClick={() => go("setupCategories")} />
-        <SetupRow grad={C.tealGrad} icon="people" title="Parties" sub={`${book.parties.length} people`} onClick={() => go("setupParties")} />
-        <SetupRow grad={C.amberGrad} icon="coins" title="Holdings" sub={`${(book.holdings || []).length} tracked`} onClick={() => go("setupHoldings")} />
-        <SetupRow grad={C.skyGrad} icon="plane" title="Trips" sub={`${(book.trips || []).length} tracked`} onClick={() => go("setupTrips")} />
+        <SetupRow last={0} title="Accounts" sub={`${book.bsAccounts.length + 1} linked`} onClick={() => go("setupAccounts")} />
+        <SetupRow title="Categories" sub={`${cats} categories`} onClick={() => go("setupCategories")} />
+        <SetupRow title="Parties" sub={`${book.parties.length} people`} onClick={() => go("setupParties")} />
+        <SetupRow title="Holdings" sub={`${(book.holdings || []).length} tracked`} onClick={() => go("setupHoldings")} />
+        <SetupRow title="Trips" sub={`${(book.trips || []).length} tracked`} onClick={() => go("setupTrips")} />
       </div>
       <div style={st.eyebrow}>Preferences</div>
       <div style={{ ...glass(18), marginBottom: 18, overflow: "hidden", background: C.glassSoft, border: C.borderSoft }}>
-        <SetupRow last={0} grad={C.grad} icon="grid" title="Appearance" sub={`Emerald Gold · ${THEMES[book.prefs.theme || "dark"].tagline}`} onClick={() => go("setupTheme")} />
-        <SetupRow grad={C.amberGrad} icon="calendar" title="Currency & Date" sub={`${book.prefs.currency} · ${{ dmy: "DD-MM-YYYY", mdy: "MM-DD-YYYY", ymd: "YYYY-MM-DD" }[book.prefs.dateFmt]}`} onClick={() => go("setupPrefs")} />
-        <SetupRow grad={C.redGrad} icon="bell" title="Notifications" sub={`${notifCount} enabled`} onClick={() => go("setupNotifs")} />
-        <SetupRow grad={C.indigoGrad} icon="shield" title="Security" sub={lock.on && lock.pin ? "App lock on" : "App lock off"} onClick={() => go("setupSecurity")} />
+        <SetupRow last={0} title="Appearance" sub={THEMES[book.prefs.theme || "dark"].label} onClick={() => go("setupTheme")} />
+        <SetupRow title="Currency & Date" sub={`${book.prefs.currency} · ${{ dmy: "DD-MM-YYYY", mdy: "MM-DD-YYYY", ymd: "YYYY-MM-DD" }[book.prefs.dateFmt]}`} onClick={() => go("setupPrefs")} />
+        <SetupRow title="Notifications" sub={`${notifCount} enabled`} onClick={() => go("setupNotifs")} />
+        <SetupRow title="Security" sub={lock.on && lock.pin ? "App lock on" : "App lock off"} onClick={() => go("setupSecurity")} />
       </div>
       <div style={st.eyebrow}>Data</div>
       <div style={{ ...glass(18), overflow: "hidden", background: C.glassSoft, border: C.borderSoft }}>
-        <SetupRow last={0} grad={C.grayGrad} icon="download" title="Backup & Data" sub="Export, import, or reset" onClick={() => go("setupData")} />
+        <SetupRow last={0} title="Backup & Data" sub="Export, import, or reset" onClick={() => go("setupData")} />
       </div>
       <div style={{ height: 10 }} />
     </div>
@@ -4767,14 +4680,12 @@ function SetupHoldingsPage({ book, up, instruments }) {
         Tap a group to expand it. Tap a holding to correct its opening units/cost, rename inline, or remove it.
       </div>
       {groups.map(({ kind, items }) => {
-        const v = HOLDING_VISUALS[kind];
         const open = openGroup === kind;
         const subtotal = items.reduce((s, h) => s + h.costBasis, 0);
         return (
           <div key={kind} style={{ ...glass(18), padding: "4px 16px", marginBottom: 12, background: C.glassSoft, border: C.borderSoft }}>
             <div className="cb-press" onClick={() => setOpenGroup(open ? null : kind)}
               style={{ display: "flex", alignItems: "center", gap: 10, padding: "12px 0", cursor: "pointer" }}>
-              <Orb size={34} grad={`linear-gradient(135deg, ${v.color}, ${v.color}99)`}><Ic name={v.icon} size={15} /></Orb>
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div style={{ fontSize: 14.5, fontWeight: 700, color: C.ink }}>{INVEST_KIND_LABEL[kind]}</div>
                 <div style={{ fontSize: 11.5, color: C.muted, marginTop: 1 }}>
@@ -4790,7 +4701,7 @@ function SetupHoldingsPage({ book, up, instruments }) {
               return (
                 <div key={h.id} className="cb-press" onClick={() => setSheet(h.id)}
                   style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 0", borderTop: `1px solid ${C.line}`, cursor: "pointer" }}>
-                  <div onClick={(e) => e.stopPropagation()} style={{ flex: 1, minWidth: 0, paddingLeft: 44 }}>
+                  <div onClick={(e) => e.stopPropagation()} style={{ flex: 1, minWidth: 0 }}>
                     <NameEditor value={h.label} onCommit={(n) => renameHolding(h.id, n)} />
                   </div>
                   <RoundBtn style={{ width: 32, height: 32, opacity: removable ? 1 : 0.35 }} aria-label={`Remove ${h.label}`} disabled={!removable}
@@ -5169,7 +5080,7 @@ function SetupThemePage({ book, up }) {
   return (
     <div className="cb-stagger">
       <div style={{ fontSize: 12, color: C.muted, padding: "0 2px 12px" }}>
-        Emerald Gold, light or dark. Takes effect immediately.
+        Royal Sapphire, light or dark. Takes effect immediately.
       </div>
       {Object.entries(THEMES).map(renderCard)}
     </div>
@@ -5979,14 +5890,17 @@ function Splash({ leaving }) {
     <div
       className={leaving ? "cb-splash-out" : ""}
       style={{
-        position: "fixed", inset: 0, zIndex: 50, background: C.bg,
+        position: "fixed", inset: 0, zIndex: 50, background: C.bg, overflow: "hidden",
         display: "flex", flexDirection: "column", alignItems: "center",
         justifyContent: "center", gap: 14, fontFamily: F.sans,
       }}
     >
+      <div style={{ position: "absolute", inset: 0, backgroundImage: `url(${C.bgImage})`, backgroundSize: "cover", backgroundPosition: "center" }} />
+      <div style={{ position: "absolute", inset: 0, background: `radial-gradient(circle at 50% 40%, transparent 0%, ${C.bg} 80%)` }} />
       <div
         className="cb-splash-glyph"
         style={{
+          position: "relative",
           width: 96, height: 96, borderRadius: 26, background: C.grad,
           border: "1px solid rgba(255,255,255,.2)",
           boxShadow: `0 24px 50px -16px ${alpha(C.accentDeep, .7)}`,
@@ -5996,7 +5910,7 @@ function Splash({ leaving }) {
       >
         ₹
       </div>
-      <div className="cb-splash-name" style={{ textAlign: "center" }}>
+      <div className="cb-splash-name" style={{ textAlign: "center", position: "relative" }}>
         <div style={{ fontSize: 22, fontWeight: 800, color: C.ink }}>Cash Book</div>
         <div style={{ fontSize: 12, color: C.muted, fontWeight: 600, marginTop: 3 }}>Your Financial Command Center</div>
       </div>
@@ -6055,6 +5969,8 @@ function LockScreen({ pin, onUnlock }) {
       padding: "18vh 28px calc(30px + env(safe-area-inset-bottom))",
       fontFamily: F.sans,
     }}>
+      <div style={{ position: "absolute", inset: 0, backgroundImage: `url(${C.bgImage})`, backgroundSize: "cover", backgroundPosition: "center" }} />
+      <div style={{ position: "absolute", inset: 0, background: `radial-gradient(circle at 50% 28%, transparent 0%, ${C.bg} 80%)` }} />
       <div className="cb-glow-breathe" style={{
         position: "absolute", top: -140, left: "50%", width: 420, height: 420, borderRadius: 999,
         background: `radial-gradient(circle, ${alpha(C.accent, .30)}, ${alpha(C.accentDeep, .08)} 55%, transparent 72%)`,
@@ -6064,13 +5980,13 @@ function LockScreen({ pin, onUnlock }) {
         <div style={{ fontSize: 26, fontWeight: 700, color: C.ink, letterSpacing: "-0.01em" }}>{lockGreeting()}</div>
         <div style={{ fontSize: 12.5, color: C.muted, fontWeight: 600, marginTop: 6 }}>{prettyDate(today())}</div>
       </div>
-      <div style={{ marginTop: 22 }}>
+      <div style={{ marginTop: 22, position: "relative" }}>
         <Orb size={38} radius={11} grad={C.grad} shadow={`0 10px 20px -8px ${alpha(C.accentDeep, .6)}`}>
           <span style={{ fontSize: 16, fontWeight: 800, color: "#fff" }}>₹</span>
         </Orb>
       </div>
-      <div style={{ fontSize: 14.5, fontWeight: 700, color: C.soft, marginTop: 14 }}>Enter Passcode</div>
-      <div style={{ fontSize: 12, color: C.red, fontWeight: 700, marginTop: 6, height: 14 }}>
+      <div style={{ fontSize: 14.5, fontWeight: 700, color: C.soft, marginTop: 14, position: "relative" }}>Enter Passcode</div>
+      <div style={{ fontSize: 12, color: C.red, fontWeight: 700, marginTop: 6, height: 14, position: "relative" }}>
         {status === "wrong" ? "Wrong passcode, try again" : ""}
       </div>
       <div className={status === "wrong" ? "cb-shake" : undefined} style={{ display: "flex", gap: 16, marginTop: 20, position: "relative" }}>
@@ -6159,8 +6075,8 @@ const TABS = [
   { id: "owed", label: "Owed", icon: "people" },
   { id: "travel", label: "Travel", icon: "plane" },
   { id: "tx", label: "Transactions", icon: "swap" },
-  { id: "reports", label: "Reports", icon: "pie" },
-  { id: "setup", label: "Setup", icon: "gear" },
+  { id: "reports", label: "Reports", icon: "bars" },
+  { id: "setup", label: "Setup", icon: "sliders" },
 ];
 
 const PAGE_TITLES = {
@@ -6536,7 +6452,7 @@ export default function CashBook() {
                 <RoundBtn aria-label="Search transactions" onClick={() => switchTab("tx")}>
                   <Ic name="search" size={15} stroke={C.soft} />
                 </RoundBtn>
-                <RoundBtn aria-label="Notifications" style={{ position: "relative" }} onClick={() => go("notifications")}>
+                <RoundBtn aria-label="Notifications" style={{ position: "relative", boxShadow: C.iconGlow }} onClick={() => go("notifications")}>
                   <Ic name="bell" size={15} stroke={C.soft} />
                   {notifCount > 0 && (
                     <span style={{
@@ -6565,6 +6481,7 @@ export default function CashBook() {
                 onAdd={() => setEntrySheet({ initial: null })}
                 setTab={switchTab}
                 prices={prices}
+                onOpenInvestments={() => setInvestmentsOpen(true)}
               />
             )
             : tab === "owed" ? (
@@ -6609,8 +6526,12 @@ export default function CashBook() {
                     className={active ? "cb-chip-pop" : undefined}
                     style={{
                       display: "flex", alignItems: "center", justifyContent: "center",
-                      width: 30, height: 26, borderRadius: 999,
-                      background: active ? C.accentSoft : "transparent",
+                      // Sized exactly to the icon (not a larger pill) so the
+                      // glow -- dark-mode only, C.iconGlow resolves to "none"
+                      // in light -- adds zero layout footprint either way.
+                      width: 19, height: 19, borderRadius: 999,
+                      background: active ? C.iconBg : "transparent",
+                      boxShadow: active ? C.iconGlow : "none",
                     }}
                   >
                     <Ic name={tb.icon} size={19} stroke={active ? C.accentText : C.faint} sw={active ? 2.4 : 2} />

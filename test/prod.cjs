@@ -164,26 +164,6 @@ async function main() {
   assert.strictEqual(empty.spent, 0, "a trip with no tagged entries spends 0");
   assert.strictEqual(empty.count, 0, "a trip with no tagged entries has 0 count");
 
-  // Row icon/color: curated category, Suspense, transfer, party, and an
-  // unmatched custom head all resolve to something renderable.
-  const db3 = { ...db2, parties: [{ id: "p1", name: "Alex" }], bsAccounts: [{ name: "Investments", kind: "asset" }] };
-  const rentVisual = E.entryVisual(db3, { type: "out", head: "Rent" });
-  assert.deepStrictEqual([rentVisual.kind, rentVisual.icon], ["icon", "home"], "Rent matches the curated home icon");
-  const suspenseVisual = E.entryVisual(db3, { type: "out", head: "Suspense" });
-  assert.strictEqual(suspenseVisual.icon, "tag", "unexplained entries get the neutral tag icon");
-  const partyVisual = E.entryVisual(db3, { type: "party", partyId: "p1", dir: "out" });
-  assert.deepStrictEqual([partyVisual.kind, partyVisual.name], ["avatar", "Alex"], "party entries show that party's own avatar");
-  const transferVisual = E.entryVisual(db3, { type: "transfer", account: "Investments", dir: "out" });
-  assert.deepStrictEqual([transferVisual.kind, transferVisual.icon], ["icon", "trend"], "an Investments transfer matches the curated invest icon");
-  const customVisual = E.entryVisual(db3, { type: "out", head: "Golf Club Dues" });
-  assert.strictEqual(customVisual.kind, "avatar", "an unmatched custom head falls back to a colored-letter avatar");
-  assert.strictEqual(customVisual.name, "Golf Club Dues");
-  assert.strictEqual(
-    E.entryVisual(db3, { type: "out", head: "Golf Club Dues" }).index,
-    customVisual.index,
-    "the fallback color is deterministic for the same head"
-  );
-
   // Investment holdings: a buy with a charge splits between cost basis and
   // the Finance charges expense; a later partial sell realizes a gain
   // (proceeds vs. the proportional average cost of the units sold) into
@@ -442,30 +422,34 @@ async function main() {
   assert.ok(fresh.parties.length >= 2, "placeholder parties seeded");
   assert.strictEqual(fresh.prefs.bankName, "Bank", "fresh books default the primary account's display name to Bank");
 
-  // Theme: the 5-theme picker was replaced by a single "Emerald Gold" glass
-  // identity with a light/dark pair. applyTheme swaps the shared C token
-  // object's FULL palette in place (accent family + bg/ink/surface/overlay
-  // tokens) -- the mechanism the whole live theme-switcher relies on.
-  assert.strictEqual(fresh.prefs.theme, "dark", "fresh books default to the dark Emerald Gold theme");
-  assert.ok(E.THEMES && E.THEMES.dark && E.THEMES.light, "both Emerald Gold theme entries are registered");
+  // Theme: a single "Royal Sapphire" (dark) / "Navy Professional" (light)
+  // glass identity with a light/dark pair. applyTheme swaps the shared C
+  // token object's FULL palette in place (accent family + bg/ink/surface/
+  // overlay/decorative-color tokens) -- the mechanism the whole live
+  // theme-switcher relies on.
+  assert.strictEqual(fresh.prefs.theme, "dark", "fresh books default to the dark Royal Sapphire theme");
+  assert.ok(E.THEMES && E.THEMES.dark && E.THEMES.light, "both theme entries are registered");
   assert.strictEqual(E.THEMES.dark.mode, "dark");
   assert.strictEqual(E.THEMES.light.mode, "light");
 
   E.applyTheme("light");
-  assert.strictEqual(E.C.accent, "#10b981", "applyTheme('light') swaps C.accent to the light Emerald Gold accent");
-  assert.strictEqual(E.C.grad, "linear-gradient(135deg,#10b981,#065f46)", "C.grad follows the active theme too");
+  assert.strictEqual(E.C.accent, "#16357a", "applyTheme('light') swaps C.accent to the Navy Professional accent");
+  assert.strictEqual(E.C.grad, "linear-gradient(135deg,#16357a,#0b1d45)", "C.grad follows the active theme too");
   assert.strictEqual(E.C.mode, "light", "a light theme flips C.mode");
   assert.strictEqual(E.C.colorScheme, "light", "a light theme flips the native form-control color-scheme too");
-  assert.strictEqual(E.C.bg, "#eef7f2", "a light theme actually changes the background, not just the accent");
-  assert.notStrictEqual(E.C.ink, "#eafdf6", "ink flips to a dark color on the light theme (not the dark theme's near-white)");
-  assert.ok(/^rgba\(12,33,28,/.test(E.C.overlayBorder), "the light theme's overlay scale is ink-tinted, not the dark theme's white-based scale");
+  assert.strictEqual(E.C.bg, "#f3f5f9", "a light theme actually changes the background, not just the accent");
+  assert.notStrictEqual(E.C.ink, "#eef3fb", "ink flips to a dark color on the light theme (not the dark theme's near-white)");
+  assert.ok(/^rgba\(11,24,53,/.test(E.C.overlayBorder), "the light theme's overlay scale is ink-tinted, not the dark theme's white-based scale");
+  assert.strictEqual(E.C.dc[0], "#16357a", "light mode's decorative-color slots are navy tints");
+  assert.strictEqual(E.C.iconGlow, "none", "light mode's icon glow is a guaranteed no-op");
 
   E.applyTheme("dark");
-  assert.strictEqual(E.C.accent, "#34d399", "applyTheme('dark') restores the dark Emerald Gold accent");
-  assert.strictEqual(E.C.bg, "#061410", "switching back to dark restores the dark background");
+  assert.strictEqual(E.C.accent, "#3b82f6", "applyTheme('dark') restores the dark Royal Sapphire accent");
+  assert.strictEqual(E.C.bg, "#050912", "switching back to dark restores the dark background");
   assert.strictEqual(E.C.mode, "dark", "switching back to dark restores dark mode");
+  assert.strictEqual(E.C.dc[0], "#3b82f6", "dark mode's decorative-color slots keep the vivid hue");
   E.applyTheme("nonexistent");
-  assert.strictEqual(E.C.accent, "#34d399", "an unknown theme name falls back to dark rather than throwing");
+  assert.strictEqual(E.C.accent, "#3b82f6", "an unknown theme name falls back to dark rather than throwing");
 
   console.log("ok — app renders and the balance sheet foots to the rupee");
   window.close();
@@ -518,7 +502,7 @@ async function main() {
     readBack.onerror = () => reject(readBack.error);
   });
   assert.strictEqual(migratedBook.v, 10, "a v6 book is migrated to v10 on load");
-  assert.strictEqual(migratedBook.prefs.theme, "dark", "the v7+v10 migrations backfill prefs.theme to the dark Emerald Gold default");
+  assert.strictEqual(migratedBook.prefs.theme, "dark", "the v7+v10 migrations backfill prefs.theme to the dark default");
   assert.deepStrictEqual(migratedBook.trips, [], "the v8 migration backfills an empty trips array");
   assert.strictEqual(migratedBook.prefs.bankName, "Bank", "the v9 migration backfills prefs.bankName to Bank");
 
