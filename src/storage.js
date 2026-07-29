@@ -128,6 +128,15 @@ const MIGRATIONS = [
     if (!book.prefs.bankName) book.prefs.bankName = "Bank";
     return book;
   },
+  // v10: the 5-theme picker (Blue/Violet/Paper White/Mint Air/Rose Quartz)
+  // is replaced by a single "Emerald Gold" glass identity with a light/dark
+  // pair — remap any existing saved value onto the new "dark"/"light" keys
+  // by the mode it used to be (dark themes -> dark, light themes -> light).
+  (book) => {
+    const wasLight = book.prefs.theme === "paperWhite" || book.prefs.theme === "mintAir" || book.prefs.theme === "roseQuartz";
+    book.prefs.theme = wasLight ? "light" : "dark";
+    return book;
+  },
 ];
 
 // Starter keywords for the local importer; the review screen adds to these

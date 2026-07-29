@@ -56,81 +56,46 @@ function alpha(hex, a) {
   return `rgba(${r},${g},${b},${a})`;
 }
 
-// "Blue" (default) is a deep indigo -- deliberately NOT the same hue as
-// C.blueGrad (bank iconography, #60a5fa/#2563eb, fixed/non-theme), which
-// is what keeps bank vs. credit-card visually distinct once neither is
-// violet. Reuses the exact hex pair already shipped as C.indigoGrad.
-//
-// Each theme carries its FULL palette, not just the accent -- mode:
-// "dark"/"light" plus every surface/text/overlay token below. Blue and
-// Violet's non-accent fields are today's exact original literals
-// (verbatim), so the two dark themes already shipped are pixel-unchanged.
-// Paper White / Mint Air / Rose Quartz are real light palettes: solid-ish
-// light surfaces instead of translucent-white glass (translucent white on
-// a light background has no contrast), and a dark-on-light overlay scale
-// (overlayTint flips from white to a per-theme dark/accent hue).
+// Single theme identity ("Emerald Gold" glass) with a light/dark pair --
+// replaces the old 5-theme picker (Blue/Violet/Paper White/Mint Air/Rose
+// Quartz). Both entries carry the FULL legacy palette shape (every field
+// below was already read by ~700 call sites across the file via C.xxx),
+// so recoloring is safe everywhere immediately -- no call site needs to
+// change. `gold`/`goldDeep`/`bgImage`/`stripeGrad`/`heavyGlassFill` are
+// NEW fields, additive, used only by the glass/photo treatment currently
+// built for Dashboard (src/CashBook.jsx DashHome/AccountCard) -- other
+// tabs simply ignore them until their own redesign round.
 export const THEMES = {
-  blue: {
-    label: "Blue", swatch: "linear-gradient(135deg,#6366f1,#4338ca)", mode: "dark", tagline: "New default",
-    accent: "#6366f1", accentDeep: "#4338ca", accentText: "#c7d2fe",
-    bg: "#050308", ink: "#f1ecfb", soft: "#e4d9f5", muted: "#a99cc9", faint: "#8a7fae",
-    glass: "linear-gradient(160deg, rgba(255,255,255,.10), rgba(255,255,255,.02))",
-    glassSoft: "linear-gradient(160deg, rgba(255,255,255,.09), rgba(255,255,255,.02))",
-    border: "1px solid rgba(255,255,255,.14)", borderSoft: "1px solid rgba(255,255,255,.10)",
+  dark: {
+    label: "Emerald Gold", swatch: "linear-gradient(135deg,#34d399,#d4a017)", mode: "dark", tagline: "Dark",
+    accent: "#34d399", accentDeep: "#10b981", accentText: "#6ee7b7",
+    gold: "#fbbf24", goldDeep: "#d97706",
+    bg: "#061410", ink: "#eafdf6", soft: "#cfe8dd", muted: "#93b3a7", faint: "#587067",
+    glass: "linear-gradient(160deg, rgba(255,255,255,.09), rgba(255,255,255,.02))",
+    glassSoft: "linear-gradient(160deg, rgba(255,255,255,.07), rgba(255,255,255,.02))",
+    border: "1px solid rgba(255,255,255,.11)", borderSoft: "1px solid rgba(255,255,255,.08)",
     line: "rgba(255,255,255,.08)", chip: "rgba(255,255,255,.06)", tile: "rgba(255,255,255,.05)",
-    shadow: "0 20px 40px -22px rgba(0,0,0,.6)",
-    sheetBg: "linear-gradient(170deg,#171029,#0c0716)", navBg: "rgba(13,10,23,.94)", headerBg: "rgba(6,4,10,.55)",
-    green: "#6ee7b7", red: "#fda4af", amberText: "#fbbf24", dangerTint: "#fb7185", successTint: "#6ee7b7",
+    shadow: "0 24px 54px -24px rgba(0,0,0,.75)",
+    sheetBg: "linear-gradient(170deg,#0d2b22,#061410)", navBg: "rgba(6,20,16,.94)", headerBg: "rgba(3,10,8,.55)",
+    green: "#34d399", red: "#f87171", amberText: "#fbbf24", dangerTint: "#f87171", successTint: "#34d399",
     overlayTint: "#ffffff", overlayWash: "rgba(255,255,255,.06)", overlayBorder: "rgba(255,255,255,.16)", overlayStrong: "rgba(255,255,255,.22)",
+    bgImage: "bg-emerald.png", heavyGlassFill: "rgba(255,255,255,.06)", scrim: "rgba(3,12,10,.34)",
+    stripeGrad: "linear-gradient(90deg,#10b981,#d4a017,#fde68a)",
   },
-  violet: {
-    label: "Violet", swatch: "linear-gradient(135deg,#a78bfa,#6d28d9)", mode: "dark", tagline: "The original look",
-    accent: "#a78bfa", accentDeep: "#6d28d9", accentText: "#c4a6ff",
-    bg: "#050308", ink: "#f1ecfb", soft: "#e4d9f5", muted: "#a99cc9", faint: "#8a7fae",
-    glass: "linear-gradient(160deg, rgba(255,255,255,.10), rgba(255,255,255,.02))",
-    glassSoft: "linear-gradient(160deg, rgba(255,255,255,.09), rgba(255,255,255,.02))",
-    border: "1px solid rgba(255,255,255,.14)", borderSoft: "1px solid rgba(255,255,255,.10)",
-    line: "rgba(255,255,255,.08)", chip: "rgba(255,255,255,.06)", tile: "rgba(255,255,255,.05)",
-    shadow: "0 20px 40px -22px rgba(0,0,0,.6)",
-    sheetBg: "linear-gradient(170deg,#171029,#0c0716)", navBg: "rgba(13,10,23,.94)", headerBg: "rgba(6,4,10,.55)",
-    green: "#6ee7b7", red: "#fda4af", amberText: "#fbbf24", dangerTint: "#fb7185", successTint: "#6ee7b7",
-    overlayTint: "#ffffff", overlayWash: "rgba(255,255,255,.06)", overlayBorder: "rgba(255,255,255,.16)", overlayStrong: "rgba(255,255,255,.22)",
-  },
-  paperWhite: {
-    label: "Paper White", swatch: "linear-gradient(135deg,#4f46e5,#4338ca)", mode: "light", tagline: "The most direct light mode",
-    accent: "#4f46e5", accentDeep: "#4338ca", accentText: "#3730a3",
-    bg: "#f6f5f3", ink: "#181521", soft: "#3d3850", muted: "#6b6478", faint: "#948da0",
-    glass: "linear-gradient(170deg,#ffffff,#fbfaf9)", glassSoft: "linear-gradient(170deg,#fdfcfb,#f7f6f4)",
-    border: "1px solid rgba(0,0,0,.07)", borderSoft: "1px solid rgba(0,0,0,.045)",
-    line: "rgba(0,0,0,.06)", chip: "rgba(0,0,0,.045)", tile: "rgba(0,0,0,.035)",
-    shadow: "0 20px 40px -22px rgba(24,21,33,.18)",
-    sheetBg: "linear-gradient(170deg,#ffffff,#f4f3f1)", navBg: "rgba(255,255,255,.92)", headerBg: "rgba(255,255,255,.82)",
-    green: "#047857", red: "#dc2626", amberText: "#b45309", dangerTint: "#dc2626", successTint: "#047857",
-    overlayTint: "#000000", overlayWash: "rgba(0,0,0,.045)", overlayBorder: "rgba(0,0,0,.10)", overlayStrong: "rgba(0,0,0,.16)",
-  },
-  mintAir: {
-    label: "Mint Air", swatch: "linear-gradient(135deg,#0d9488,#0f766e)", mode: "light", tagline: "A fresh new accent",
-    accent: "#0d9488", accentDeep: "#0f766e", accentText: "#0f766e",
-    bg: "#f0f9f6", ink: "#0d251f", soft: "#1f5347", muted: "#5c8a7e", faint: "#84a89b",
-    glass: "linear-gradient(170deg,#ffffff,#f7fdfb)", glassSoft: "linear-gradient(170deg,#fdfffe,#f2faf7)",
-    border: "1px solid rgba(13,148,136,.10)", borderSoft: "1px solid rgba(13,148,136,.06)",
-    line: "rgba(13,148,136,.08)", chip: "rgba(13,148,136,.07)", tile: "rgba(13,148,136,.05)",
-    shadow: "0 20px 40px -22px rgba(13,37,31,.16)",
-    sheetBg: "linear-gradient(170deg,#ffffff,#f1f9f6)", navBg: "rgba(255,255,255,.92)", headerBg: "rgba(240,249,246,.82)",
-    green: "#047857", red: "#dc2626", amberText: "#b45309", dangerTint: "#dc2626", successTint: "#047857",
-    overlayTint: "#0d9488", overlayWash: "rgba(13,148,136,.06)", overlayBorder: "rgba(13,148,136,.12)", overlayStrong: "rgba(13,148,136,.18)",
-  },
-  roseQuartz: {
-    label: "Rose Quartz", swatch: "linear-gradient(135deg,#be123c,#9f1239)", mode: "light", tagline: "The softest option",
-    accent: "#be123c", accentDeep: "#9f1239", accentText: "#9f1239",
-    bg: "#fbf1f3", ink: "#33101a", soft: "#6b3341", muted: "#96707c", faint: "#b596a0",
-    glass: "linear-gradient(170deg,#fffafb,#fdf5f7)", glassSoft: "linear-gradient(170deg,#fffbfc,#faf1f3)",
-    border: "1px solid rgba(190,18,60,.09)", borderSoft: "1px solid rgba(190,18,60,.05)",
-    line: "rgba(190,18,60,.07)", chip: "rgba(190,18,60,.06)", tile: "rgba(190,18,60,.04)",
-    shadow: "0 20px 40px -22px rgba(51,16,26,.16)",
-    sheetBg: "linear-gradient(170deg,#fffafb,#fbf0f2)", navBg: "rgba(255,250,251,.92)", headerBg: "rgba(251,241,243,.82)",
-    green: "#047857", red: "#dc2626", amberText: "#b45309", dangerTint: "#dc2626", successTint: "#047857",
-    overlayTint: "#be123c", overlayWash: "rgba(190,18,60,.05)", overlayBorder: "rgba(190,18,60,.11)", overlayStrong: "rgba(190,18,60,.17)",
+  light: {
+    label: "Emerald Gold", swatch: "linear-gradient(135deg,#10b981,#d4a017)", mode: "light", tagline: "Light",
+    accent: "#10b981", accentDeep: "#065f46", accentText: "#065f46",
+    gold: "#d4a017", goldDeep: "#92400e",
+    bg: "#eef7f2", ink: "#0c211c", soft: "#2f4d45", muted: "#5c7a72", faint: "#8fada4",
+    glass: "linear-gradient(170deg,#ffffff,#f4faf7)", glassSoft: "linear-gradient(170deg,#fdfffe,#f1f8f5)",
+    border: "1px solid rgba(12,33,28,.08)", borderSoft: "1px solid rgba(12,33,28,.05)",
+    line: "rgba(12,33,28,.06)", chip: "rgba(12,33,28,.045)", tile: "rgba(12,33,28,.035)",
+    shadow: "0 26px 50px -18px rgba(6,95,70,.22), 0 10px 22px -12px rgba(12,33,28,.16)",
+    sheetBg: "linear-gradient(170deg,#ffffff,#eff7f3)", navBg: "rgba(255,255,255,.92)", headerBg: "rgba(238,247,242,.82)",
+    green: "#059669", red: "#dc2626", amberText: "#b45309", dangerTint: "#dc2626", successTint: "#059669",
+    overlayTint: "#000000", overlayWash: "rgba(12,33,28,.045)", overlayBorder: "rgba(12,33,28,.10)", overlayStrong: "rgba(12,33,28,.16)",
+    bgImage: "bg-emerald.png", heavyGlassFill: "rgba(255,255,255,.68)", scrim: "rgba(244,250,247,.88)",
+    stripeGrad: "linear-gradient(90deg,#10b981,#d4a017,#fde68a)",
   },
 };
 
@@ -154,6 +119,9 @@ function deriveTokens(t) {
     overlayTint: t.overlayTint, overlayWash: t.overlayWash, overlayBorder: t.overlayBorder, overlayStrong: t.overlayStrong,
     // legacy aliases still used by the money-direction coloring
     credit: t.green, debit: t.red,
+    // Glass/photo treatment (currently Dashboard-only, see THEMES comment).
+    gold: t.gold, goldDeep: t.goldDeep, bgImage: t.bgImage,
+    heavyGlassFill: t.heavyGlassFill, scrim: t.scrim, stripeGrad: t.stripeGrad,
   };
 }
 
@@ -161,13 +129,13 @@ function deriveTokens(t) {
 // every existing C.xxx call site across the file keeps working unchanged
 // and becomes theme-reactive automatically).
 export function applyTheme(name) {
-  Object.assign(C, deriveTokens(THEMES[name] || THEMES.blue));
+  Object.assign(C, deriveTokens(THEMES[name] || THEMES.dark));
 }
 
 export const THEME_LS_KEY = "cb-theme";
 
 export const C = {
-  ...deriveTokens(THEMES.blue),
+  ...deriveTokens(THEMES.dark),
   // fixed brand-color icon-orb gradients (account-type/category
   // iconography) -- unrelated to the app's theme, never re-derived.
   greenGrad: "linear-gradient(135deg,#34d399,#047857)",
@@ -182,19 +150,24 @@ export const C = {
   amber: "#fbbf24",
 };
 
-// Boot-time fast-path: applies a returning user's saved theme before the
-// async loadBook() IndexedDB read resolves, so the very first frame (the
-// Splash screen) doesn't always flash Blue first. book.prefs.theme
-// remains the actual source of truth -- this is just a boot cache, kept
-// in sync by the root component's theme effect.
+// Boot-time fast-path: applies a returning user's saved mode (light/dark)
+// before the async loadBook() IndexedDB read resolves, so the very first
+// frame (the Splash screen) doesn't always flash the dark default first.
+// book.prefs.theme remains the actual source of truth -- this is just a
+// boot cache, kept in sync by the root component's theme effect.
 try {
   const savedTheme = typeof localStorage !== "undefined" ? localStorage.getItem(THEME_LS_KEY) : null;
   if (savedTheme && THEMES[savedTheme]) applyTheme(savedTheme);
 } catch {}
 
+// F.serif (Gloock) is the Emerald Gold glass design's heading/label face --
+// currently used by Dashboard only (see THEMES comment); every other
+// screen still reads F.sans (Plus Jakarta Sans) unchanged. F.mono
+// (JetBrains Mono) is for tabular money figures on the same glass cards.
 export const F = {
-  serif: '"Plus Jakarta Sans", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif',
+  serif: '"Gloock", serif',
   sans: '"Plus Jakarta Sans", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif',
+  mono: '"JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace',
 };
 
 /* Keyframes and state-driven styles (:active, :focus) can't be inline —
@@ -644,7 +617,7 @@ export function defaultBook() {
       dateFmt: "dmy",
       notifs: { backup: true, suspense: true, dues: true },
       lock: { on: false, pin: "" },
-      theme: "blue",
+      theme: "dark",
       bankName: "Bank",
     },
     budgets: {},
@@ -1774,13 +1747,18 @@ function AccountCard({ book, acc, active, onImport, onTransactions, pending, onV
     ? `0 22px 46px -22px ${alpha(C.accentDeep, .4)}`
     : "0 22px 46px -22px rgba(37,99,235,.35)";
   const grainBg = {
-    backgroundImage: "radial-gradient(rgba(255,255,255,.045) 1px, transparent 1px)",
+    backgroundImage: `radial-gradient(${alpha(C.overlayTint, .045)} 1px, transparent 1px)`,
     backgroundSize: "3px 3px",
   };
+  // Glass card matching the surrounding theme (light or dark), backed by
+  // the tab's own background image via backdrop-filter blur -- previously
+  // a fixed always-dark "physical card" face; the Emerald Gold glass
+  // design reads the bank/credit-card face as just another glass surface.
   const face = {
     position: "absolute", inset: 0, backfaceVisibility: "hidden",
     WebkitBackfaceVisibility: "hidden", borderRadius: 22, boxSizing: "border-box",
-    display: "flex", flexDirection: "column", overflow: "hidden", background: "#0a0712",
+    display: "flex", flexDirection: "column", overflow: "hidden",
+    background: C.heavyGlassFill, backdropFilter: "blur(24px) saturate(160%)", WebkitBackdropFilter: "blur(24px) saturate(160%)",
   };
   return (
     <div style={{ position: "relative", width: "100%", aspectRatio: "1.85/1", perspective: 1400 }}>
@@ -1794,8 +1772,8 @@ function AccountCard({ book, acc, active, onImport, onTransactions, pending, onV
           onClick={() => setFlipped(true)}
           style={{
             ...face,
-            border: active ? "1px solid rgba(255,255,255,.09)" : "1px solid rgba(255,255,255,.06)",
-            boxShadow: active ? `${glowShadow}, inset 0 1px 0 rgba(255,255,255,.05)` : "0 14px 30px -18px rgba(0,0,0,.6)",
+            border: `1px solid ${alpha(C.overlayTint, active ? .12 : .08)}`,
+            boxShadow: active ? `${glowShadow}, inset 0 1px 0 ${alpha(C.overlayTint, .08)}` : C.shadow,
             padding: active ? "18px 20px" : "16px 18px", cursor: "pointer",
           }}
         >
@@ -1810,21 +1788,21 @@ function AccountCard({ book, acc, active, onImport, onTransactions, pending, onV
                 <Ic name={isCard ? "card" : "bank"} size={15} />
               </Orb>
               <div style={{ minWidth: 0 }}>
-                <div style={{ fontSize: 15, fontWeight: 800, color: "#fff", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", maxWidth: 190 }}>
+                <div style={{ fontSize: 15, fontWeight: 800, color: C.ink, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", maxWidth: 190 }}>
                   {acc.name}
                 </div>
                 {acc.last4 && <div style={{ fontSize: 11, color: C.muted, marginTop: 1 }}>•••• {acc.last4}</div>}
               </div>
             </div>
             <RoundBtn style={{ width: 30, height: 30 }} aria-label="Flip card" onClick={(e) => { e.stopPropagation(); setFlipped(true); }}>
-              <Ic name="flip" size={14} stroke="#e9e6df" />
+              <Ic name="flip" size={14} stroke={C.soft} />
             </RoundBtn>
           </div>
           <div style={{ flex: 1, display: "flex", flexDirection: "column", justifyContent: "center", position: "relative" }}>
             <div style={{ fontSize: 11, letterSpacing: ".08em", textTransform: "uppercase", color: C.faint, fontWeight: 700 }}>
               {isCard ? "Outstanding balance" : "Available balance"}
             </div>
-            <div style={{ fontSize: 30, fontWeight: 800, color: "#fff", marginTop: 6, fontVariantNumeric: "tabular-nums", lineHeight: 1.1 }}>
+            <div style={{ fontFamily: F.mono, fontSize: 28, fontWeight: 700, color: C.ink, marginTop: 6, fontVariantNumeric: "tabular-nums", lineHeight: 1.1 }}>
               {money(book, acc.balance)}
             </div>
             {pending && pending.count > 0 ? (
@@ -1834,13 +1812,13 @@ function AccountCard({ book, acc, active, onImport, onTransactions, pending, onV
                 style={{ display: "flex", alignItems: "center", gap: 5, marginTop: 9, cursor: "pointer" }}
               >
                 <span style={{ width: 6, height: 6, borderRadius: 999, background: C.amber, flexShrink: 0 }} />
-                <span style={{ fontSize: 11, color: "#f1d9a8", fontWeight: 700 }}>
+                <span style={{ fontSize: 11, color: C.amberText, fontWeight: 700 }}>
                   {money(book, Math.abs(pending.amount))} pending in {pending.count} unexplained ›
                 </span>
               </div>
             ) : (
               <div style={{ display: "flex", alignItems: "center", gap: 5, marginTop: 9 }}>
-                <span style={{ width: 6, height: 6, borderRadius: 999, background: "#6ee7b7", flexShrink: 0 }} />
+                <span style={{ width: 6, height: 6, borderRadius: 999, background: C.green, flexShrink: 0 }} />
                 <span style={{ fontSize: 11, color: C.muted, fontWeight: 600 }}>Live from your book</span>
               </div>
             )}
@@ -1849,8 +1827,8 @@ function AccountCard({ book, acc, active, onImport, onTransactions, pending, onV
 
         <div style={{
           ...face, transform: "rotateY(180deg)",
-          border: "1px solid rgba(255,255,255,.09)",
-          boxShadow: `${glowShadow}, inset 0 1px 0 rgba(255,255,255,.05)`,
+          border: `1px solid ${alpha(C.overlayTint, .12)}`,
+          boxShadow: `${glowShadow}, inset 0 1px 0 ${alpha(C.overlayTint, .08)}`,
         }}>
           <div style={{
             position: "absolute", width: 170, height: 170, left: 2, top: -64, borderRadius: "50%",
@@ -1861,24 +1839,24 @@ function AccountCard({ book, acc, active, onImport, onTransactions, pending, onV
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
               <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: ".05em", color: C.faint, textTransform: "uppercase" }}>This month</div>
               <RoundBtn style={{ width: 28, height: 28 }} aria-label="Flip back" onClick={(e) => { e.stopPropagation(); setFlipped(false); }}>
-                <Ic name="flip" size={14} stroke="#e9e6df" />
+                <Ic name="flip" size={14} stroke={C.soft} />
               </RoundBtn>
             </div>
             <div style={{ display: "flex", gap: 6, fontSize: 10, flexWrap: "wrap" }}>
               <span style={{ background: C.accentBg, border: `1px solid ${C.accentBorderSoft}`, color: C.accentText, padding: "3px 8px", borderRadius: 999, fontWeight: 700 }}>
                 in {money(book, acc.monthIn)}
               </span>
-              <span style={{ background: "rgba(255,255,255,.08)", border: "1px solid rgba(255,255,255,.16)", color: C.soft, padding: "3px 8px", borderRadius: 999, fontWeight: 700 }}>
+              <span style={{ background: alpha(C.overlayTint, .08), border: `1px solid ${alpha(C.overlayTint, .16)}`, color: C.soft, padding: "3px 8px", borderRadius: 999, fontWeight: 700 }}>
                 out {money(book, acc.monthOut)}
               </span>
             </div>
             <div style={{ display: "flex", gap: 5 }}>
               <button className="cb-press" onClick={(e) => { e.stopPropagation(); onImport(); }}
-                style={{ flex: 1, background: "rgba(255,255,255,.08)", border: "1px solid rgba(255,255,255,.18)", color: C.accentText, padding: "5px", borderRadius: 999, fontSize: 10, fontWeight: 700, fontFamily: F.sans, whiteSpace: "nowrap", cursor: "pointer" }}>
+                style={{ flex: 1, background: alpha(C.overlayTint, .08), border: `1px solid ${alpha(C.overlayTint, .18)}`, color: C.accentText, padding: "5px", borderRadius: 999, fontSize: 10, fontWeight: 700, fontFamily: F.sans, whiteSpace: "nowrap", cursor: "pointer" }}>
                 ⇩ Import
               </button>
               <button className="cb-press" onClick={(e) => { e.stopPropagation(); onTransactions(); }}
-                style={{ flex: 1, background: "rgba(255,255,255,.08)", border: "1px solid rgba(255,255,255,.18)", color: C.accentText, padding: "5px", borderRadius: 999, fontSize: 10, fontWeight: 700, fontFamily: F.sans, whiteSpace: "nowrap", cursor: "pointer" }}>
+                style={{ flex: 1, background: alpha(C.overlayTint, .08), border: `1px solid ${alpha(C.overlayTint, .18)}`, color: C.accentText, padding: "5px", borderRadius: 999, fontSize: 10, fontWeight: 700, fontFamily: F.sans, whiteSpace: "nowrap", cursor: "pointer" }}>
                 ≡ Transactions
               </button>
             </div>
@@ -2083,10 +2061,19 @@ function DashHome({ book, go, onImport, onAdd, setTab, prices }) {
   const [statSheet, setStatSheet] = useState(null); // "income" | "expense" | "savings" | null
 
   return (
-    <div className="cb-stagger">
-      <div className="cb-press" onClick={() => go("networth")} style={{ ...glass(22), padding: "18px 18px 16px", cursor: "pointer" }}>
+    // Full-bleed background image behind the whole tab (breaks out of the
+    // shared content wrapper's 18px/16px padding, same negative-margin
+    // technique already used for the account carousel below) -- this is
+    // the pilot for the Emerald Gold glass design; other tabs stay on
+    // their current flat C.bg until their own round.
+    <div style={{ position: "relative", margin: "-18px -16px 0", padding: "18px 16px 4px", overflow: "hidden" }}>
+      <div style={{ position: "absolute", inset: 0, backgroundImage: `url(${C.bgImage})`, backgroundSize: "cover", backgroundPosition: "center" }} />
+      <div style={{ position: "absolute", inset: 0, background: C.scrim }} />
+      <div className="cb-stagger" style={{ position: "relative" }}>
+      <div className="cb-press" onClick={() => go("networth")} style={{ ...glass(22), padding: "18px 18px 18px", cursor: "pointer", position: "relative", overflow: "hidden" }}>
+        <div style={{ position: "absolute", top: 0, left: 0, right: 0, height: 5, background: C.stripeGrad }} />
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 14, fontWeight: 700, color: C.soft }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 15, fontWeight: 400, fontFamily: F.serif, color: C.soft }}>
             Net Worth
             <Ic name="info" size={13} stroke={C.faint} />
           </div>
@@ -2100,7 +2087,7 @@ function DashHome({ book, go, onImport, onAdd, setTab, prices }) {
         </div>
         <div style={{ display: "flex", alignItems: "flex-end", gap: 12, marginTop: 14 }}>
           <div>
-            <div style={{ fontSize: 30, fontWeight: 800, color: C.ink, fontVariantNumeric: "tabular-nums" }}>
+            <div style={{ fontFamily: F.mono, fontSize: 29, fontWeight: 700, color: C.ink, fontVariantNumeric: "tabular-nums" }}>
               {money(book, netWorth)}
             </div>
             <div style={{ fontSize: 12, fontWeight: 700, color: nwDiff >= 0 ? C.green : C.red, marginTop: 5, display: "flex", gap: 4 }}>
@@ -2186,6 +2173,7 @@ function DashHome({ book, go, onImport, onAdd, setTab, prices }) {
           onClose={() => setStatSheet(null)}
         />
       )}
+      </div>
     </div>
   );
 }
@@ -4541,7 +4529,7 @@ function SetupHub({ book, go }) {
       </div>
       <div style={st.eyebrow}>Preferences</div>
       <div style={{ ...glass(18), marginBottom: 18, overflow: "hidden", background: C.glassSoft, border: C.borderSoft }}>
-        <SetupRow last={0} grad={C.grad} icon="grid" title="Appearance" sub={THEMES[book.prefs.theme || "blue"].label} onClick={() => go("setupTheme")} />
+        <SetupRow last={0} grad={C.grad} icon="grid" title="Appearance" sub={`Emerald Gold · ${THEMES[book.prefs.theme || "dark"].tagline}`} onClick={() => go("setupTheme")} />
         <SetupRow grad={C.amberGrad} icon="calendar" title="Currency & Date" sub={`${book.prefs.currency} · ${{ dmy: "DD-MM-YYYY", mdy: "MM-DD-YYYY", ymd: "YYYY-MM-DD" }[book.prefs.dateFmt]}`} onClick={() => go("setupPrefs")} />
         <SetupRow grad={C.redGrad} icon="bell" title="Notifications" sub={`${notifCount} enabled`} onClick={() => go("setupNotifs")} />
         <SetupRow grad={C.indigoGrad} icon="shield" title="Security" sub={lock.on && lock.pin ? "App lock on" : "App lock off"} onClick={() => go("setupSecurity")} />
@@ -5156,10 +5144,7 @@ function SetupPrefsPage({ book, up }) {
 }
 
 function SetupThemePage({ book, up }) {
-  const current = book.prefs.theme || "blue";
-  const entries = Object.entries(THEMES);
-  const dark = entries.filter(([, t]) => t.mode !== "light");
-  const light = entries.filter(([, t]) => t.mode === "light");
+  const current = book.prefs.theme || "dark";
 
   const renderCard = ([key, t]) => {
     const active = current === key;
@@ -5173,8 +5158,8 @@ function SetupThemePage({ book, up }) {
         }}>
         <div style={{ width: 40, height: 40, borderRadius: 12, background: t.swatch, flexShrink: 0, boxShadow: `0 6px 14px -4px ${alpha(t.accentDeep, .55)}` }} />
         <div style={{ flex: 1 }}>
-          <div style={{ fontSize: 14.5, fontWeight: 700, color: C.ink }}>{t.label}</div>
-          <div style={{ fontSize: 11.5, color: C.muted, marginTop: 1 }}>{t.tagline}</div>
+          <div style={{ fontSize: 14.5, fontWeight: 700, color: C.ink }}>{t.tagline} mode</div>
+          <div style={{ fontSize: 11.5, color: C.muted, marginTop: 1 }}>{t.label} — glass, gradients, and glow</div>
         </div>
         {active && <Ic name="check" size={18} stroke={C.accentText} sw={2.6} />}
       </div>
@@ -5184,12 +5169,9 @@ function SetupThemePage({ book, up }) {
   return (
     <div className="cb-stagger">
       <div style={{ fontSize: 12, color: C.muted, padding: "0 2px 12px" }}>
-        Changes the app's look everywhere — colors, surfaces, and glow effects. Takes effect immediately.
+        Emerald Gold, light or dark. Takes effect immediately.
       </div>
-      {dark.length > 0 && <div style={st.eyebrow}>Dark</div>}
-      {dark.map(renderCard)}
-      {light.length > 0 && <div style={{ ...st.eyebrow, marginTop: 6 }}>Light</div>}
-      {light.map(renderCard)}
+      {Object.entries(THEMES).map(renderCard)}
     </div>
   );
 }
@@ -6249,8 +6231,8 @@ export default function CashBook() {
   const [, forceThemeRepaint] = useState(0);
   useLayoutEffect(() => {
     if (!book) return;
-    applyTheme(book.prefs.theme || "blue");
-    try { localStorage.setItem(THEME_LS_KEY, book.prefs.theme || "blue"); } catch {}
+    applyTheme(book.prefs.theme || "dark");
+    try { localStorage.setItem(THEME_LS_KEY, book.prefs.theme || "dark"); } catch {}
     try {
       const meta = document.querySelector('meta[name="theme-color"]');
       if (meta) meta.content = C.bg;
