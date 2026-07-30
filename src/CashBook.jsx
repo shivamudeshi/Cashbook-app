@@ -2030,6 +2030,11 @@ function DashHome({ book, go, onImport, onAdd, setTab, prices, onOpenInvestments
     kind, color: sliceColor(i), count: invHoldings.filter((h) => h.kind === kind).length,
   })).filter((g) => g.count > 0);
 
+  const recentEntries = book.entries
+    .filter((e) => (e.type === "out" || e.type === "in" || e.type === "transfer") && isExplained(e))
+    .sort((a, b) => b.date.localeCompare(a.date))
+    .slice(0, 4);
+
   return (
     // Full-bleed background image behind the whole tab (breaks out of the
     // shared content wrapper's 18px/16px padding, same negative-margin
@@ -2038,6 +2043,14 @@ function DashHome({ book, go, onImport, onAdd, setTab, prices, onOpenInvestments
       <div style={{ position: "absolute", inset: 0, backgroundImage: `url(${C.bgImage})`, backgroundSize: "cover", backgroundPosition: "center" }} />
       <div style={{ position: "absolute", inset: 0, background: C.scrim }} />
       <div className="cb-stagger" style={{ position: "relative" }}>
+      <div style={{ display: "flex", gap: 6, marginBottom: 14 }}>
+        <QuickAction label="Import" onClick={onImport} />
+        <QuickAction label="Add" onClick={onAdd} />
+        <QuickAction label="Reports" onClick={() => setTab("reports")} />
+        <QuickAction label="Budget" onClick={() => { setTab("reports"); go("budget"); }} />
+        <QuickAction label="Owed" onClick={() => setTab("owed")} />
+      </div>
+
       <div className="cb-press" onClick={() => go("networth")} style={{ ...glass(22), padding: "18px 18px 18px", cursor: "pointer", position: "relative", overflow: "hidden" }}>
         <div style={{ position: "absolute", top: 0, left: 0, right: 0, height: 5, background: C.stripeGrad }} />
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
@@ -2138,14 +2151,30 @@ function DashHome({ book, go, onImport, onAdd, setTab, prices, onOpenInvestments
         </>
       )}
 
-      <div style={{ ...st.section, fontSize: 13, marginTop: 14, marginBottom: 6, padding: "0 2px" }}>Quick Actions</div>
-      <div style={{ display: "flex", gap: 6, marginBottom: 8 }}>
-        <QuickAction label="Import" onClick={onImport} />
-        <QuickAction label="Add" onClick={onAdd} />
-        <QuickAction label="Reports" onClick={() => setTab("reports")} />
-        <QuickAction label="Budget" onClick={() => { setTab("reports"); go("budget"); }} />
-        <QuickAction label="Owed" onClick={() => setTab("owed")} />
-      </div>
+      {recentEntries.length > 0 && (
+        <>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginTop: 14, marginBottom: 6, padding: "0 2px" }}>
+            <div style={{ ...st.section, fontSize: 13 }}>Recent Activity</div>
+            <div className="cb-press" onClick={() => setTab("tx")} style={{ fontSize: 11, fontWeight: 700, color: C.accentText, cursor: "pointer" }}>View all ›</div>
+          </div>
+          <div style={{ ...glass(20), padding: "2px 16px", marginBottom: 8 }}>
+            {recentEntries.map((e, i) => (
+              <div key={e.id} className="cb-row cb-press" onClick={() => setTab("tx")} style={{ display: "flex", alignItems: "center", padding: "10px 0", borderTop: i ? `1px solid ${C.line}` : "none", cursor: "pointer" }}>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: 13, fontWeight: 700, color: C.ink, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{entryLabel(book, e)}</div>
+                  {e.note && <div style={{ fontSize: 10.5, color: C.muted, fontWeight: 600, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{e.note}</div>}
+                </div>
+                <div style={{ textAlign: "right", flexShrink: 0 }}>
+                  <div style={{ fontSize: 13, fontWeight: 700, color: entrySign(e) > 0 ? C.green : C.red, fontVariantNumeric: "tabular-nums" }}>
+                    {entrySign(e) > 0 ? "+" : "−"}{money(book, e.amount)}
+                  </div>
+                  <div style={{ fontSize: 9.5, color: C.faint, fontWeight: 600, marginTop: 1 }}>{prettyDate(e.date).replace(/^\w+, /, "")}</div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </>
+      )}
 
       {statSheet && (
         <StatDetailSheet
