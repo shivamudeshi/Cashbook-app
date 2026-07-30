@@ -200,6 +200,11 @@ async function main() {
   assert.strictEqual(E.holdingsValue(landHolding, prices4), 2500000, "a land holding is never found in any price snapshot — always values at cost");
   assert.strictEqual(E.holdingsValue(landHolding, {}), 2500000, "a land holding values at cost with no price snapshot at all, same as gold");
 
+  // Same for the new "other" kind (crypto, collectibles, PPF, etc.).
+  const otherHolding = { id: "o1", kind: "other", instrumentId: "other:seed", label: "PPF", units: 1, costBasis: 150000 };
+  assert.strictEqual(E.holdingsValue(otherHolding, prices4), 150000, "an 'other' holding is never found in any price snapshot — always values at cost");
+  assert.strictEqual(E.holdingsValue(otherHolding, {}), 150000, "an 'other' holding values at cost with no price snapshot at all, same as gold/land");
+
   const pl4 = E.computePL(db4, "2025-06-01", asOf4);
   assert.strictEqual(pl4.expense["Finance charges"], 100, "the buy's charge posts as a Finance charges expense");
   assert.strictEqual(pl4.income["Capital gains"], 350, "realized gain: 5300 proceeds - 4950 proportional cost");

@@ -1145,12 +1145,13 @@ const HOLDING_VISUALS = {
   stock: { icon: "bars", color: "#34d399" },
   gold: { icon: "coins", color: "#fbbf24" },
   land: { icon: "home", color: "#38bdf8" },
+  other: { icon: "tag", color: "#e879f9" },
 };
 
 // Kinds with no live price feed — valued permanently at cost basis (see
 // holdingsValue's fallback), and given a synthetic instrumentId + free-text
 // label instead of an instrument search, same as gold has always worked.
-const MANUAL_KINDS = new Set(["gold", "land"]);
+const MANUAL_KINDS = new Set(["gold", "land", "other"]);
 
 const entrySign = (e) =>
   e.type === "in" || ((e.type === "transfer" || e.type === "party") && e.dir === "in") ? 1 : -1;
@@ -2377,7 +2378,7 @@ function NetWorthPage({ book, go, prices, onOpenInvestments }) {
 }
 
 /* ────────────────────────── Investments ────────────────────────── */
-const INVEST_KIND_LABEL = { mf: "Mutual Fund", stock: "Stock", gold: "Gold", land: "Real Estate" };
+const INVEST_KIND_LABEL = { mf: "Mutual Fund", stock: "Stock", gold: "Gold", land: "Real Estate", other: "Other" };
 
 // Per-holding display figures (market value, gain/loss, live price if any)
 // shared between InvestmentsPage's list and HoldingDetailPage's summary.
@@ -2393,12 +2394,16 @@ function investDetailLine(book, r) {
   const unit = r.price != null ? r.price : (r.units ? r.costBasis / r.units : 0);
   if (r.kind === "mf") return `Units ${r.units.toFixed(3)} · NAV ${navPrice(book, unit)}`;
   if (r.kind === "stock") return `Qty ${r.units.toFixed(0)} · Avg ${navPrice(book, r.units ? r.costBasis / r.units : 0)} · CMP ${navPrice(book, unit)}`;
-  if (r.kind === "land") return `Invested ${money(book, r.costBasis)}`;
+  if (r.kind === "land" || r.kind === "other") return `Invested ${money(book, r.costBasis)}`;
   return `${r.units.toFixed(2)}g · ${navPrice(book, unit)}/g`;
 }
 
-function InvestmentsPage({ book, prices, instruments, pricesLoaded, onClose, onAdd, onOpenHolding, onManage, onRefresh }) {
-  const [months, setMonths] = useState(3);
+// Full-screen page (reached via go("investments"), same pattern as Net
+// Worth/Account Detail) rather than a bottom-sheet overlay — see Round 23's
+// approved "Portfolio Breakdown" mockup. A donut leads the hero instead of
+// the old sparkline, since the sparkline's month-range chips no longer have
+// anything to control once the trend chart itself is gone.
+function InvestmentsPage({ book, go, prices, instruments, pricesLoaded, onAdd, onRefresh }) {
   const [valueMode, setValueMode] = useState("market"); // market | invested
   const [sortBy, setSortBy] = useState("value"); // value | name | gain
   const [hidden, setHidden] = useState(false);
@@ -2414,7 +2419,9 @@ function InvestmentsPage({ book, prices, instruments, pricesLoaded, onClose, onA
   const totalGainPct = investedTotal ? Math.round((totalGain / investedTotal) * 1000) / 10 : 0;
   const heroValue = valueMode === "market" ? marketTotal : investedTotal;
 
-  const series = useMemo(() => holdingsValueSeries(book, months, prices), [book, months, prices]);
+  // Fixed 2-month lookback — just enough for a month-over-month delta, now
+  // that a donut (not a trend sparkline) is the hero visual.
+  const series = useMemo(() => holdingsValueSeries(book, 2, prices), [book, prices]);
   const seriesDiff = series.length >= 2 ? series[series.length - 1].value - series[series.length - 2].value : 0;
   const seriesPct = series.length >= 2 && series[series.length - 2].value
     ? Math.round((seriesDiff / Math.abs(series[series.length - 2].value)) * 1000) / 10 : null;
@@ -2425,8 +2432,14 @@ function InvestmentsPage({ book, prices, instruments, pricesLoaded, onClose, onA
     : b.value - a.value
   );
 
-  // Groups by kind (Mutual Funds/Stocks/Gold/Real Estate) instead of one
-  // flat 13-row list; a group's own value/gain are its holdings' totals, and
+  // Same color per kind everywhere it appears (Dashboard's portfolio card,
+  // this page's donut and category rows) — keyed by position in
+  // HOLDING_KIND_ORDER, mirroring DashHome's invByKind.
+  const kindColor = {};
+  HOLDING_KIND_ORDER.forEach((kind, i) => { kindColor[kind] = sliceColor(i); });
+
+  // Groups by kind (Mutual Funds/Stocks/Gold/Real Estate/Other) instead of
+  // one flat list; a group's own value/gain are its holdings' totals, and
   // groups are ordered by the same sortBy comparator used for holdings.
   const groups = HOLDING_KIND_ORDER.map((kind) => {
     const items = sorted.filter((r) => r.kind === kind);
@@ -2434,7 +2447,7 @@ function InvestmentsPage({ book, prices, instruments, pricesLoaded, onClose, onA
     const costBasis = items.reduce((s, r) => s + r.costBasis, 0);
     const gain = value - costBasis;
     const gainPct = costBasis ? Math.round((gain / costBasis) * 1000) / 10 : 0;
-    return { kind, items, value, costBasis, gain, gainPct };
+    return { kind, items, value, costBasis, gain, gainPct, color: kindColor[kind] };
   }).filter((g) => g.items.length > 0)
     .sort((a, b) =>
       sortBy === "name" ? INVEST_KIND_LABEL[a.kind].localeCompare(INVEST_KIND_LABEL[b.kind])
@@ -2447,9 +2460,10 @@ function InvestmentsPage({ book, prices, instruments, pricesLoaded, onClose, onA
   // once real prices resolve) — kind/count don't depend on prices at all, so
   // real group headers can render immediately with just the figures shimmering.
   const holdingsByKind = HOLDING_KIND_ORDER.map((kind) => ({
-    kind, count: holdings.filter((h) => h.kind === kind).length,
+    kind, count: holdings.filter((h) => h.kind === kind).length, color: kindColor[kind],
   })).filter((g) => g.count > 0);
 
+  const donutSlices = groups.map((g) => ({ value: g.value, color: g.color }));
   const latestAsOf = Object.values(prices || {}).reduce((max, p) => (p && p.asOf && p.asOf > max ? p.asOf : max), "");
 
   const refreshAll = async () => {
@@ -2471,178 +2485,149 @@ function InvestmentsPage({ book, prices, instruments, pricesLoaded, onClose, onA
   const mask = (s) => (hidden ? "••••••" : s);
 
   return (
-    <div
-      onClick={onClose}
-      className="cb-sheet-overlay"
-      style={{ position: "fixed", inset: 0, background: "rgba(3,2,6,.65)", backdropFilter: "blur(4px)", WebkitBackdropFilter: "blur(4px)", display: "flex", alignItems: "flex-end", zIndex: 30 }}
-    >
-      <div
-        onClick={(e) => e.stopPropagation()}
-        className="cb-sheet"
-        style={{
-          width: "100%", maxWidth: 480, margin: "0 auto", maxHeight: "94vh",
-          overflowY: "auto", boxSizing: "border-box", background: C.sheetBg,
-          border: C.border, borderTop: `1px solid ${C.overlayStrong}`,
-          borderRadius: "24px 24px 0 0", padding: "10px 18px calc(22px + env(safe-area-inset-bottom))",
-        }}
-      >
-        <div style={{ width: 40, height: 4, borderRadius: 999, background: C.overlayStrong, margin: "0 auto 12px" }} />
-        <div style={{ display: "flex", alignItems: "center", marginBottom: 14 }}>
-          <RoundBtn aria-label="Close" onClick={onClose}><Ic name="close" size={14} stroke={C.soft} /></RoundBtn>
-          <div style={{ flex: 1, textAlign: "center", fontSize: 18, fontWeight: 800, color: C.ink }}>Investments</div>
-          <RoundBtn aria-label="Manage holdings" onClick={onManage}><Ic name="dots" size={16} stroke={C.soft} /></RoundBtn>
-        </div>
-
-        <div style={{ ...glass(20), padding: "14px 16px 12px" }}>
-          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
-            <button className="cb-press" onClick={() => setHidden((x) => !x)} style={{ display: "flex", alignItems: "center", gap: 5, border: "none", background: "none", padding: 0, cursor: "pointer", fontSize: 12, fontWeight: 700, color: C.soft }}>
-              Total Investment Value
-              <Ic name={hidden ? "eyeOff" : "eye"} size={12} stroke={C.faint} />
-            </button>
+    <div className="cb-stagger">
+      <div style={{ ...glass(22), padding: "16px 18px 18px" }}>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
+          <button className="cb-press" onClick={() => setHidden((x) => !x)} style={{ display: "flex", alignItems: "center", gap: 5, border: "none", background: "none", padding: 0, cursor: "pointer", fontSize: 12, fontWeight: 700, color: C.soft, fontFamily: F.sans }}>
+            Total Investment Value
+            <Ic name={hidden ? "eyeOff" : "eye"} size={12} stroke={C.faint} />
+          </button>
+          <div style={{ display: "flex", alignItems: "center", gap: 6, flexShrink: 0 }}>
             <DropdownField
               value={valueMode}
               onChange={setValueMode}
               options={[{ v: "market", label: "Market Value" }, { v: "invested", label: "Invested Amount" }]}
               style={{ padding: "5px 10px", borderRadius: 999, fontSize: 11, color: C.soft }}
-              wrapStyle={{ flexShrink: 0 }}
             />
-          </div>
-          <div style={{ display: "flex", alignItems: "baseline", gap: 10, marginTop: 8 }}>
-            {pricesLoaded ? (
-              <div style={{ fontSize: 27, fontWeight: 800, color: C.ink, fontVariantNumeric: "tabular-nums" }}>
-                {mask(money(book, heroValue))}
-              </div>
-            ) : (
-              <div className="cb-skeleton" style={{ width: 130, height: 27 }} />
-            )}
-            {pricesLoaded && !hidden && (
-              <div style={{ fontSize: 11.5, fontWeight: 700, color: seriesDiff >= 0 ? C.green : C.red }}>
-                {seriesDiff >= 0 ? "▲" : "▼"} {money(book, Math.abs(seriesDiff))}{seriesPct !== null ? ` (${Math.abs(seriesPct)}%)` : ""}
-              </div>
-            )}
-          </div>
-
-          <div style={{ display: "flex", alignItems: "center", gap: 10, marginTop: 10 }}>
-            <div style={{ flex: 1, height: 26 }}>
-              <Sparkline points={series.map((s) => s.value)} />
-            </div>
-            <div style={{ display: "flex", gap: 4, flexShrink: 0 }}>
-              {[["3M", 3], ["6M", 6], ["1Y", 12], ["All", 24]].map(([label, m]) => (
-                <button
-                  key={label}
-                  className="cb-press"
-                  onClick={() => setMonths(m)}
-                  style={{
-                    padding: "4px 9px", borderRadius: 999, fontSize: 10.5, fontWeight: 800,
-                    fontFamily: F.sans, cursor: "pointer",
-                    border: `1px solid ${months === m ? C.accentBorder : C.overlayBorder}`,
-                    background: months === m ? C.accentSoft : C.overlayWash,
-                    color: months === m ? C.accentText : C.muted,
-                  }}
-                >
-                  {label}
-                </button>
-              ))}
-            </div>
-          </div>
-
-          <div style={{ display: "flex", borderTop: `1px solid ${C.line}`, marginTop: 10, paddingTop: 9, gap: 10 }}>
-            <div style={{ flex: 1 }}>
-              <div style={{ fontSize: 9.5, fontWeight: 700, color: C.faint, textTransform: "uppercase", letterSpacing: ".04em" }}>Invested</div>
-              <div style={{ fontSize: 13.5, fontWeight: 800, color: C.ink, marginTop: 3 }}>{mask(money(book, investedTotal))}</div>
-            </div>
-            <div style={{ flex: 1 }}>
-              <div style={{ fontSize: 9.5, fontWeight: 700, color: C.faint, textTransform: "uppercase", letterSpacing: ".04em" }}>Total Returns</div>
-              <div style={{ fontSize: 13.5, fontWeight: 800, color: totalGain >= 0 ? C.green : C.red, marginTop: 3 }}>
-                {mask(`${totalGain >= 0 ? "+" : ""}${money(book, totalGain)} (${totalGainPct}%)`)}
-              </div>
-            </div>
+            <RoundBtn aria-label="Manage holdings" onClick={() => go("setupHoldings")}><Ic name="dots" size={16} stroke={C.soft} /></RoundBtn>
           </div>
         </div>
 
-        <div style={{ display: "flex", alignItems: "center", marginTop: 14, marginBottom: 6 }}>
-          <div style={{ flex: 1, fontSize: 13.5, fontWeight: 800, color: C.soft }}>By Category</div>
-          <DropdownField
-            value={sortBy}
-            onChange={setSortBy}
-            options={[{ v: "value", label: "Sort: Value" }, { v: "name", label: "Sort: Name" }, { v: "gain", label: "Sort: Gain %" }]}
-            style={{ border: "none", background: "none", padding: 0, color: C.accentText, fontSize: 11 }}
-            wrapStyle={{ flexShrink: 0 }}
-          />
-        </div>
+        {pricesLoaded ? (
+          <div style={{ fontSize: 30, fontWeight: 800, color: C.ink, marginTop: 8, fontVariantNumeric: "tabular-nums" }}>
+            {mask(money(book, heroValue))}
+          </div>
+        ) : (
+          <div className="cb-skeleton" style={{ width: 150, height: 30, marginTop: 8, borderRadius: 8 }} />
+        )}
+        {pricesLoaded && !hidden && seriesDiff !== 0 && (
+          <div style={{ fontSize: 12, fontWeight: 700, color: seriesDiff >= 0 ? C.green : C.red, marginTop: 4 }}>
+            {seriesDiff >= 0 ? "▲" : "▼"} {money(book, Math.abs(seriesDiff))}{seriesPct !== null ? ` (${Math.abs(seriesPct)}%)` : ""} this month
+          </div>
+        )}
 
-        <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-          {!pricesLoaded && holdingsByKind.map(({ kind, count }) => {
-            return (
-              <div key={kind} style={{ ...glass(15), background: C.glassSoft, border: C.borderSoft, padding: "9px 12px", display: "flex", alignItems: "center", gap: 9 }}>
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontSize: 13, fontWeight: 700, color: C.ink }}>{INVEST_KIND_LABEL[kind]}</div>
-                  <div style={{ fontSize: 10.5, color: C.muted, marginTop: 1 }}>{count} {count === 1 ? "holding" : "holdings"}</div>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "center", position: "relative", margin: "18px 0 6px" }}>
+          {pricesLoaded && donutSlices.length > 0 ? (
+            <>
+              <Donut slices={donutSlices} size={190} thickness={22} />
+              <div style={{ position: "absolute", textAlign: "center" }}>
+                <div style={{ fontSize: 10.5, color: C.muted, fontWeight: 700, textTransform: "uppercase", letterSpacing: ".05em" }}>Returns</div>
+                <div style={{ fontSize: 17, fontWeight: 800, color: totalGain >= 0 ? C.green : C.red, marginTop: 2, fontVariantNumeric: "tabular-nums" }}>
+                  {mask(`${totalGain >= 0 ? "+" : ""}${totalGainPct}%`)}
                 </div>
-                <div className="cb-skeleton" style={{ width: 60, height: 13 }} />
               </div>
-            );
-          })}
-
-          {pricesLoaded && groups.map((g) => {
-            const open = openGroup === g.kind;
-            const gval = valueMode === "market" ? g.value : g.costBasis;
-            return (
-              <div key={g.kind} style={{ ...glass(15), background: C.glassSoft, border: C.borderSoft, overflow: "hidden" }}>
-                <div className="cb-press" onClick={() => setOpenGroup(open ? null : g.kind)}
-                  style={{ display: "flex", alignItems: "center", gap: 9, padding: "9px 12px", cursor: "pointer" }}>
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ fontSize: 13, fontWeight: 700, color: C.ink }}>{INVEST_KIND_LABEL[g.kind]}</div>
-                    <div style={{ fontSize: 10.5, color: C.muted, marginTop: 1 }}>
-                      {g.items.length} {g.items.length === 1 ? "holding" : "holdings"} · Invested {mask(money(book, g.costBasis))}
-                    </div>
-                  </div>
-                  <div style={{ textAlign: "right", flexShrink: 0 }}>
-                    <div style={{ fontSize: 13, fontWeight: 800, color: C.ink, fontVariantNumeric: "tabular-nums" }}>{mask(money(book, gval))}</div>
-                    <div style={{ fontSize: 10, fontWeight: 700, color: g.gain >= 0 ? C.green : C.red, marginTop: 1 }}>
-                      {mask(`${g.gain >= 0 ? "+" : ""}${money(book, g.gain)} (${g.gainPct}%)`)}
-                    </div>
-                  </div>
-                  <div style={{ transform: open ? "rotate(180deg)" : "none", transition: "transform .15s ease", flexShrink: 0 }}>
-                    <Ic name="chevronDown" size={14} stroke={C.faint} sw={2.2} />
-                  </div>
-                </div>
-                {open && (
-                  <div style={{ borderTop: `1px solid ${C.line}` }}>
-                    {g.items.map((r, i) => (
-                      <div key={r.id} className="cb-press" onClick={() => onOpenHolding(r)}
-                        style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 12px", borderTop: i ? `1px solid ${C.line}` : "none", cursor: "pointer" }}>
-                        <div style={{ flex: 1, minWidth: 0, fontSize: 12, fontWeight: 600, color: C.soft, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{r.label}</div>
-                        <div style={{ fontSize: 12, fontWeight: 700, color: C.ink, fontVariantNumeric: "tabular-nums", flexShrink: 0 }}>
-                          {mask(money(book, valueMode === "market" ? r.value : r.costBasis))}
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-            );
-          })}
-
-          {pricesLoaded && groups.length === 0 && (
-            <div style={{ ...glass(15), padding: "20px 16px", fontSize: 13, color: C.muted, textAlign: "center" }}>
-              No investments yet — tap Add Investment to start tracking.
-            </div>
+            </>
+          ) : pricesLoaded ? (
+            <div style={{ fontSize: 12.5, color: C.muted, padding: "40px 0" }}>No investments yet.</div>
+          ) : (
+            <div className="cb-skeleton" style={{ width: 190, height: 190, borderRadius: "50%" }} />
           )}
         </div>
+      </div>
 
-        <button className="cb-press" onClick={onAdd} style={{ width: "100%", marginTop: 12, padding: "11px 0", border: `1px dashed ${C.accentBorderSoft}`, borderRadius: 13, background: alpha(C.accent, .08), color: C.accentText, fontWeight: 800, fontSize: 13, fontFamily: F.sans, cursor: "pointer" }}>
-          + Add Investment
-        </button>
-
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, marginTop: 12, padding: "0 2px" }}>
-          <div style={{ fontSize: 10.5, color: C.faint }}>
-            {latestAsOf ? `Prices & NAVs as of ${latestAsOf}` : "No live prices loaded yet"}
-          </div>
-          <button className="cb-press" disabled={refreshing} onClick={refreshAll} style={{ display: "flex", alignItems: "center", gap: 4, border: "none", background: "none", color: C.accentText, fontSize: 11, fontWeight: 700, fontFamily: F.sans, cursor: "pointer", opacity: refreshing ? 0.5 : 1 }}>
-            <Ic name="refresh" size={12} stroke={C.accentText} /> {refreshing ? "Refreshing…" : "Refresh All"}
-          </button>
+      <div style={{ display: "flex", gap: 10, marginTop: 12 }}>
+        <div style={{ ...glass(16), flex: 1, padding: "12px 14px" }}>
+          <div style={{ fontSize: 9.5, fontWeight: 700, color: C.faint, textTransform: "uppercase", letterSpacing: ".04em" }}>Invested</div>
+          <div style={{ fontSize: 14.5, fontWeight: 800, color: C.ink, marginTop: 4, fontVariantNumeric: "tabular-nums" }}>{mask(money(book, investedTotal))}</div>
         </div>
+        <div style={{ ...glass(16), flex: 1, padding: "12px 14px" }}>
+          <div style={{ fontSize: 9.5, fontWeight: 700, color: C.faint, textTransform: "uppercase", letterSpacing: ".04em" }}>Total Returns</div>
+          <div style={{ fontSize: 14.5, fontWeight: 800, color: totalGain >= 0 ? C.green : C.red, marginTop: 4, fontVariantNumeric: "tabular-nums" }}>
+            {mask(`${totalGain >= 0 ? "+" : ""}${money(book, totalGain)} (${totalGainPct}%)`)}
+          </div>
+        </div>
+      </div>
+
+      <div style={{ display: "flex", alignItems: "center", marginTop: 18, marginBottom: 8 }}>
+        <div style={{ flex: 1, fontSize: 14.5, fontWeight: 800, color: C.ink }}>By Category</div>
+        <DropdownField
+          value={sortBy}
+          onChange={setSortBy}
+          options={[{ v: "value", label: "Sort: Value" }, { v: "name", label: "Sort: Name" }, { v: "gain", label: "Sort: Gain %" }]}
+          style={{ border: "none", background: "none", padding: 0, color: C.accentText, fontSize: 11.5 }}
+          wrapStyle={{ flexShrink: 0 }}
+        />
+      </div>
+
+      <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+        {!pricesLoaded && holdingsByKind.map(({ kind, count, color }) => (
+          <div key={kind} style={{ ...glass(15), background: C.glassSoft, border: C.borderSoft, padding: "11px 14px", display: "flex", alignItems: "center", gap: 10 }}>
+            <span style={{ width: 9, height: 9, borderRadius: 999, background: color, flexShrink: 0, display: "inline-block" }} />
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ fontSize: 13.5, fontWeight: 700, color: C.ink }}>{INVEST_KIND_LABEL[kind]}</div>
+              <div style={{ fontSize: 10.5, color: C.muted, marginTop: 1 }}>{count} {count === 1 ? "holding" : "holdings"}</div>
+            </div>
+            <div className="cb-skeleton" style={{ width: 60, height: 13 }} />
+          </div>
+        ))}
+
+        {pricesLoaded && groups.map((g) => {
+          const open = openGroup === g.kind;
+          const gval = valueMode === "market" ? g.value : g.costBasis;
+          return (
+            <div key={g.kind} style={{ ...glass(15), background: C.glassSoft, border: C.borderSoft, overflow: "hidden" }}>
+              <div className="cb-press" onClick={() => setOpenGroup(open ? null : g.kind)}
+                style={{ display: "flex", alignItems: "center", gap: 10, padding: "11px 14px", cursor: "pointer" }}>
+                <span style={{ width: 9, height: 9, borderRadius: 999, background: g.color, flexShrink: 0, display: "inline-block" }} />
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: 13.5, fontWeight: 700, color: C.ink }}>{INVEST_KIND_LABEL[g.kind]}</div>
+                  <div style={{ fontSize: 10.5, color: C.muted, marginTop: 1 }}>{g.items.length} {g.items.length === 1 ? "holding" : "holdings"}</div>
+                </div>
+                <div style={{ textAlign: "right", flexShrink: 0 }}>
+                  <div style={{ fontSize: 13.5, fontWeight: 800, color: C.ink, fontVariantNumeric: "tabular-nums" }}>{mask(money(book, gval))}</div>
+                  <div style={{ fontSize: 10.5, fontWeight: 700, color: g.gain >= 0 ? C.green : C.red, marginTop: 1 }}>
+                    {mask(`${g.gain >= 0 ? "+" : ""}${g.gainPct}%`)}
+                  </div>
+                </div>
+                <div style={{ transform: open ? "rotate(180deg)" : "none", transition: "transform .15s ease", flexShrink: 0 }}>
+                  <Ic name="chevronDown" size={14} stroke={C.faint} sw={2.2} />
+                </div>
+              </div>
+              {open && (
+                <div style={{ borderTop: `1px solid ${C.line}` }}>
+                  {g.items.map((r, i) => (
+                    <div key={r.id} className="cb-press" onClick={() => go("holdingDetail", r.id)}
+                      style={{ display: "flex", alignItems: "center", gap: 10, padding: "9px 14px", borderTop: i ? `1px solid ${C.line}` : "none", cursor: "pointer" }}>
+                      <div style={{ flex: 1, minWidth: 0, fontSize: 12.5, fontWeight: 600, color: C.soft, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{r.label}</div>
+                      <div style={{ fontSize: 12.5, fontWeight: 700, color: C.ink, fontVariantNumeric: "tabular-nums", flexShrink: 0 }}>
+                        {mask(money(book, valueMode === "market" ? r.value : r.costBasis))}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          );
+        })}
+
+        {pricesLoaded && groups.length === 0 && (
+          <div style={{ ...glass(15), padding: "22px 16px", fontSize: 13, color: C.muted, textAlign: "center" }}>
+            No investments yet — tap Add Investment to start tracking.
+          </div>
+        )}
+      </div>
+
+      <button className="cb-press" onClick={onAdd} style={{ width: "100%", marginTop: 14, padding: "12px 0", border: `1px dashed ${C.accentBorderSoft}`, borderRadius: 13, background: alpha(C.accent, .08), color: C.accentText, fontWeight: 800, fontSize: 13, fontFamily: F.sans, cursor: "pointer" }}>
+        + Add Investment
+      </button>
+
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, marginTop: 12, marginBottom: 6, padding: "0 2px" }}>
+        <div style={{ fontSize: 10.5, color: C.faint }}>
+          {latestAsOf ? `Prices & NAVs as of ${latestAsOf}` : "No live prices loaded yet"}
+        </div>
+        <button className="cb-press" disabled={refreshing} onClick={refreshAll} style={{ display: "flex", alignItems: "center", gap: 4, border: "none", background: "none", color: C.accentText, fontSize: 11, fontWeight: 700, fontFamily: F.sans, cursor: "pointer", opacity: refreshing ? 0.5 : 1 }}>
+          <Ic name="refresh" size={12} stroke={C.accentText} /> {refreshing ? "Refreshing…" : "Refresh All"}
+        </button>
       </div>
     </div>
   );
@@ -4677,7 +4662,7 @@ function SetupAccountsPage({ book, up }) {
   );
 }
 
-const HOLDING_KIND_ORDER = ["mf", "stock", "gold", "land"];
+const HOLDING_KIND_ORDER = ["mf", "stock", "gold", "land", "other"];
 
 function SetupHoldingsPage({ book, up, instruments }) {
   const [confirmDel, setConfirmDel] = useState("");
@@ -5341,7 +5326,10 @@ function HoldingPicker({ book, instruments, initial, onChange }) {
   return (
     <>
       <label style={st.label}>Instrument Type</label>
-      <Seg value={kind} onChange={changeKind} options={[{ v: "mf", label: "Mutual Fund" }, { v: "stock", label: "Stock" }, { v: "gold", label: "Gold" }, { v: "land", label: "Real Estate" }]} />
+      <Seg
+        value={kind} onChange={changeKind} size={11}
+        options={[{ v: "mf", label: "Mutual Fund" }, { v: "stock", label: "Stock" }, { v: "gold", label: "Gold" }, { v: "land", label: "Real Estate" }, { v: "other", label: "Other" }]}
+      />
       <label style={st.label}>Holding</label>
       {holdingsOfKind.length > 0 && (
         <DropdownField
@@ -5354,7 +5342,7 @@ function HoldingPicker({ book, instruments, initial, onChange }) {
         <input
           style={{ ...st.input, marginTop: holdingsOfKind.length > 0 ? 8 : 0 }}
           value={label}
-          placeholder={kind === "land" ? "e.g. Flat in Pune, 2 Acres Farmland" : "e.g. Gold Coins, SGB 2023"}
+          placeholder={kind === "land" ? "e.g. Flat in Pune, 2 Acres Farmland" : kind === "other" ? "e.g. Collectibles, Crypto, PPF" : "e.g. Gold Coins, SGB 2023"}
           onChange={(e) => setLabel(e.target.value)}
         />
       )}
@@ -6145,6 +6133,7 @@ const PAGE_TITLES = {
   setupData: "Backup & Data",
   setupHoldings: "Holdings",
   setupTrips: "Trips",
+  investments: "Investments",
 };
 
 export default function CashBook() {
@@ -6155,7 +6144,6 @@ export default function CashBook() {
   const [entrySheet, setEntrySheet] = useState(null);
   const [memoSheet, setMemoSheet] = useState(null); // {party?, presetKind?}
   const [importOpen, setImportOpen] = useState(false);
-  const [investmentsOpen, setInvestmentsOpen] = useState(false);
   const [splash, setSplash] = useState("on");
   const [locked, setLocked] = useState(false);
   const [prices, setPrices] = useState({});
@@ -6165,7 +6153,7 @@ export default function CashBook() {
   const skipSave = useRef(true);
   const skipNextPopRef = useRef(false);
   const navRef = useRef();
-  navRef.current = { tab, page, entrySheet, memoSheet, importOpen, investmentsOpen };
+  navRef.current = { tab, page, entrySheet, memoSheet, importOpen };
 
   useEffect(() => {
     loadBook().then((b) => {
@@ -6240,11 +6228,10 @@ export default function CashBook() {
       }
       window.history.pushState({ cbNav: true }, "", window.location.href);
       const s = navRef.current;
-      if (s.entrySheet || s.memoSheet || s.importOpen || s.investmentsOpen) {
+      if (s.entrySheet || s.memoSheet || s.importOpen) {
         setEntrySheet(null);
         setMemoSheet(null);
         setImportOpen(false);
-        setInvestmentsOpen(false);
       } else if (s.tab !== "dash" || s.page) {
         switchTab("dash");
       } else {
@@ -6370,7 +6357,13 @@ export default function CashBook() {
     : page.name === "trip" ? tripName(book, page.arg)
     : PAGE_TITLES[page.name] || "Cash Book"
   ) : null;
-  const backTarget = page && { assets: "networth", liabilities: "networth" }[page.name];
+  // "investments" is the one page whose back-target varies by where it was
+  // opened from (Net Worth's holdings row vs. Dashboard/Reports' card) --
+  // encoded in page.arg by each caller, since `page` has no history stack.
+  const backTarget = page && (
+    page.name === "investments" ? (page.arg || null)
+    : { assets: "networth", liabilities: "networth", holdingDetail: "investments" }[page.name]
+  );
 
   const openRecordPayment = (p, dirDefault) =>
     setEntrySheet({
@@ -6391,7 +6384,14 @@ export default function CashBook() {
     });
 
   const pageEl = page && (
-    page.name === "networth" ? <NetWorthPage book={book} go={go} prices={prices} onOpenInvestments={() => setInvestmentsOpen(true)} />
+    page.name === "networth" ? <NetWorthPage book={book} go={go} prices={prices} onOpenInvestments={() => go("investments", "networth")} />
+    : page.name === "investments" ? (
+      <InvestmentsPage
+        book={book} go={go} prices={prices} instruments={instruments} pricesLoaded={pricesLoaded}
+        onAdd={() => setEntrySheet({ initial: { type: "holding", dir: "buy", date: today() } })}
+        onRefresh={(p, i) => { setPrices(p); setInstruments(i); }}
+      />
+    )
     : page.name === "assets" ? <AllocationPage book={book} kind="assets" prices={prices} />
     : page.name === "liabilities" ? <AllocationPage book={book} kind="liabilities" prices={prices} />
     : page.name === "party" ? (
@@ -6522,7 +6522,7 @@ export default function CashBook() {
                 onAdd={() => setEntrySheet({ initial: null })}
                 setTab={switchTab}
                 prices={prices}
-                onOpenInvestments={() => setInvestmentsOpen(true)}
+                onOpenInvestments={() => go("investments")}
               />
             )
             : tab === "owed" ? (
@@ -6538,7 +6538,7 @@ export default function CashBook() {
             : tab === "tx" ? (
               <TxView book={book} up={up} onEdit={(e) => setEntrySheet({ initial: e })} onAdd={() => setEntrySheet({ initial: null })} initialFilter={txFilter} />
             )
-            : tab === "reports" ? <ReportsHub book={book} go={go} prices={prices} onOpenInvestments={() => setInvestmentsOpen(true)} />
+            : tab === "reports" ? <ReportsHub book={book} go={go} prices={prices} onOpenInvestments={() => go("investments")} />
             : <SetupHub book={book} go={go} />
           )}
         </div>
@@ -6594,16 +6594,6 @@ export default function CashBook() {
           onSave={saveEntry} onClose={() => setEntrySheet(null)}
           onDelete={(id) => { deleteEntries([id]); setEntrySheet(null); }}
           onSaveSplit={saveSplitExpense}
-        />
-      )}
-      {investmentsOpen && (
-        <InvestmentsPage
-          book={book} prices={prices} instruments={instruments} pricesLoaded={pricesLoaded}
-          onClose={() => setInvestmentsOpen(false)}
-          onAdd={() => { setInvestmentsOpen(false); setEntrySheet({ initial: { type: "holding", dir: "buy", date: today() } }); }}
-          onOpenHolding={(h) => { setInvestmentsOpen(false); go("holdingDetail", h.id); }}
-          onManage={() => { setInvestmentsOpen(false); go("setupHoldings"); }}
-          onRefresh={(p, i) => { setPrices(p); setInstruments(i); }}
         />
       )}
       {memoSheet && (
