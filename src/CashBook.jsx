@@ -56,50 +56,58 @@ function alpha(hex, a) {
   return `rgba(${r},${g},${b},${a})`;
 }
 
-// "Royal Sapphire" (dark) / "Navy Professional" (light) -- replaces
-// Round 18's "Emerald Gold". Both entries carry the FULL legacy palette
-// shape (every field below was already read by ~700 call sites across
-// the file via C.xxx), so recoloring is safe everywhere immediately --
-// no call site needs to change. Values are copied verbatim from the
-// approved mockup (stage2-royal-sapphire-v7.html's :root custom
-// properties), not re-derived by eye. `dc` is a new 13-slot decorative-
-// color array (dark = today's exact slice hexes, light = navy-only
-// tints) -- see sliceColor() below for how it's consumed. `iconBg`/
-// `iconGlow` back the bottom-nav
-// active-icon + header bell glow (dark-only by design; light resolves
-// to "transparent"/"none", a guaranteed no-op).
+// "Amber Violet" (dark) / "Paper White" (light) -- replaces Round 22's
+// Royal Sapphire/Navy Professional. Base hues (bg/ink/soft/muted/faint/
+// accent/accentDeep/accentText/glass/border/line/chip/tile/shadow/
+// sheetBg/navBg/headerBg/green/red/overlay*) are copied verbatim from
+// the historical "Violet" (dark) and "Paper White" (light) themes --
+// the last two-theme picker before the Emerald Gold/Round 22 redesigns
+// replaced it, restored here at the user's request. `gold`/`goldDeep`
+// (amber -- the theme's second identity color, "Amber Violet"),
+// `bgImage`/`stripeGrad`/`heavyGlassFill`/`scrim` reuse the Emerald
+// Gold glass/photo structure (dual-accent stripe + full-bleed photo +
+// scrim), just recolored violet+amber instead of green+gold; `iconBg`/
+// `iconGlow` (Round 22's bottom-nav/header glow, dark-only) and `dc`
+// (13-slot decorative-color array, consumed via sliceColor() below;
+// unlike Round 22 this is the SAME fixed vivid palette in both themes
+// -- no per-theme navy-style tinting, matching how decorative colors
+// worked pre-Round-22) carry forward since nothing here asked to
+// remove either.
 export const THEMES = {
   dark: {
-    label: "Royal Sapphire", swatch: "linear-gradient(135deg,#3b82f6,#1e3a8a)", mode: "dark", tagline: "Dark",
-    accent: "#3b82f6", accentDeep: "#1e3a8a", accentText: "#93c5fd",
-    bg: "#050912", ink: "#eef3fb", soft: "#cfdbee", muted: "#8fa2c0", faint: "#5c6f8f",
-    glass: "linear-gradient(160deg, rgba(226,235,250,.065), rgba(226,235,250,.015))",
-    glassSoft: "linear-gradient(160deg, rgba(226,235,250,.045), rgba(226,235,250,.012))",
-    border: "1px solid rgba(147,197,253,.22)", borderSoft: "1px solid rgba(203,220,245,.10)",
-    line: "rgba(203,220,245,.10)", chip: "rgba(203,220,245,.06)", tile: "rgba(203,220,245,.05)",
-    shadow: "0 0 0 1px rgba(59,130,246,.08), 0 24px 54px -20px rgba(0,0,0,.65), 0 10px 30px -12px rgba(59,130,246,.24)",
-    sheetBg: "linear-gradient(170deg,#0d1a30,#050912)", navBg: "rgba(5,9,18,.94)", headerBg: "rgba(4,7,14,.55)",
-    green: "#4ade80", red: "#f87171", amberText: "#fbbf24", dangerTint: "#f87171", successTint: "#4ade80",
-    overlayTint: "#cbdcf5", overlayWash: "rgba(203,220,245,.06)", overlayBorder: "rgba(203,220,245,.16)", overlayStrong: "rgba(203,220,245,.22)",
-    bgImage: "bg-sapphire.png", heavyGlassFill: "rgba(13,21,38,.55)", scrim: "linear-gradient(180deg, rgba(4,7,14,.16) 0%, rgba(4,7,14,.48) 55%, rgba(4,7,14,.84) 100%)",
-    iconBg: "rgba(147,197,253,.14)", iconGlow: "0 0 22px 3px rgba(59,130,246,.38), 0 0 0 1px rgba(147,197,253,.28)",
-    dc: ["#3b82f6", "#38bdf8", "#f59e0b", "#fb7185", "#2dd4bf", "#fbbf24", "#a78bfa", "#fb923c", "#6366f1", "#0ea5a5", "#d946ef", "#14b8a6", "#4ade80"],
+    label: "Amber Violet", swatch: "linear-gradient(135deg,#a78bfa,#fbbf24)", mode: "dark", tagline: "Dark",
+    accent: "#a78bfa", accentDeep: "#6d28d9", accentText: "#c4a6ff",
+    gold: "#fbbf24", goldDeep: "#d97706",
+    bg: "#050308", ink: "#f1ecfb", soft: "#e4d9f5", muted: "#a99cc9", faint: "#8a7fae",
+    glass: "linear-gradient(160deg, rgba(255,255,255,.10), rgba(255,255,255,.02))",
+    glassSoft: "linear-gradient(160deg, rgba(255,255,255,.09), rgba(255,255,255,.02))",
+    border: "1px solid rgba(255,255,255,.14)", borderSoft: "1px solid rgba(255,255,255,.10)",
+    line: "rgba(255,255,255,.08)", chip: "rgba(255,255,255,.06)", tile: "rgba(255,255,255,.05)",
+    shadow: "0 20px 40px -22px rgba(0,0,0,.6)",
+    sheetBg: "linear-gradient(170deg,#171029,#0c0716)", navBg: "rgba(13,10,23,.94)", headerBg: "rgba(6,4,10,.55)",
+    green: "#6ee7b7", red: "#fda4af", amberText: "#fbbf24", dangerTint: "#fb7185", successTint: "#6ee7b7",
+    overlayTint: "#ffffff", overlayWash: "rgba(255,255,255,.06)", overlayBorder: "rgba(255,255,255,.16)", overlayStrong: "rgba(255,255,255,.22)",
+    bgImage: "bg-violet.png", heavyGlassFill: "rgba(255,255,255,.06)", scrim: "rgba(5,3,10,.4)",
+    stripeGrad: "linear-gradient(90deg,#6d28d9,#a78bfa,#fde68a)",
+    iconBg: "rgba(196,166,255,.16)", iconGlow: "0 0 22px 3px rgba(167,139,250,.4), 0 0 0 1px rgba(196,166,255,.3)",
+    dc: ["#a78bfa", "#60a5fa", "#34d399", "#fbbf24", "#e879f9", "#2dd4bf", "#fb7185", "#71717a", "#6366f1", "#38bdf8", "#fb923c", "#0ea5a5", "#d946ef"],
   },
   light: {
-    label: "Navy Professional", swatch: "linear-gradient(135deg,#16357a,#0b1d45)", mode: "light", tagline: "Light",
-    accent: "#16357a", accentDeep: "#0b1d45", accentText: "#16357a",
-    bg: "#f3f5f9", ink: "#0a1830", soft: "#1e3358", muted: "#55677f", faint: "#8794a8",
-    glass: "linear-gradient(170deg, rgba(255,255,255,.62), rgba(235,239,247,.40))",
-    glassSoft: "linear-gradient(170deg, rgba(255,255,255,.50), rgba(235,239,247,.30))",
-    border: "1px solid rgba(11,24,53,.20)", borderSoft: "1px solid rgba(11,24,53,.09)",
-    line: "rgba(10,24,53,.09)", chip: "rgba(11,24,53,.045)", tile: "rgba(11,24,53,.035)",
-    shadow: "0 0 0 1px rgba(11,24,53,.08), 0 26px 50px -18px rgba(11,24,53,.20), 0 10px 22px -12px rgba(10,20,40,.13)",
-    sheetBg: "linear-gradient(170deg,#ffffff,#eef1f6)", navBg: "rgba(243,245,249,.92)", headerBg: "rgba(243,245,249,.82)",
-    green: "#0d8f52", red: "#c23b3b", amberText: "#b45309", dangerTint: "#c23b3b", successTint: "#0d8f52",
-    overlayTint: "#0a1835", overlayWash: "rgba(11,24,53,.045)", overlayBorder: "rgba(11,24,53,.10)", overlayStrong: "rgba(11,24,53,.16)",
-    bgImage: "bg-navy.png", heavyGlassFill: "rgba(255,255,255,.68)", scrim: "linear-gradient(180deg, rgba(243,245,249,.35) 0%, rgba(243,245,249,.70) 55%, rgba(243,245,249,.92) 100%)",
+    label: "Paper White", swatch: "linear-gradient(135deg,#4f46e5,#fbbf24)", mode: "light", tagline: "Light",
+    accent: "#4f46e5", accentDeep: "#4338ca", accentText: "#3730a3",
+    gold: "#d4a017", goldDeep: "#92400e",
+    bg: "#f6f5f3", ink: "#181521", soft: "#3d3850", muted: "#6b6478", faint: "#948da0",
+    glass: "linear-gradient(170deg,#ffffff,#fbfaf9)", glassSoft: "linear-gradient(170deg,#fdfcfb,#f7f6f4)",
+    border: "1px solid rgba(0,0,0,.07)", borderSoft: "1px solid rgba(0,0,0,.045)",
+    line: "rgba(0,0,0,.06)", chip: "rgba(0,0,0,.045)", tile: "rgba(0,0,0,.035)",
+    shadow: "0 20px 40px -22px rgba(24,21,33,.18)",
+    sheetBg: "linear-gradient(170deg,#ffffff,#f4f3f1)", navBg: "rgba(255,255,255,.92)", headerBg: "rgba(255,255,255,.82)",
+    green: "#047857", red: "#dc2626", amberText: "#b45309", dangerTint: "#dc2626", successTint: "#047857",
+    overlayTint: "#000000", overlayWash: "rgba(0,0,0,.045)", overlayBorder: "rgba(0,0,0,.10)", overlayStrong: "rgba(0,0,0,.16)",
+    bgImage: "bg-paperwhite.png", heavyGlassFill: "rgba(255,255,255,.68)", scrim: "rgba(246,245,243,.88)",
+    stripeGrad: "linear-gradient(90deg,#4338ca,#4f46e5,#fde68a)",
     iconBg: "transparent", iconGlow: "none",
-    dc: ["#16357a", "#3b5bdb", "#4d6db3", "#7a93cf", "#2f4f96", "#0b1d45", "#5678b8", "#a7bbe3", "#16357a", "#3b5bdb", "#4d6db3", "#7a93cf", "#2f4f96"],
+    dc: ["#a78bfa", "#60a5fa", "#34d399", "#fbbf24", "#e879f9", "#2dd4bf", "#fb7185", "#71717a", "#6366f1", "#38bdf8", "#fb923c", "#0ea5a5", "#d946ef"],
   },
 };
 
@@ -123,14 +131,17 @@ function deriveTokens(t) {
     overlayTint: t.overlayTint, overlayWash: t.overlayWash, overlayBorder: t.overlayBorder, overlayStrong: t.overlayStrong,
     // legacy aliases still used by the money-direction coloring
     credit: t.green, debit: t.red,
-    // Glass/photo treatment (currently the 8 core screens, see Round 22).
-    bgImage: t.bgImage, heavyGlassFill: t.heavyGlassFill, scrim: t.scrim,
+    // Glass/photo treatment (the 8 core screens, see Round 22) --
+    // gold/goldDeep/stripeGrad are the theme's second accent family
+    // (amber), same structural role Emerald Gold's gold slot played.
+    gold: t.gold, goldDeep: t.goldDeep, bgImage: t.bgImage,
+    heavyGlassFill: t.heavyGlassFill, scrim: t.scrim, stripeGrad: t.stripeGrad,
     // Bottom-nav/header icon glow (dark-only by design -- light is a no-op).
     iconBg: t.iconBg, iconGlow: t.iconGlow,
-    // Decorative slice colors (donut/bar-chart legends) -- dark keeps
-    // today's exact hexes, light maps every one to a navy tint. Consumed
-    // via C.dc[i] fresh on every call (see sliceColor() below), never
-    // baked into a frozen literal.
+    // Decorative slice colors (donut/bar-chart legends), consumed via
+    // C.dc[i] fresh on every call (see sliceColor() below) -- the same
+    // fixed vivid palette in both themes, never baked into a frozen
+    // literal.
     dc: t.dc,
   };
 }
@@ -2028,6 +2039,7 @@ function DashHome({ book, go, onImport, onAdd, setTab, prices, onOpenInvestments
       <div style={{ position: "absolute", inset: 0, background: C.scrim }} />
       <div className="cb-stagger" style={{ position: "relative" }}>
       <div className="cb-press" onClick={() => go("networth")} style={{ ...glass(22), padding: "18px 18px 18px", cursor: "pointer", position: "relative", overflow: "hidden" }}>
+        <div style={{ position: "absolute", top: 0, left: 0, right: 0, height: 5, background: C.stripeGrad }} />
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 15, fontWeight: 800, fontFamily: F.sans, color: C.soft }}>
             Net Worth
@@ -5080,7 +5092,7 @@ function SetupThemePage({ book, up }) {
   return (
     <div className="cb-stagger">
       <div style={{ fontSize: 12, color: C.muted, padding: "0 2px 12px" }}>
-        Royal Sapphire, light or dark. Takes effect immediately.
+        Changes the app's look everywhere — colors, surfaces, and glow effects. Takes effect immediately.
       </div>
       {Object.entries(THEMES).map(renderCard)}
     </div>
