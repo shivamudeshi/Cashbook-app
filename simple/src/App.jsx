@@ -843,6 +843,22 @@ function SetupScreen({ book, openSheet, openAccountsPage }) {
   );
 }
 
+// Deleting a category only removes it from future pick-lists -- entries
+// already coded to it keep working (computePL/computeCashFlow read the
+// category string straight off each entry, not off this list) -- but a
+// user deleting a category still actively in use almost certainly doesn't
+// realize that, so confirm and name the count before it's gone from Setup.
+function categoryUseCount(book, category) {
+  return book.entries.filter((e) => e.category === category).length;
+}
+function confirmCategoryDelete(book, category, extra) {
+  const n = categoryUseCount(book, category);
+  if (n === 0) return true;
+  return window.confirm(
+    `"${category}" is used by ${n} transaction${n === 1 ? "" : "s"}. ${extra || ""}They'll keep their category, but you won't be able to pick "${category}" for new or re-coded transactions anymore. Remove it anyway?`
+  );
+}
+
 function SetupCategoriesSheet({ book, up, close }) {
   const cats = book.categories.expense.filter((c) => c !== "Suspense");
   return (
@@ -852,7 +868,10 @@ function SetupCategoriesSheet({ book, up, close }) {
         {cats.map((c, i) => (
           <RowLine key={c} last={i === cats.length - 1}>
             <div style={{ flex: 1, fontSize: 13.5, fontWeight: 700 }}>{c}</div>
-            <RoundBtn onClick={() => up((b) => { b.categories.expense = b.categories.expense.filter((x) => x !== c); return b; })}><Ic name="close" size={12} /></RoundBtn>
+            <RoundBtn onClick={() => {
+              if (!confirmCategoryDelete(book, c)) return;
+              up((b) => { b.categories.expense = b.categories.expense.filter((x) => x !== c); return b; });
+            }}><Ic name="close" size={12} /></RoundBtn>
           </RowLine>
         ))}
         {cats.length === 0 && <div style={{ padding: "12px 0", fontSize: 12.5, color: C.muted }}>No categories yet.</div>}
@@ -870,7 +889,10 @@ function SetupBsCategoriesSheet({ book, up, close }) {
         {book.bsCategories.map((c, i) => (
           <RowLine key={c} last={i === book.bsCategories.length - 1}>
             <div style={{ flex: 1, fontSize: 13.5, fontWeight: 700 }}>{c}</div>
-            <RoundBtn onClick={() => up((b) => { b.bsCategories = b.bsCategories.filter((x) => x !== c); return b; })}><Ic name="close" size={12} /></RoundBtn>
+            <RoundBtn onClick={() => {
+              if (!confirmCategoryDelete(book, c, "It'll also disappear from Cash Flow's Balance Sheet section for new activity. ")) return;
+              up((b) => { b.bsCategories = b.bsCategories.filter((x) => x !== c); return b; });
+            }}><Ic name="close" size={12} /></RoundBtn>
           </RowLine>
         ))}
         {book.bsCategories.length === 0 && <div style={{ padding: "12px 0", fontSize: 12.5, color: C.muted }}>No Balance Sheet categories yet.</div>}
@@ -923,7 +945,7 @@ function SetupPrefsSheet({ book, up, close }) {
           <div style={{ fontSize: 13.5, fontWeight: 700 }}>Security &amp; App Lock</div>
           <Toggle value={book.prefs.lock.on} onChange={(on) => up((b) => { b.prefs.lock.on = on; return b; })} />
         </div>
-        <div style={{ fontSize: 10, color: C.muted, fontWeight: 600, marginTop: 6 }}>4-digit PIN required to open the app. (Setting saves for real — the boot-time lock screen itself isn't built yet.)</div>
+        <div style={{ fontSize: 10, color: C.muted, fontWeight: 600, marginTop: 6 }}>4-digit PIN required to open the app.</div>
         {book.prefs.lock.on && (
           <input style={{ ...st.input, marginTop: 10 }} placeholder="4-digit PIN" maxLength={4} inputMode="numeric" value={pin}
             onChange={(e) => setPin(e.target.value.replace(/\D/g, "").slice(0, 4))}
@@ -955,7 +977,11 @@ function SetupAccountsPage({ book, up, open, onBack }) {
           <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
             <input style={{ ...st.input, flex: 1, fontWeight: 700 }} value={a.name}
               onChange={(e) => up((b) => { b.accounts.find((x) => x.id === a.id).name = e.target.value; return b; })} />
-            <RoundBtn onClick={() => up((b) => { b.accounts = b.accounts.filter((x) => x.id !== a.id); b.entries = b.entries.filter((e) => e.accountId !== a.id && e.fromAccountId !== a.id && e.toAccountId !== a.id); return b; })}><Ic name="close" size={13} /></RoundBtn>
+            <RoundBtn onClick={() => {
+              const n = book.entries.filter((e) => e.accountId === a.id || e.fromAccountId === a.id || e.toAccountId === a.id).length;
+              if (n > 0 && !window.confirm(`Delete "${a.name}"? This also permanently deletes its ${n} transaction${n === 1 ? "" : "s"} — this can't be undone.`)) return;
+              up((b) => { b.accounts = b.accounts.filter((x) => x.id !== a.id); b.entries = b.entries.filter((e) => e.accountId !== a.id && e.fromAccountId !== a.id && e.toAccountId !== a.id); return b; });
+            }}><Ic name="close" size={13} /></RoundBtn>
           </div>
           <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
             <div style={{ flex: 1 }}>
@@ -1419,6 +1445,56 @@ function NavBar({ tab, setTab }) {
   );
 }
 
+function LockScreen({ pin, onUnlock }) {
+  const [entered, setEntered] = useState("");
+  const [shake, setShake] = useState(false);
+
+  const tap = (d) => {
+    if (shake) return;
+    const next = (entered + d).slice(0, 4);
+    setEntered(next);
+    if (next.length === 4) {
+      if (next === pin) {
+        setTimeout(onUnlock, 80);
+      } else {
+        setShake(true);
+        setTimeout(() => { setShake(false); setEntered(""); }, 420);
+      }
+    }
+  };
+  const del = () => setEntered((s) => s.slice(0, -1));
+
+  const KEYS = ["1", "2", "3", "4", "5", "6", "7", "8", "9", "", "0", "del"];
+
+  return (
+    <div style={{ position: "fixed", inset: 0, zIndex: 300, background: C.bg, color: C.ink, fontFamily: F.sans, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: 24 }}>
+      <div style={{ position: "fixed", inset: 0, backgroundImage: `url(${C.bgImage})`, backgroundSize: "cover", backgroundPosition: "center top", zIndex: 0 }} />
+      <div style={{ position: "fixed", inset: 0, background: C.scrim, zIndex: 1 }} />
+      <div style={{ position: "relative", zIndex: 2, display: "flex", flexDirection: "column", alignItems: "center", width: "100%", maxWidth: 300 }}>
+        <div style={{ width: 52, height: 52, borderRadius: 16, background: C.grad, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 22, fontWeight: 800, color: "#fff", boxShadow: `0 14px 28px -8px ${C.accentDeep}`, marginBottom: 16 }}>₹</div>
+        <div style={{ fontSize: 16, fontWeight: 800 }}>Cash Book — Simple</div>
+        <div style={{ fontSize: 12, color: C.muted, fontWeight: 600, marginTop: 3, marginBottom: 26 }}>Enter your passcode</div>
+        <div style={{ display: "flex", gap: 14, marginBottom: 30, animation: shake ? "cbShake .4s" : "none" }}>
+          {[0, 1, 2, 3].map((i) => (
+            <div key={i} style={{ width: 13, height: 13, borderRadius: "50%", background: i < entered.length ? (shake ? C.red : C.grad) : "transparent", border: i < entered.length ? "none" : `1px solid ${C.overlayBorder}` }} />
+          ))}
+        </div>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 16, width: "100%" }}>
+          {KEYS.map((k, i) =>
+            k === "" ? (
+              <div key={i} />
+            ) : k === "del" ? (
+              <button key={i} onClick={del} style={{ aspectRatio: "1", borderRadius: "50%", border: "none", background: "none", color: C.muted, fontFamily: F.sans, fontSize: 13, fontWeight: 700, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>⌫</button>
+            ) : (
+              <button key={i} onClick={() => tap(k)} style={{ aspectRatio: "1", borderRadius: "50%", border: `1px solid ${C.overlayBorder}`, background: C.overlayWash, color: C.ink, fontFamily: F.sans, fontSize: 20, fontWeight: 700, cursor: "pointer" }}>{k}</button>
+            )
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function useTheme() {
   const [, force] = useState(0);
   useEffect(() => {
@@ -1435,6 +1511,7 @@ const GLOBAL_CSS = `
 html, body { margin: 0; padding: 0; overflow-x: hidden; overscroll-behavior-x: none; touch-action: manipulation; -webkit-touch-callout: none; }
 ::-webkit-scrollbar { display: none; }
 input, select, textarea { -webkit-user-select: text; user-select: text; }
+@keyframes cbShake { 0%,100% { transform: translateX(0); } 20%,60% { transform: translateX(-8px); } 40%,80% { transform: translateX(8px); } }
 `;
 
 export default function App() {
@@ -1443,6 +1520,7 @@ export default function App() {
   const [tab, setTab] = useState("home");
   const [sheet, setSheet] = useState(null); // { name, ctx }
   const [accountsPageOpen, setAccountsPageOpen] = useState(false);
+  const [unlocked, setUnlocked] = useState(false);
 
   useEffect(() => {
     loadBook().then((b) => setBook(b || defaultBook()));
@@ -1478,6 +1556,10 @@ export default function App() {
         Loading…
       </div>
     );
+  }
+
+  if (book.prefs.lock.on && !unlocked) {
+    return <LockScreen pin={book.prefs.lock.pin} onUnlock={() => setUnlocked(true)} />;
   }
 
   const headerActions = tab === "home"
