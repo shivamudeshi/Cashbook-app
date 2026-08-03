@@ -203,11 +203,36 @@ function AccountSelect({ book, value, onChange, accounts }) {
   );
 }
 
-function PartySelect({ book, value, onChange }) {
+// "+ New person..." reveals an inline add row instead of navigating away --
+// there is no dedicated Setup ▸ Parties screen (the approved mockup never
+// had one), so this is the only place a party can be created.
+function PartySelect({ book, up, value, onChange }) {
+  const [adding, setAdding] = useState(false);
+  const [name, setName] = useState("");
+  if (adding) {
+    return (
+      <div style={{ display: "flex", gap: 8 }}>
+        <input style={{ ...st.input, flex: 1 }} placeholder="Person's name" value={name} autoFocus
+          onChange={(e) => setName(e.target.value)}
+          onKeyDown={(e) => e.key === "Enter" && addNow()} />
+        <PrimaryBtn style={{ width: "auto", padding: "0 16px" }} onClick={addNow}>Add</PrimaryBtn>
+      </div>
+    );
+  }
+  function addNow() {
+    const n = name.trim();
+    if (!n) return;
+    const id = uid();
+    up((b) => { b.parties.push({ id, name: n }); return b; });
+    setAdding(false);
+    setName("");
+    onChange(id);
+  }
   return (
-    <select style={st.input} value={value || ""} onChange={(e) => onChange(e.target.value)}>
+    <select style={st.input} value={value || ""} onChange={(e) => (e.target.value === "__new__" ? setAdding(true) : onChange(e.target.value))}>
       <option value="">Select a person</option>
       {book.parties.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+      <option value="__new__">+ New person…</option>
     </select>
   );
 }
@@ -967,7 +992,7 @@ function SetupAccountsPage({ book, up, open, onBack }) {
    row). Gap filled versus the mockup: the mockup's Party and Split field
    groups had no Account picker at all, but this app's symmetric N-account
    model means every entry needs one -- added here for both, New-mode only. */
-function TypeFields({ book, mode, direction, subKind, f, setF, totalAmount }) {
+function TypeFields({ book, up, mode, direction, subKind, f, setF, totalAmount }) {
   const set = (k, v) => setF((old) => ({ ...old, [k]: v }));
   const expCats = book.categories.expense.filter((c) => c !== "Suspense");
 
@@ -985,7 +1010,7 @@ function TypeFields({ book, mode, direction, subKind, f, setF, totalAmount }) {
       <div>
         {mode === "new" && <><div style={st.label}>Account</div><AccountSelect book={book} value={f.accountId} onChange={(v) => set("accountId", v)} /></>}
         <div style={st.label}>Party</div>
-        <PartySelect book={book} value={f.partyId} onChange={(v) => set("partyId", v)} />
+        <PartySelect book={book} up={up} value={f.partyId} onChange={(v) => set("partyId", v)} />
       </div>
     );
   }
@@ -1040,7 +1065,7 @@ function TypeFields({ book, mode, direction, subKind, f, setF, totalAmount }) {
               </select>
             </>
           ) : (
-            <><div style={st.label}>Party</div><PartySelect book={book} value={f.splitPartyId2} onChange={(v) => set("splitPartyId2", v)} /></>
+            <><div style={st.label}>Party</div><PartySelect book={book} up={up} value={f.splitPartyId2} onChange={(v) => set("splitPartyId2", v)} /></>
           )}
           <div style={{ fontSize: 10, color: C.muted, fontWeight: 600, marginTop: 6 }}>Portion 2 amount: <span style={{ color: C.ink, fontWeight: 800 }}>{inr(remainder)}</span> (auto = total − portion 1)</div>
         </div>
@@ -1136,7 +1161,7 @@ function NewTransactionSheet({ book, up, close, preset }) {
       <Seg value={dir} onChange={setDir} options={[{ v: "out", label: "Money Out" }, { v: "in", label: "Money In" }]} />
       <div style={st.label}>Type</div>
       <Seg value={subKind} onChange={setSubKind} wrap4 options={subkindsFor(dir).map(([v, label]) => ({ v, label }))} />
-      <TypeFields book={book} mode="new" direction={dir} subKind={subKind} f={f} setF={setF} totalAmount={parseAmount(amount) || 0} />
+      <TypeFields book={book} up={up} mode="new" direction={dir} subKind={subKind} f={f} setF={setF} totalAmount={parseAmount(amount) || 0} />
       <div style={st.label}>Note (optional)</div>
       <input style={st.input} placeholder="Optional" value={note} onChange={(e) => setNote(e.target.value)} />
       <div style={st.label}>Date</div>
@@ -1206,7 +1231,7 @@ function CodeTransactionSheet({ book, up, close, entryId }) {
       </Card>
       <div style={st.label}>This was...</div>
       <Seg value={subKind} onChange={setSubKind} wrap4 options={subkindsFor(debit ? "out" : "in").map(([v, label]) => ({ v, label: label.replace(" to Pay", "").replace(" to Receive", "") }))} />
-      <TypeFields book={book} mode="code" direction={debit ? "out" : "in"} subKind={subKind} f={f} setF={setF} totalAmount={entry.amount} />
+      <TypeFields book={book} up={up} mode="code" direction={debit ? "out" : "in"} subKind={subKind} f={f} setF={setF} totalAmount={entry.amount} />
       {matched !== "Suspense" && subKind === "category" && (
         <div style={{ fontSize: 10, color: C.accentText, fontWeight: 600, marginTop: 6, display: "flex", gap: 4, alignItems: "flex-start" }}>
           <Ic name="wand" size={11} style={{ flexShrink: 0, marginTop: 1 }} />
@@ -1226,6 +1251,18 @@ function RecordPaymentSheet({ book, up, close, presetPartyId }) {
   const [dir, setDir] = useState("in");
   const [accountId, setAccountId] = useState((book.accounts[0] || {}).id || "");
   const [date, setDate] = useState(today());
+  const [addingParty, setAddingParty] = useState(book.parties.length === 0);
+  const [newName, setNewName] = useState("");
+
+  const addParty = () => {
+    const n = newName.trim();
+    if (!n) return;
+    const id = uid();
+    up((b) => { b.parties.push({ id, name: n }); return b; });
+    setPartyId(id);
+    setAddingParty(false);
+    setNewName("");
+  };
 
   const save = () => {
     const amt = parseAmount(amount);
@@ -1234,16 +1271,25 @@ function RecordPaymentSheet({ book, up, close, presetPartyId }) {
     close();
   };
 
-  if (book.parties.length === 0) return <Sheet open title="Record Payment" onClose={close}><div style={{ fontSize: 13, color: C.muted }}>Add a person to Owed first.</div></Sheet>;
+  if (book.accounts.length === 0) return <Sheet open title="Record Payment" onClose={close}><div style={{ fontSize: 13, color: C.muted }}>Add an account first, in Setup ▸ Accounts.</div></Sheet>;
 
   return (
     <Sheet open title="Record Payment" onClose={close}>
       <div style={st.label}>Party</div>
-      <select style={st.input} value={partyId} onChange={(e) => setPartyId(e.target.value)}>
-        {owed.perParty.map((p) => (
-          <option key={p.id} value={p.id}>{p.name} — {p.balance > 0 ? `owes you ${inr(p.balance)}` : p.balance < 0 ? `you owe ${inr(-p.balance)}` : "settled"}</option>
-        ))}
-      </select>
+      {addingParty ? (
+        <div style={{ display: "flex", gap: 8 }}>
+          <input style={{ ...st.input, flex: 1 }} placeholder="Person's name" value={newName} autoFocus
+            onChange={(e) => setNewName(e.target.value)} onKeyDown={(e) => e.key === "Enter" && addParty()} />
+          <PrimaryBtn style={{ width: "auto", padding: "0 16px" }} onClick={addParty}>Add</PrimaryBtn>
+        </div>
+      ) : (
+        <select style={st.input} value={partyId} onChange={(e) => (e.target.value === "__new__" ? setAddingParty(true) : setPartyId(e.target.value))}>
+          {owed.perParty.map((p) => (
+            <option key={p.id} value={p.id}>{p.name} — {p.balance > 0 ? `owes you ${inr(p.balance)}` : p.balance < 0 ? `you owe ${inr(-p.balance)}` : "settled"}</option>
+          ))}
+          <option value="__new__">+ New person…</option>
+        </select>
+      )}
       <div style={st.label}>Amount</div>
       <input style={{ ...st.input, fontSize: 15, fontWeight: 800 }} placeholder="Amount — 500, 2k, 1.2L" value={amount} onChange={(e) => setAmount(e.target.value)} />
       <div style={st.label}>Account</div>
@@ -1360,7 +1406,7 @@ function NavBar({ tab, setTab }) {
       {TABS.map((tItem) => {
         const active = tItem.id === tab;
         return (
-          <button key={tItem.id} onClick={() => setTab(tItem.id)} style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: 2, color: active ? C.accentText : C.faint, background: "none", border: "none", cursor: "pointer", fontFamily: F.sans, padding: 0 }}>
+          <button key={tItem.id} data-tab={tItem.id} onClick={() => setTab(tItem.id)} style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: 2, color: active ? C.accentText : C.faint, background: "none", border: "none", cursor: "pointer", fontFamily: F.sans, padding: 0 }}>
             <div style={{ width: 17, height: 17, borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center", background: active ? C.iconBg : "transparent", boxShadow: active ? C.iconGlow : "none" }}>
               <Ic name={tItem.icon} size={17} />
             </div>

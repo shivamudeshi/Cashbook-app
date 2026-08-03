@@ -6,7 +6,8 @@
   "scripts": {
     "build": "node scripts/build.mjs",
     "build:simple": "node scripts/build-simple.mjs",
-    "test": "node test/prod.cjs"
+    "test": "node test/prod.cjs",
+    "test:simple": "node simple/test/prod.cjs"
   },
   "dependencies": {
     "pdfjs-dist": "^6.1.200",
