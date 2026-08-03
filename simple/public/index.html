@@ -7,19 +7,52 @@
       content="width=device-width, initial-scale=1, viewport-fit=cover"
     />
     <meta name="theme-color" content="#050308" />
+    <link rel="manifest" href="manifest.json" />
+    <link rel="icon" href="icons/icon-192.png" />
+    <link rel="apple-touch-icon" href="icons/icon-192.png" />
     <title>Cash Book — Simple</title>
     <style>
+      @font-face {
+        font-family: "Sora";
+        font-style: normal;
+        font-weight: 400;
+        font-display: swap;
+        src: url(fonts/sora-latin-400-normal.woff2) format("woff2");
+      }
+      @font-face {
+        font-family: "Sora";
+        font-style: normal;
+        font-weight: 600;
+        font-display: swap;
+        src: url(fonts/sora-latin-600-normal.woff2) format("woff2");
+      }
+      @font-face {
+        font-family: "Sora";
+        font-style: normal;
+        font-weight: 700;
+        font-display: swap;
+        src: url(fonts/sora-latin-700-normal.woff2) format("woff2");
+      }
+      @font-face {
+        font-family: "Sora";
+        font-style: normal;
+        font-weight: 800;
+        font-display: swap;
+        src: url(fonts/sora-latin-800-normal.woff2) format("woff2");
+      }
       html,
       body {
         margin: 0;
         padding: 0;
         background: #050308;
         overflow-x: hidden;
-        font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+        font-family: "Sora", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
         -webkit-tap-highlight-color: transparent;
         touch-action: manipulation;
         -webkit-touch-callout: none;
-        user-select: none;
+      }
+      @media (prefers-color-scheme: light) {
+        html, body { background: #f6f5f3; }
       }
     </style>
   </head>
