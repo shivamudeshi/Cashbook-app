@@ -513,6 +513,7 @@ function TransactionsScreen({ book, openSheet, openCodeTx, selectMode, setSelect
   const [seg, setSeg] = useState("explained");
   const [q, setQ] = useState("");
   const [acctFilter, setAcctFilter] = useState("all");
+  const [dirFilter, setDirFilter] = useState("all"); // all | out | in
   const [selected, setSelected] = useState(() => new Set());
   const accountName = (id) => (book.accounts.find((a) => a.id === id) || {}).name || "—";
 
@@ -520,15 +521,25 @@ function TransactionsScreen({ book, openSheet, openCodeTx, selectMode, setSelect
   const explained = all.filter(isExplained).sort((a, b) => b.date.localeCompare(a.date));
   const unexplained = all.filter((e) => !isExplained(e)).sort((a, b) => b.date.localeCompare(a.date));
   const filterAcct = (list) => (acctFilter === "all" ? list : list.filter((e) => e.accountId === acctFilter));
+  const filterDir = (list) => (dirFilter === "all" ? list : list.filter((e) => e.type === dirFilter));
   const search = (list) => (q.trim() ? list.filter((e) => (e.merchant || e.category || "").toLowerCase().includes(q.toLowerCase())) : list);
-  const explainedRows = search(filterAcct(explained));
-  const unexplainedRows = search(filterAcct(unexplained));
+  const explainedRows = search(filterDir(filterAcct(explained)));
+  const unexplainedRows = search(filterDir(filterAcct(unexplained)));
 
   useEffect(() => { setSelectMode(false); setSelected(new Set()); }, [seg]);
 
   const toggleSelected = (id) => setSelected((s) => { const n = new Set(s); if (n.has(id)) n.delete(id); else n.add(id); return n; });
   const selectedEntries = unexplainedRows.filter((e) => selected.has(e.id));
   const mixedTypes = new Set(selectedEntries.map((e) => e.type)).size > 1;
+
+  // Select all always resolves to ONE direction, so the result is always
+  // codeable in one action without hitting the mixed-direction guard: it
+  // respects the direction filter when one is set, otherwise it follows
+  // whichever direction the most recent unexplained row is.
+  const selectAllType = dirFilter !== "all" ? dirFilter : (unexplainedRows[0] ? unexplainedRows[0].type : "out");
+  const selectAllRows = unexplainedRows.filter((e) => e.type === selectAllType);
+  const allSelectAllSelected = selectAllRows.length > 0 && selectAllRows.every((e) => selected.has(e.id));
+  const toggleSelectAll = () => setSelected(allSelectAllSelected ? new Set() : new Set(selectAllRows.map((e) => e.id)));
 
   const openBulkCode = () => {
     if (selected.size === 0 || mixedTypes) return;
@@ -542,9 +553,14 @@ function TransactionsScreen({ book, openSheet, openCodeTx, selectMode, setSelect
         { v: "explained", label: "Explained" },
         { v: "unexplained", label: "Unexplained", badge: unexplained.length || undefined },
       ]} />
-      <div style={{ display: "flex", gap: 8, marginBottom: 14, overflowX: "auto" }}>
+      <div style={{ display: "flex", gap: 8, marginBottom: 8, overflowX: "auto" }}>
         <FilterChip active={acctFilter === "all"} onClick={() => setAcctFilter("all")}>All accounts</FilterChip>
         {book.accounts.map((a) => <FilterChip key={a.id} active={acctFilter === a.id} onClick={() => setAcctFilter(a.id)}>{a.name}</FilterChip>)}
+      </div>
+      <div style={{ display: "flex", gap: 8, marginBottom: 14, overflowX: "auto" }}>
+        <FilterChip active={dirFilter === "all"} onClick={() => setDirFilter("all")}>All types</FilterChip>
+        <FilterChip active={dirFilter === "out"} onClick={() => setDirFilter("out")}>Money Out</FilterChip>
+        <FilterChip active={dirFilter === "in"} onClick={() => setDirFilter("in")}>Money In</FilterChip>
       </div>
 
       {seg === "explained" ? (
@@ -584,10 +600,10 @@ function TransactionsScreen({ book, openSheet, openCodeTx, selectMode, setSelect
           </div>
           {selectMode && unexplainedRows.length > 0 && (
             <button
-              onClick={() => setSelected(selected.size === unexplainedRows.length ? new Set() : new Set(unexplainedRows.map((e) => e.id)))}
+              onClick={toggleSelectAll}
               style={{ fontSize: 10.5, fontWeight: 700, color: C.accentText, background: "none", border: "none", cursor: "pointer", padding: "0 2px 8px", display: "block", fontFamily: F.sans }}
             >
-              {selected.size === unexplainedRows.length ? "Deselect all" : "Select all"}
+              {allSelectAllSelected ? "Deselect all" : `Select all — Money ${selectAllType === "out" ? "Out" : "In"}`}
             </button>
           )}
           <Card style={{ padding: "2px 16px" }}>
