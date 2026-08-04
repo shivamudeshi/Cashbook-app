@@ -26,6 +26,9 @@ jobs:
       - run: npm ci
       - run: npm run build
       - run: npm test # a clean bundle is not enough — the test mounts dist/app.js
+      - run: npm run build:simple
+      - run: npm run test:simple # mounts dist-simple/app.js the same way
+      - run: mkdir -p dist/simple && cp -r dist-simple/. dist/simple/
       - uses: actions/configure-pages@v5
         with:
           enablement: true
