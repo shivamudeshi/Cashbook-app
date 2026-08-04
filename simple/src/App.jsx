@@ -1445,7 +1445,7 @@ function NavBar({ tab, setTab }) {
   );
 }
 
-function LockScreen({ pin, onUnlock }) {
+function LockScreen({ pin, onUnlock, onForgot }) {
   const [entered, setEntered] = useState("");
   const [shake, setShake] = useState(false);
 
@@ -1490,6 +1490,7 @@ function LockScreen({ pin, onUnlock }) {
             )
           )}
         </div>
+        <button onClick={onForgot} style={{ marginTop: 26, background: "none", border: "none", color: C.muted, fontFamily: F.sans, fontSize: 12, fontWeight: 700, cursor: "pointer" }}>Forgot passcode?</button>
       </div>
     </div>
   );
@@ -1520,10 +1521,19 @@ export default function App() {
   const [tab, setTab] = useState("home");
   const [sheet, setSheet] = useState(null); // { name, ctx }
   const [accountsPageOpen, setAccountsPageOpen] = useState(false);
-  const [unlocked, setUnlocked] = useState(false);
+  // Whether THIS session still needs a PIN. Only decided once, right after
+  // the book loads, from whatever book.prefs.lock.on was at that moment —
+  // turning the lock on later in the same session (Setup) must NOT
+  // retroactively lock the session that's already open; it only takes
+  // effect on the next boot, once a real PIN has actually been saved.
+  const [unlocked, setUnlocked] = useState(null); // null = not yet decided
 
   useEffect(() => {
-    loadBook().then((b) => setBook(b || defaultBook()));
+    loadBook().then((b) => {
+      const loaded = b || defaultBook();
+      setBook(loaded);
+      setUnlocked(!loaded.prefs.lock.on);
+    });
   }, []);
 
   useEffect(() => {
@@ -1550,7 +1560,7 @@ export default function App() {
   const openCodeTx = (entryId) => setSheet({ name: "codeTx", ctx: { entryId } });
   const go = (t) => setTab(t);
 
-  if (!book) {
+  if (!book || unlocked === null) {
     return (
       <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", background: C.bg, color: C.muted, fontFamily: F.sans, fontSize: 13, fontWeight: 600 }}>
         Loading…
@@ -1558,8 +1568,22 @@ export default function App() {
     );
   }
 
-  if (book.prefs.lock.on && !unlocked) {
-    return <LockScreen pin={book.prefs.lock.pin} onUnlock={() => setUnlocked(true)} />;
+  // A pin shorter than 4 digits (e.g. the lock was switched on but a PIN was
+  // never actually saved) must never be able to gate the app — there'd be no
+  // 4-digit entry that could ever match it, which is a permanent lockout.
+  if (book.prefs.lock.on && book.prefs.lock.pin && book.prefs.lock.pin.length === 4 && !unlocked) {
+    return (
+      <LockScreen
+        pin={book.prefs.lock.pin}
+        onUnlock={() => setUnlocked(true)}
+        onForgot={() => {
+          if (window.confirm("Forgot your passcode? This turns off App Lock so you can get back in — your data stays exactly as it is.")) {
+            up((b) => { b.prefs.lock.on = false; return b; });
+            setUnlocked(true);
+          }
+        }}
+      />
+    );
   }
 
   const headerActions = tab === "home"
