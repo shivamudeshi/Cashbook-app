@@ -56,50 +56,58 @@ function alpha(hex, a) {
   return `rgba(${r},${g},${b},${a})`;
 }
 
-// "Royal Sapphire" (dark) / "Navy Professional" (light) -- replaces
-// Round 18's "Emerald Gold". Both entries carry the FULL legacy palette
-// shape (every field below was already read by ~700 call sites across
-// the file via C.xxx), so recoloring is safe everywhere immediately --
-// no call site needs to change. Values are copied verbatim from the
-// approved mockup (stage2-royal-sapphire-v7.html's :root custom
-// properties), not re-derived by eye. `dc` is a new 13-slot decorative-
-// color array (dark = today's exact slice hexes, light = navy-only
-// tints) -- see sliceColor() below for how it's consumed. `iconBg`/
-// `iconGlow` back the bottom-nav
-// active-icon + header bell glow (dark-only by design; light resolves
-// to "transparent"/"none", a guaranteed no-op).
+// "Amber Violet" (dark) / "Paper White" (light) -- replaces Round 22's
+// Royal Sapphire/Navy Professional. Base hues (bg/ink/soft/muted/faint/
+// accent/accentDeep/accentText/glass/border/line/chip/tile/shadow/
+// sheetBg/navBg/headerBg/green/red/overlay*) are copied verbatim from
+// the historical "Violet" (dark) and "Paper White" (light) themes --
+// the last two-theme picker before the Emerald Gold/Round 22 redesigns
+// replaced it, restored here at the user's request. `gold`/`goldDeep`
+// (amber -- the theme's second identity color, "Amber Violet"),
+// `bgImage`/`stripeGrad`/`heavyGlassFill`/`scrim` reuse the Emerald
+// Gold glass/photo structure (dual-accent stripe + full-bleed photo +
+// scrim), just recolored violet+amber instead of green+gold; `iconBg`/
+// `iconGlow` (Round 22's bottom-nav/header glow, dark-only) and `dc`
+// (13-slot decorative-color array, consumed via sliceColor() below;
+// unlike Round 22 this is the SAME fixed vivid palette in both themes
+// -- no per-theme navy-style tinting, matching how decorative colors
+// worked pre-Round-22) carry forward since nothing here asked to
+// remove either.
 export const THEMES = {
   dark: {
-    label: "Royal Sapphire", swatch: "linear-gradient(135deg,#3b82f6,#1e3a8a)", mode: "dark", tagline: "Dark",
-    accent: "#3b82f6", accentDeep: "#1e3a8a", accentText: "#93c5fd",
-    bg: "#050912", ink: "#eef3fb", soft: "#cfdbee", muted: "#8fa2c0", faint: "#5c6f8f",
-    glass: "linear-gradient(160deg, rgba(226,235,250,.065), rgba(226,235,250,.015))",
-    glassSoft: "linear-gradient(160deg, rgba(226,235,250,.045), rgba(226,235,250,.012))",
-    border: "1px solid rgba(147,197,253,.22)", borderSoft: "1px solid rgba(203,220,245,.10)",
-    line: "rgba(203,220,245,.10)", chip: "rgba(203,220,245,.06)", tile: "rgba(203,220,245,.05)",
-    shadow: "0 0 0 1px rgba(59,130,246,.08), 0 24px 54px -20px rgba(0,0,0,.65), 0 10px 30px -12px rgba(59,130,246,.24)",
-    sheetBg: "linear-gradient(170deg,#0d1a30,#050912)", navBg: "rgba(5,9,18,.94)", headerBg: "rgba(4,7,14,.55)",
-    green: "#4ade80", red: "#f87171", amberText: "#fbbf24", dangerTint: "#f87171", successTint: "#4ade80",
-    overlayTint: "#cbdcf5", overlayWash: "rgba(203,220,245,.06)", overlayBorder: "rgba(203,220,245,.16)", overlayStrong: "rgba(203,220,245,.22)",
-    bgImage: "bg-sapphire.png", heavyGlassFill: "rgba(13,21,38,.55)", scrim: "linear-gradient(180deg, rgba(4,7,14,.16) 0%, rgba(4,7,14,.48) 55%, rgba(4,7,14,.84) 100%)",
-    iconBg: "rgba(147,197,253,.14)", iconGlow: "0 0 22px 3px rgba(59,130,246,.38), 0 0 0 1px rgba(147,197,253,.28)",
-    dc: ["#3b82f6", "#38bdf8", "#f59e0b", "#fb7185", "#2dd4bf", "#fbbf24", "#a78bfa", "#fb923c", "#6366f1", "#0ea5a5", "#d946ef", "#14b8a6", "#4ade80"],
+    label: "Amber Violet", swatch: "linear-gradient(135deg,#a78bfa,#fbbf24)", mode: "dark", tagline: "Dark",
+    accent: "#a78bfa", accentDeep: "#6d28d9", accentText: "#c4a6ff",
+    gold: "#fbbf24", goldDeep: "#d97706",
+    bg: "#050308", ink: "#f1ecfb", soft: "#e4d9f5", muted: "#a99cc9", faint: "#8a7fae",
+    glass: "linear-gradient(160deg, rgba(255,255,255,.10), rgba(255,255,255,.02))",
+    glassSoft: "linear-gradient(160deg, rgba(255,255,255,.09), rgba(255,255,255,.02))",
+    border: "1px solid rgba(255,255,255,.14)", borderSoft: "1px solid rgba(255,255,255,.10)",
+    line: "rgba(255,255,255,.08)", chip: "rgba(255,255,255,.06)", tile: "rgba(255,255,255,.05)",
+    shadow: "0 20px 40px -22px rgba(0,0,0,.6)",
+    sheetBg: "linear-gradient(170deg,#171029,#0c0716)", navBg: "rgba(13,10,23,.94)", headerBg: "rgba(6,4,10,.55)",
+    green: "#6ee7b7", red: "#fda4af", amberText: "#fbbf24", dangerTint: "#fb7185", successTint: "#6ee7b7",
+    overlayTint: "#ffffff", overlayWash: "rgba(255,255,255,.06)", overlayBorder: "rgba(255,255,255,.16)", overlayStrong: "rgba(255,255,255,.22)",
+    bgImage: "bg-violet.png", heavyGlassFill: "rgba(255,255,255,.06)", scrim: "rgba(5,3,10,.4)",
+    stripeGrad: "linear-gradient(90deg,#6d28d9,#a78bfa,#fde68a)",
+    iconBg: "rgba(196,166,255,.16)", iconGlow: "0 0 22px 3px rgba(167,139,250,.4), 0 0 0 1px rgba(196,166,255,.3)",
+    dc: ["#a78bfa", "#60a5fa", "#34d399", "#fbbf24", "#e879f9", "#2dd4bf", "#fb7185", "#71717a", "#6366f1", "#38bdf8", "#fb923c", "#0ea5a5", "#d946ef"],
   },
   light: {
-    label: "Navy Professional", swatch: "linear-gradient(135deg,#16357a,#0b1d45)", mode: "light", tagline: "Light",
-    accent: "#16357a", accentDeep: "#0b1d45", accentText: "#16357a",
-    bg: "#f3f5f9", ink: "#0a1830", soft: "#1e3358", muted: "#55677f", faint: "#8794a8",
-    glass: "linear-gradient(170deg, rgba(255,255,255,.62), rgba(235,239,247,.40))",
-    glassSoft: "linear-gradient(170deg, rgba(255,255,255,.50), rgba(235,239,247,.30))",
-    border: "1px solid rgba(11,24,53,.20)", borderSoft: "1px solid rgba(11,24,53,.09)",
-    line: "rgba(10,24,53,.09)", chip: "rgba(11,24,53,.045)", tile: "rgba(11,24,53,.035)",
-    shadow: "0 0 0 1px rgba(11,24,53,.08), 0 26px 50px -18px rgba(11,24,53,.20), 0 10px 22px -12px rgba(10,20,40,.13)",
-    sheetBg: "linear-gradient(170deg,#ffffff,#eef1f6)", navBg: "rgba(243,245,249,.92)", headerBg: "rgba(243,245,249,.82)",
-    green: "#0d8f52", red: "#c23b3b", amberText: "#b45309", dangerTint: "#c23b3b", successTint: "#0d8f52",
-    overlayTint: "#0a1835", overlayWash: "rgba(11,24,53,.045)", overlayBorder: "rgba(11,24,53,.10)", overlayStrong: "rgba(11,24,53,.16)",
-    bgImage: "bg-navy.png", heavyGlassFill: "rgba(255,255,255,.68)", scrim: "linear-gradient(180deg, rgba(243,245,249,.35) 0%, rgba(243,245,249,.70) 55%, rgba(243,245,249,.92) 100%)",
+    label: "Paper White", swatch: "linear-gradient(135deg,#4f46e5,#fbbf24)", mode: "light", tagline: "Light",
+    accent: "#4f46e5", accentDeep: "#4338ca", accentText: "#3730a3",
+    gold: "#d4a017", goldDeep: "#92400e",
+    bg: "#f6f5f3", ink: "#181521", soft: "#3d3850", muted: "#6b6478", faint: "#948da0",
+    glass: "linear-gradient(170deg,#ffffff,#fbfaf9)", glassSoft: "linear-gradient(170deg,#fdfcfb,#f7f6f4)",
+    border: "1px solid rgba(0,0,0,.07)", borderSoft: "1px solid rgba(0,0,0,.045)",
+    line: "rgba(0,0,0,.06)", chip: "rgba(0,0,0,.045)", tile: "rgba(0,0,0,.035)",
+    shadow: "0 20px 40px -22px rgba(24,21,33,.18)",
+    sheetBg: "linear-gradient(170deg,#ffffff,#f4f3f1)", navBg: "rgba(255,255,255,.92)", headerBg: "rgba(255,255,255,.82)",
+    green: "#047857", red: "#dc2626", amberText: "#b45309", dangerTint: "#dc2626", successTint: "#047857",
+    overlayTint: "#000000", overlayWash: "rgba(0,0,0,.045)", overlayBorder: "rgba(0,0,0,.10)", overlayStrong: "rgba(0,0,0,.16)",
+    bgImage: "bg-paperwhite.png", heavyGlassFill: "rgba(255,255,255,.68)", scrim: "rgba(246,245,243,.88)",
+    stripeGrad: "linear-gradient(90deg,#4338ca,#4f46e5,#fde68a)",
     iconBg: "transparent", iconGlow: "none",
-    dc: ["#16357a", "#3b5bdb", "#4d6db3", "#7a93cf", "#2f4f96", "#0b1d45", "#5678b8", "#a7bbe3", "#16357a", "#3b5bdb", "#4d6db3", "#7a93cf", "#2f4f96"],
+    dc: ["#a78bfa", "#60a5fa", "#34d399", "#fbbf24", "#e879f9", "#2dd4bf", "#fb7185", "#71717a", "#6366f1", "#38bdf8", "#fb923c", "#0ea5a5", "#d946ef"],
   },
 };
 
@@ -123,14 +131,17 @@ function deriveTokens(t) {
     overlayTint: t.overlayTint, overlayWash: t.overlayWash, overlayBorder: t.overlayBorder, overlayStrong: t.overlayStrong,
     // legacy aliases still used by the money-direction coloring
     credit: t.green, debit: t.red,
-    // Glass/photo treatment (currently the 8 core screens, see Round 22).
-    bgImage: t.bgImage, heavyGlassFill: t.heavyGlassFill, scrim: t.scrim,
+    // Glass/photo treatment (the 8 core screens, see Round 22) --
+    // gold/goldDeep/stripeGrad are the theme's second accent family
+    // (amber), same structural role Emerald Gold's gold slot played.
+    gold: t.gold, goldDeep: t.goldDeep, bgImage: t.bgImage,
+    heavyGlassFill: t.heavyGlassFill, scrim: t.scrim, stripeGrad: t.stripeGrad,
     // Bottom-nav/header icon glow (dark-only by design -- light is a no-op).
     iconBg: t.iconBg, iconGlow: t.iconGlow,
-    // Decorative slice colors (donut/bar-chart legends) -- dark keeps
-    // today's exact hexes, light maps every one to a navy tint. Consumed
-    // via C.dc[i] fresh on every call (see sliceColor() below), never
-    // baked into a frozen literal.
+    // Decorative slice colors (donut/bar-chart legends), consumed via
+    // C.dc[i] fresh on every call (see sliceColor() below) -- the same
+    // fixed vivid palette in both themes, never baked into a frozen
+    // literal.
     dc: t.dc,
   };
 }
@@ -1134,12 +1145,13 @@ const HOLDING_VISUALS = {
   stock: { icon: "bars", color: "#34d399" },
   gold: { icon: "coins", color: "#fbbf24" },
   land: { icon: "home", color: "#38bdf8" },
+  other: { icon: "tag", color: "#e879f9" },
 };
 
 // Kinds with no live price feed — valued permanently at cost basis (see
 // holdingsValue's fallback), and given a synthetic instrumentId + free-text
 // label instead of an instrument search, same as gold has always worked.
-const MANUAL_KINDS = new Set(["gold", "land"]);
+const MANUAL_KINDS = new Set(["gold", "land", "other"]);
 
 const entrySign = (e) =>
   e.type === "in" || ((e.type === "transfer" || e.type === "party") && e.dir === "in") ? 1 : -1;
@@ -2019,6 +2031,11 @@ function DashHome({ book, go, onImport, onAdd, setTab, prices, onOpenInvestments
     kind, color: sliceColor(i), count: invHoldings.filter((h) => h.kind === kind).length,
   })).filter((g) => g.count > 0);
 
+  const recentEntries = book.entries
+    .filter((e) => (e.type === "out" || e.type === "in" || e.type === "transfer") && isExplained(e))
+    .sort((a, b) => b.date.localeCompare(a.date))
+    .slice(0, 4);
+
   return (
     // Full-bleed background image behind the whole tab (breaks out of the
     // shared content wrapper's 18px/16px padding, same negative-margin
@@ -2027,7 +2044,16 @@ function DashHome({ book, go, onImport, onAdd, setTab, prices, onOpenInvestments
       <div style={{ position: "absolute", inset: 0, backgroundImage: `url(${C.bgImage})`, backgroundSize: "cover", backgroundPosition: "center" }} />
       <div style={{ position: "absolute", inset: 0, background: C.scrim }} />
       <div className="cb-stagger" style={{ position: "relative" }}>
+      <div style={{ display: "flex", gap: 6, marginBottom: 14 }}>
+        <QuickAction label="Import" onClick={onImport} />
+        <QuickAction label="Add" onClick={onAdd} />
+        <QuickAction label="Reports" onClick={() => setTab("reports")} />
+        <QuickAction label="Budget" onClick={() => { setTab("reports"); go("budget"); }} />
+        <QuickAction label="Owed" onClick={() => setTab("owed")} />
+      </div>
+
       <div className="cb-press" onClick={() => go("networth")} style={{ ...glass(22), padding: "18px 18px 18px", cursor: "pointer", position: "relative", overflow: "hidden" }}>
+        <div style={{ position: "absolute", top: 0, left: 0, right: 0, height: 5, background: C.stripeGrad }} />
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 15, fontWeight: 800, fontFamily: F.sans, color: C.soft }}>
             Net Worth
@@ -2126,14 +2152,30 @@ function DashHome({ book, go, onImport, onAdd, setTab, prices, onOpenInvestments
         </>
       )}
 
-      <div style={{ ...st.section, fontSize: 13, marginTop: 14, marginBottom: 6, padding: "0 2px" }}>Quick Actions</div>
-      <div style={{ display: "flex", gap: 6, marginBottom: 8 }}>
-        <QuickAction label="Import" onClick={onImport} />
-        <QuickAction label="Add" onClick={onAdd} />
-        <QuickAction label="Reports" onClick={() => setTab("reports")} />
-        <QuickAction label="Budget" onClick={() => { setTab("reports"); go("budget"); }} />
-        <QuickAction label="Owed" onClick={() => setTab("owed")} />
-      </div>
+      {recentEntries.length > 0 && (
+        <>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginTop: 14, marginBottom: 6, padding: "0 2px" }}>
+            <div style={{ ...st.section, fontSize: 13 }}>Recent Activity</div>
+            <div className="cb-press" onClick={() => setTab("tx")} style={{ fontSize: 11, fontWeight: 700, color: C.accentText, cursor: "pointer" }}>View all ›</div>
+          </div>
+          <div style={{ ...glass(20), padding: "2px 16px", marginBottom: 8 }}>
+            {recentEntries.map((e, i) => (
+              <div key={e.id} className="cb-row cb-press" onClick={() => setTab("tx")} style={{ display: "flex", alignItems: "center", padding: "10px 0", borderTop: i ? `1px solid ${C.line}` : "none", cursor: "pointer" }}>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: 13, fontWeight: 700, color: C.ink, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{entryLabel(book, e)}</div>
+                  {e.note && <div style={{ fontSize: 10.5, color: C.muted, fontWeight: 600, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{e.note}</div>}
+                </div>
+                <div style={{ textAlign: "right", flexShrink: 0 }}>
+                  <div style={{ fontSize: 13, fontWeight: 700, color: entrySign(e) > 0 ? C.green : C.red, fontVariantNumeric: "tabular-nums" }}>
+                    {entrySign(e) > 0 ? "+" : "−"}{money(book, e.amount)}
+                  </div>
+                  <div style={{ fontSize: 9.5, color: C.faint, fontWeight: 600, marginTop: 1 }}>{prettyDate(e.date).replace(/^\w+, /, "")}</div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </>
+      )}
 
       {statSheet && (
         <StatDetailSheet
@@ -2336,7 +2378,7 @@ function NetWorthPage({ book, go, prices, onOpenInvestments }) {
 }
 
 /* ────────────────────────── Investments ────────────────────────── */
-const INVEST_KIND_LABEL = { mf: "Mutual Fund", stock: "Stock", gold: "Gold", land: "Real Estate" };
+const INVEST_KIND_LABEL = { mf: "Mutual Fund", stock: "Stock", gold: "Gold", land: "Real Estate", other: "Other" };
 
 // Per-holding display figures (market value, gain/loss, live price if any)
 // shared between InvestmentsPage's list and HoldingDetailPage's summary.
@@ -2352,12 +2394,16 @@ function investDetailLine(book, r) {
   const unit = r.price != null ? r.price : (r.units ? r.costBasis / r.units : 0);
   if (r.kind === "mf") return `Units ${r.units.toFixed(3)} · NAV ${navPrice(book, unit)}`;
   if (r.kind === "stock") return `Qty ${r.units.toFixed(0)} · Avg ${navPrice(book, r.units ? r.costBasis / r.units : 0)} · CMP ${navPrice(book, unit)}`;
-  if (r.kind === "land") return `Invested ${money(book, r.costBasis)}`;
+  if (r.kind === "land" || r.kind === "other") return `Invested ${money(book, r.costBasis)}`;
   return `${r.units.toFixed(2)}g · ${navPrice(book, unit)}/g`;
 }
 
-function InvestmentsPage({ book, prices, instruments, pricesLoaded, onClose, onAdd, onOpenHolding, onManage, onRefresh }) {
-  const [months, setMonths] = useState(3);
+// Full-screen page (reached via go("investments"), same pattern as Net
+// Worth/Account Detail) rather than a bottom-sheet overlay — see Round 23's
+// approved "Portfolio Breakdown" mockup. A donut leads the hero instead of
+// the old sparkline, since the sparkline's month-range chips no longer have
+// anything to control once the trend chart itself is gone.
+function InvestmentsPage({ book, go, prices, instruments, pricesLoaded, onAdd, onRefresh }) {
   const [valueMode, setValueMode] = useState("market"); // market | invested
   const [sortBy, setSortBy] = useState("value"); // value | name | gain
   const [hidden, setHidden] = useState(false);
@@ -2373,7 +2419,9 @@ function InvestmentsPage({ book, prices, instruments, pricesLoaded, onClose, onA
   const totalGainPct = investedTotal ? Math.round((totalGain / investedTotal) * 1000) / 10 : 0;
   const heroValue = valueMode === "market" ? marketTotal : investedTotal;
 
-  const series = useMemo(() => holdingsValueSeries(book, months, prices), [book, months, prices]);
+  // Fixed 2-month lookback — just enough for a month-over-month delta, now
+  // that a donut (not a trend sparkline) is the hero visual.
+  const series = useMemo(() => holdingsValueSeries(book, 2, prices), [book, prices]);
   const seriesDiff = series.length >= 2 ? series[series.length - 1].value - series[series.length - 2].value : 0;
   const seriesPct = series.length >= 2 && series[series.length - 2].value
     ? Math.round((seriesDiff / Math.abs(series[series.length - 2].value)) * 1000) / 10 : null;
@@ -2384,8 +2432,14 @@ function InvestmentsPage({ book, prices, instruments, pricesLoaded, onClose, onA
     : b.value - a.value
   );
 
-  // Groups by kind (Mutual Funds/Stocks/Gold/Real Estate) instead of one
-  // flat 13-row list; a group's own value/gain are its holdings' totals, and
+  // Same color per kind everywhere it appears (Dashboard's portfolio card,
+  // this page's donut and category rows) — keyed by position in
+  // HOLDING_KIND_ORDER, mirroring DashHome's invByKind.
+  const kindColor = {};
+  HOLDING_KIND_ORDER.forEach((kind, i) => { kindColor[kind] = sliceColor(i); });
+
+  // Groups by kind (Mutual Funds/Stocks/Gold/Real Estate/Other) instead of
+  // one flat list; a group's own value/gain are its holdings' totals, and
   // groups are ordered by the same sortBy comparator used for holdings.
   const groups = HOLDING_KIND_ORDER.map((kind) => {
     const items = sorted.filter((r) => r.kind === kind);
@@ -2393,7 +2447,7 @@ function InvestmentsPage({ book, prices, instruments, pricesLoaded, onClose, onA
     const costBasis = items.reduce((s, r) => s + r.costBasis, 0);
     const gain = value - costBasis;
     const gainPct = costBasis ? Math.round((gain / costBasis) * 1000) / 10 : 0;
-    return { kind, items, value, costBasis, gain, gainPct };
+    return { kind, items, value, costBasis, gain, gainPct, color: kindColor[kind] };
   }).filter((g) => g.items.length > 0)
     .sort((a, b) =>
       sortBy === "name" ? INVEST_KIND_LABEL[a.kind].localeCompare(INVEST_KIND_LABEL[b.kind])
@@ -2406,9 +2460,10 @@ function InvestmentsPage({ book, prices, instruments, pricesLoaded, onClose, onA
   // once real prices resolve) — kind/count don't depend on prices at all, so
   // real group headers can render immediately with just the figures shimmering.
   const holdingsByKind = HOLDING_KIND_ORDER.map((kind) => ({
-    kind, count: holdings.filter((h) => h.kind === kind).length,
+    kind, count: holdings.filter((h) => h.kind === kind).length, color: kindColor[kind],
   })).filter((g) => g.count > 0);
 
+  const donutSlices = groups.map((g) => ({ value: g.value, color: g.color }));
   const latestAsOf = Object.values(prices || {}).reduce((max, p) => (p && p.asOf && p.asOf > max ? p.asOf : max), "");
 
   const refreshAll = async () => {
@@ -2430,178 +2485,149 @@ function InvestmentsPage({ book, prices, instruments, pricesLoaded, onClose, onA
   const mask = (s) => (hidden ? "••••••" : s);
 
   return (
-    <div
-      onClick={onClose}
-      className="cb-sheet-overlay"
-      style={{ position: "fixed", inset: 0, background: "rgba(3,2,6,.65)", backdropFilter: "blur(4px)", WebkitBackdropFilter: "blur(4px)", display: "flex", alignItems: "flex-end", zIndex: 30 }}
-    >
-      <div
-        onClick={(e) => e.stopPropagation()}
-        className="cb-sheet"
-        style={{
-          width: "100%", maxWidth: 480, margin: "0 auto", maxHeight: "94vh",
-          overflowY: "auto", boxSizing: "border-box", background: C.sheetBg,
-          border: C.border, borderTop: `1px solid ${C.overlayStrong}`,
-          borderRadius: "24px 24px 0 0", padding: "10px 18px calc(22px + env(safe-area-inset-bottom))",
-        }}
-      >
-        <div style={{ width: 40, height: 4, borderRadius: 999, background: C.overlayStrong, margin: "0 auto 12px" }} />
-        <div style={{ display: "flex", alignItems: "center", marginBottom: 14 }}>
-          <RoundBtn aria-label="Close" onClick={onClose}><Ic name="close" size={14} stroke={C.soft} /></RoundBtn>
-          <div style={{ flex: 1, textAlign: "center", fontSize: 18, fontWeight: 800, color: C.ink }}>Investments</div>
-          <RoundBtn aria-label="Manage holdings" onClick={onManage}><Ic name="dots" size={16} stroke={C.soft} /></RoundBtn>
-        </div>
-
-        <div style={{ ...glass(20), padding: "14px 16px 12px" }}>
-          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
-            <button className="cb-press" onClick={() => setHidden((x) => !x)} style={{ display: "flex", alignItems: "center", gap: 5, border: "none", background: "none", padding: 0, cursor: "pointer", fontSize: 12, fontWeight: 700, color: C.soft }}>
-              Total Investment Value
-              <Ic name={hidden ? "eyeOff" : "eye"} size={12} stroke={C.faint} />
-            </button>
+    <div className="cb-stagger">
+      <div style={{ ...glass(22), padding: "16px 18px 18px" }}>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
+          <button className="cb-press" onClick={() => setHidden((x) => !x)} style={{ display: "flex", alignItems: "center", gap: 5, border: "none", background: "none", padding: 0, cursor: "pointer", fontSize: 12, fontWeight: 700, color: C.soft, fontFamily: F.sans }}>
+            Total Investment Value
+            <Ic name={hidden ? "eyeOff" : "eye"} size={12} stroke={C.faint} />
+          </button>
+          <div style={{ display: "flex", alignItems: "center", gap: 6, flexShrink: 0 }}>
             <DropdownField
               value={valueMode}
               onChange={setValueMode}
               options={[{ v: "market", label: "Market Value" }, { v: "invested", label: "Invested Amount" }]}
               style={{ padding: "5px 10px", borderRadius: 999, fontSize: 11, color: C.soft }}
-              wrapStyle={{ flexShrink: 0 }}
             />
-          </div>
-          <div style={{ display: "flex", alignItems: "baseline", gap: 10, marginTop: 8 }}>
-            {pricesLoaded ? (
-              <div style={{ fontSize: 27, fontWeight: 800, color: C.ink, fontVariantNumeric: "tabular-nums" }}>
-                {mask(money(book, heroValue))}
-              </div>
-            ) : (
-              <div className="cb-skeleton" style={{ width: 130, height: 27 }} />
-            )}
-            {pricesLoaded && !hidden && (
-              <div style={{ fontSize: 11.5, fontWeight: 700, color: seriesDiff >= 0 ? C.green : C.red }}>
-                {seriesDiff >= 0 ? "▲" : "▼"} {money(book, Math.abs(seriesDiff))}{seriesPct !== null ? ` (${Math.abs(seriesPct)}%)` : ""}
-              </div>
-            )}
-          </div>
-
-          <div style={{ display: "flex", alignItems: "center", gap: 10, marginTop: 10 }}>
-            <div style={{ flex: 1, height: 26 }}>
-              <Sparkline points={series.map((s) => s.value)} />
-            </div>
-            <div style={{ display: "flex", gap: 4, flexShrink: 0 }}>
-              {[["3M", 3], ["6M", 6], ["1Y", 12], ["All", 24]].map(([label, m]) => (
-                <button
-                  key={label}
-                  className="cb-press"
-                  onClick={() => setMonths(m)}
-                  style={{
-                    padding: "4px 9px", borderRadius: 999, fontSize: 10.5, fontWeight: 800,
-                    fontFamily: F.sans, cursor: "pointer",
-                    border: `1px solid ${months === m ? C.accentBorder : C.overlayBorder}`,
-                    background: months === m ? C.accentSoft : C.overlayWash,
-                    color: months === m ? C.accentText : C.muted,
-                  }}
-                >
-                  {label}
-                </button>
-              ))}
-            </div>
-          </div>
-
-          <div style={{ display: "flex", borderTop: `1px solid ${C.line}`, marginTop: 10, paddingTop: 9, gap: 10 }}>
-            <div style={{ flex: 1 }}>
-              <div style={{ fontSize: 9.5, fontWeight: 700, color: C.faint, textTransform: "uppercase", letterSpacing: ".04em" }}>Invested</div>
-              <div style={{ fontSize: 13.5, fontWeight: 800, color: C.ink, marginTop: 3 }}>{mask(money(book, investedTotal))}</div>
-            </div>
-            <div style={{ flex: 1 }}>
-              <div style={{ fontSize: 9.5, fontWeight: 700, color: C.faint, textTransform: "uppercase", letterSpacing: ".04em" }}>Total Returns</div>
-              <div style={{ fontSize: 13.5, fontWeight: 800, color: totalGain >= 0 ? C.green : C.red, marginTop: 3 }}>
-                {mask(`${totalGain >= 0 ? "+" : ""}${money(book, totalGain)} (${totalGainPct}%)`)}
-              </div>
-            </div>
+            <RoundBtn aria-label="Manage holdings" onClick={() => go("setupHoldings")}><Ic name="dots" size={16} stroke={C.soft} /></RoundBtn>
           </div>
         </div>
 
-        <div style={{ display: "flex", alignItems: "center", marginTop: 14, marginBottom: 6 }}>
-          <div style={{ flex: 1, fontSize: 13.5, fontWeight: 800, color: C.soft }}>By Category</div>
-          <DropdownField
-            value={sortBy}
-            onChange={setSortBy}
-            options={[{ v: "value", label: "Sort: Value" }, { v: "name", label: "Sort: Name" }, { v: "gain", label: "Sort: Gain %" }]}
-            style={{ border: "none", background: "none", padding: 0, color: C.accentText, fontSize: 11 }}
-            wrapStyle={{ flexShrink: 0 }}
-          />
-        </div>
+        {pricesLoaded ? (
+          <div style={{ fontSize: 30, fontWeight: 800, color: C.ink, marginTop: 8, fontVariantNumeric: "tabular-nums" }}>
+            {mask(money(book, heroValue))}
+          </div>
+        ) : (
+          <div className="cb-skeleton" style={{ width: 150, height: 30, marginTop: 8, borderRadius: 8 }} />
+        )}
+        {pricesLoaded && !hidden && seriesDiff !== 0 && (
+          <div style={{ fontSize: 12, fontWeight: 700, color: seriesDiff >= 0 ? C.green : C.red, marginTop: 4 }}>
+            {seriesDiff >= 0 ? "▲" : "▼"} {money(book, Math.abs(seriesDiff))}{seriesPct !== null ? ` (${Math.abs(seriesPct)}%)` : ""} this month
+          </div>
+        )}
 
-        <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-          {!pricesLoaded && holdingsByKind.map(({ kind, count }) => {
-            return (
-              <div key={kind} style={{ ...glass(15), background: C.glassSoft, border: C.borderSoft, padding: "9px 12px", display: "flex", alignItems: "center", gap: 9 }}>
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontSize: 13, fontWeight: 700, color: C.ink }}>{INVEST_KIND_LABEL[kind]}</div>
-                  <div style={{ fontSize: 10.5, color: C.muted, marginTop: 1 }}>{count} {count === 1 ? "holding" : "holdings"}</div>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "center", position: "relative", margin: "18px 0 6px" }}>
+          {pricesLoaded && donutSlices.length > 0 ? (
+            <>
+              <Donut slices={donutSlices} size={190} thickness={22} />
+              <div style={{ position: "absolute", textAlign: "center" }}>
+                <div style={{ fontSize: 10.5, color: C.muted, fontWeight: 700, textTransform: "uppercase", letterSpacing: ".05em" }}>Returns</div>
+                <div style={{ fontSize: 17, fontWeight: 800, color: totalGain >= 0 ? C.green : C.red, marginTop: 2, fontVariantNumeric: "tabular-nums" }}>
+                  {mask(`${totalGain >= 0 ? "+" : ""}${totalGainPct}%`)}
                 </div>
-                <div className="cb-skeleton" style={{ width: 60, height: 13 }} />
               </div>
-            );
-          })}
-
-          {pricesLoaded && groups.map((g) => {
-            const open = openGroup === g.kind;
-            const gval = valueMode === "market" ? g.value : g.costBasis;
-            return (
-              <div key={g.kind} style={{ ...glass(15), background: C.glassSoft, border: C.borderSoft, overflow: "hidden" }}>
-                <div className="cb-press" onClick={() => setOpenGroup(open ? null : g.kind)}
-                  style={{ display: "flex", alignItems: "center", gap: 9, padding: "9px 12px", cursor: "pointer" }}>
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ fontSize: 13, fontWeight: 700, color: C.ink }}>{INVEST_KIND_LABEL[g.kind]}</div>
-                    <div style={{ fontSize: 10.5, color: C.muted, marginTop: 1 }}>
-                      {g.items.length} {g.items.length === 1 ? "holding" : "holdings"} · Invested {mask(money(book, g.costBasis))}
-                    </div>
-                  </div>
-                  <div style={{ textAlign: "right", flexShrink: 0 }}>
-                    <div style={{ fontSize: 13, fontWeight: 800, color: C.ink, fontVariantNumeric: "tabular-nums" }}>{mask(money(book, gval))}</div>
-                    <div style={{ fontSize: 10, fontWeight: 700, color: g.gain >= 0 ? C.green : C.red, marginTop: 1 }}>
-                      {mask(`${g.gain >= 0 ? "+" : ""}${money(book, g.gain)} (${g.gainPct}%)`)}
-                    </div>
-                  </div>
-                  <div style={{ transform: open ? "rotate(180deg)" : "none", transition: "transform .15s ease", flexShrink: 0 }}>
-                    <Ic name="chevronDown" size={14} stroke={C.faint} sw={2.2} />
-                  </div>
-                </div>
-                {open && (
-                  <div style={{ borderTop: `1px solid ${C.line}` }}>
-                    {g.items.map((r, i) => (
-                      <div key={r.id} className="cb-press" onClick={() => onOpenHolding(r)}
-                        style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 12px", borderTop: i ? `1px solid ${C.line}` : "none", cursor: "pointer" }}>
-                        <div style={{ flex: 1, minWidth: 0, fontSize: 12, fontWeight: 600, color: C.soft, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{r.label}</div>
-                        <div style={{ fontSize: 12, fontWeight: 700, color: C.ink, fontVariantNumeric: "tabular-nums", flexShrink: 0 }}>
-                          {mask(money(book, valueMode === "market" ? r.value : r.costBasis))}
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-            );
-          })}
-
-          {pricesLoaded && groups.length === 0 && (
-            <div style={{ ...glass(15), padding: "20px 16px", fontSize: 13, color: C.muted, textAlign: "center" }}>
-              No investments yet — tap Add Investment to start tracking.
-            </div>
+            </>
+          ) : pricesLoaded ? (
+            <div style={{ fontSize: 12.5, color: C.muted, padding: "40px 0" }}>No investments yet.</div>
+          ) : (
+            <div className="cb-skeleton" style={{ width: 190, height: 190, borderRadius: "50%" }} />
           )}
         </div>
+      </div>
 
-        <button className="cb-press" onClick={onAdd} style={{ width: "100%", marginTop: 12, padding: "11px 0", border: `1px dashed ${C.accentBorderSoft}`, borderRadius: 13, background: alpha(C.accent, .08), color: C.accentText, fontWeight: 800, fontSize: 13, fontFamily: F.sans, cursor: "pointer" }}>
-          + Add Investment
-        </button>
-
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, marginTop: 12, padding: "0 2px" }}>
-          <div style={{ fontSize: 10.5, color: C.faint }}>
-            {latestAsOf ? `Prices & NAVs as of ${latestAsOf}` : "No live prices loaded yet"}
-          </div>
-          <button className="cb-press" disabled={refreshing} onClick={refreshAll} style={{ display: "flex", alignItems: "center", gap: 4, border: "none", background: "none", color: C.accentText, fontSize: 11, fontWeight: 700, fontFamily: F.sans, cursor: "pointer", opacity: refreshing ? 0.5 : 1 }}>
-            <Ic name="refresh" size={12} stroke={C.accentText} /> {refreshing ? "Refreshing…" : "Refresh All"}
-          </button>
+      <div style={{ display: "flex", gap: 10, marginTop: 12 }}>
+        <div style={{ ...glass(16), flex: 1, padding: "12px 14px" }}>
+          <div style={{ fontSize: 9.5, fontWeight: 700, color: C.faint, textTransform: "uppercase", letterSpacing: ".04em" }}>Invested</div>
+          <div style={{ fontSize: 14.5, fontWeight: 800, color: C.ink, marginTop: 4, fontVariantNumeric: "tabular-nums" }}>{mask(money(book, investedTotal))}</div>
         </div>
+        <div style={{ ...glass(16), flex: 1, padding: "12px 14px" }}>
+          <div style={{ fontSize: 9.5, fontWeight: 700, color: C.faint, textTransform: "uppercase", letterSpacing: ".04em" }}>Total Returns</div>
+          <div style={{ fontSize: 14.5, fontWeight: 800, color: totalGain >= 0 ? C.green : C.red, marginTop: 4, fontVariantNumeric: "tabular-nums" }}>
+            {mask(`${totalGain >= 0 ? "+" : ""}${money(book, totalGain)} (${totalGainPct}%)`)}
+          </div>
+        </div>
+      </div>
+
+      <div style={{ display: "flex", alignItems: "center", marginTop: 18, marginBottom: 8 }}>
+        <div style={{ flex: 1, fontSize: 14.5, fontWeight: 800, color: C.ink }}>By Category</div>
+        <DropdownField
+          value={sortBy}
+          onChange={setSortBy}
+          options={[{ v: "value", label: "Sort: Value" }, { v: "name", label: "Sort: Name" }, { v: "gain", label: "Sort: Gain %" }]}
+          style={{ border: "none", background: "none", padding: 0, color: C.accentText, fontSize: 11.5 }}
+          wrapStyle={{ flexShrink: 0 }}
+        />
+      </div>
+
+      <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+        {!pricesLoaded && holdingsByKind.map(({ kind, count, color }) => (
+          <div key={kind} style={{ ...glass(15), background: C.glassSoft, border: C.borderSoft, padding: "11px 14px", display: "flex", alignItems: "center", gap: 10 }}>
+            <span style={{ width: 9, height: 9, borderRadius: 999, background: color, flexShrink: 0, display: "inline-block" }} />
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ fontSize: 13.5, fontWeight: 700, color: C.ink }}>{INVEST_KIND_LABEL[kind]}</div>
+              <div style={{ fontSize: 10.5, color: C.muted, marginTop: 1 }}>{count} {count === 1 ? "holding" : "holdings"}</div>
+            </div>
+            <div className="cb-skeleton" style={{ width: 60, height: 13 }} />
+          </div>
+        ))}
+
+        {pricesLoaded && groups.map((g) => {
+          const open = openGroup === g.kind;
+          const gval = valueMode === "market" ? g.value : g.costBasis;
+          return (
+            <div key={g.kind} style={{ ...glass(15), background: C.glassSoft, border: C.borderSoft, overflow: "hidden" }}>
+              <div className="cb-press" onClick={() => setOpenGroup(open ? null : g.kind)}
+                style={{ display: "flex", alignItems: "center", gap: 10, padding: "11px 14px", cursor: "pointer" }}>
+                <span style={{ width: 9, height: 9, borderRadius: 999, background: g.color, flexShrink: 0, display: "inline-block" }} />
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: 13.5, fontWeight: 700, color: C.ink }}>{INVEST_KIND_LABEL[g.kind]}</div>
+                  <div style={{ fontSize: 10.5, color: C.muted, marginTop: 1 }}>{g.items.length} {g.items.length === 1 ? "holding" : "holdings"}</div>
+                </div>
+                <div style={{ textAlign: "right", flexShrink: 0 }}>
+                  <div style={{ fontSize: 13.5, fontWeight: 800, color: C.ink, fontVariantNumeric: "tabular-nums" }}>{mask(money(book, gval))}</div>
+                  <div style={{ fontSize: 10.5, fontWeight: 700, color: g.gain >= 0 ? C.green : C.red, marginTop: 1 }}>
+                    {mask(`${g.gain >= 0 ? "+" : ""}${g.gainPct}%`)}
+                  </div>
+                </div>
+                <div style={{ transform: open ? "rotate(180deg)" : "none", transition: "transform .15s ease", flexShrink: 0 }}>
+                  <Ic name="chevronDown" size={14} stroke={C.faint} sw={2.2} />
+                </div>
+              </div>
+              {open && (
+                <div style={{ borderTop: `1px solid ${C.line}` }}>
+                  {g.items.map((r, i) => (
+                    <div key={r.id} className="cb-press" onClick={() => go("holdingDetail", r.id)}
+                      style={{ display: "flex", alignItems: "center", gap: 10, padding: "9px 14px", borderTop: i ? `1px solid ${C.line}` : "none", cursor: "pointer" }}>
+                      <div style={{ flex: 1, minWidth: 0, fontSize: 12.5, fontWeight: 600, color: C.soft, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{r.label}</div>
+                      <div style={{ fontSize: 12.5, fontWeight: 700, color: C.ink, fontVariantNumeric: "tabular-nums", flexShrink: 0 }}>
+                        {mask(money(book, valueMode === "market" ? r.value : r.costBasis))}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          );
+        })}
+
+        {pricesLoaded && groups.length === 0 && (
+          <div style={{ ...glass(15), padding: "22px 16px", fontSize: 13, color: C.muted, textAlign: "center" }}>
+            No investments yet — tap Add Investment to start tracking.
+          </div>
+        )}
+      </div>
+
+      <button className="cb-press" onClick={onAdd} style={{ width: "100%", marginTop: 14, padding: "12px 0", border: `1px dashed ${C.accentBorderSoft}`, borderRadius: 13, background: alpha(C.accent, .08), color: C.accentText, fontWeight: 800, fontSize: 13, fontFamily: F.sans, cursor: "pointer" }}>
+        + Add Investment
+      </button>
+
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, marginTop: 12, marginBottom: 6, padding: "0 2px" }}>
+        <div style={{ fontSize: 10.5, color: C.faint }}>
+          {latestAsOf ? `Prices & NAVs as of ${latestAsOf}` : "No live prices loaded yet"}
+        </div>
+        <button className="cb-press" disabled={refreshing} onClick={refreshAll} style={{ display: "flex", alignItems: "center", gap: 4, border: "none", background: "none", color: C.accentText, fontSize: 11, fontWeight: 700, fontFamily: F.sans, cursor: "pointer", opacity: refreshing ? 0.5 : 1 }}>
+          <Ic name="refresh" size={12} stroke={C.accentText} /> {refreshing ? "Refreshing…" : "Refresh All"}
+        </button>
       </div>
     </div>
   );
@@ -4636,7 +4662,7 @@ function SetupAccountsPage({ book, up }) {
   );
 }
 
-const HOLDING_KIND_ORDER = ["mf", "stock", "gold", "land"];
+const HOLDING_KIND_ORDER = ["mf", "stock", "gold", "land", "other"];
 
 function SetupHoldingsPage({ book, up, instruments }) {
   const [confirmDel, setConfirmDel] = useState("");
@@ -5080,7 +5106,7 @@ function SetupThemePage({ book, up }) {
   return (
     <div className="cb-stagger">
       <div style={{ fontSize: 12, color: C.muted, padding: "0 2px 12px" }}>
-        Royal Sapphire, light or dark. Takes effect immediately.
+        Changes the app's look everywhere — colors, surfaces, and glow effects. Takes effect immediately.
       </div>
       {Object.entries(THEMES).map(renderCard)}
     </div>
@@ -5300,7 +5326,10 @@ function HoldingPicker({ book, instruments, initial, onChange }) {
   return (
     <>
       <label style={st.label}>Instrument Type</label>
-      <Seg value={kind} onChange={changeKind} options={[{ v: "mf", label: "Mutual Fund" }, { v: "stock", label: "Stock" }, { v: "gold", label: "Gold" }, { v: "land", label: "Real Estate" }]} />
+      <Seg
+        value={kind} onChange={changeKind} size={11}
+        options={[{ v: "mf", label: "Mutual Fund" }, { v: "stock", label: "Stock" }, { v: "gold", label: "Gold" }, { v: "land", label: "Real Estate" }, { v: "other", label: "Other" }]}
+      />
       <label style={st.label}>Holding</label>
       {holdingsOfKind.length > 0 && (
         <DropdownField
@@ -5313,7 +5342,7 @@ function HoldingPicker({ book, instruments, initial, onChange }) {
         <input
           style={{ ...st.input, marginTop: holdingsOfKind.length > 0 ? 8 : 0 }}
           value={label}
-          placeholder={kind === "land" ? "e.g. Flat in Pune, 2 Acres Farmland" : "e.g. Gold Coins, SGB 2023"}
+          placeholder={kind === "land" ? "e.g. Flat in Pune, 2 Acres Farmland" : kind === "other" ? "e.g. Collectibles, Crypto, PPF" : "e.g. Gold Coins, SGB 2023"}
           onChange={(e) => setLabel(e.target.value)}
         />
       )}
@@ -6104,6 +6133,7 @@ const PAGE_TITLES = {
   setupData: "Backup & Data",
   setupHoldings: "Holdings",
   setupTrips: "Trips",
+  investments: "Investments",
 };
 
 export default function CashBook() {
@@ -6114,7 +6144,6 @@ export default function CashBook() {
   const [entrySheet, setEntrySheet] = useState(null);
   const [memoSheet, setMemoSheet] = useState(null); // {party?, presetKind?}
   const [importOpen, setImportOpen] = useState(false);
-  const [investmentsOpen, setInvestmentsOpen] = useState(false);
   const [splash, setSplash] = useState("on");
   const [locked, setLocked] = useState(false);
   const [prices, setPrices] = useState({});
@@ -6124,7 +6153,7 @@ export default function CashBook() {
   const skipSave = useRef(true);
   const skipNextPopRef = useRef(false);
   const navRef = useRef();
-  navRef.current = { tab, page, entrySheet, memoSheet, importOpen, investmentsOpen };
+  navRef.current = { tab, page, entrySheet, memoSheet, importOpen };
 
   useEffect(() => {
     loadBook().then((b) => {
@@ -6199,11 +6228,10 @@ export default function CashBook() {
       }
       window.history.pushState({ cbNav: true }, "", window.location.href);
       const s = navRef.current;
-      if (s.entrySheet || s.memoSheet || s.importOpen || s.investmentsOpen) {
+      if (s.entrySheet || s.memoSheet || s.importOpen) {
         setEntrySheet(null);
         setMemoSheet(null);
         setImportOpen(false);
-        setInvestmentsOpen(false);
       } else if (s.tab !== "dash" || s.page) {
         switchTab("dash");
       } else {
@@ -6329,7 +6357,13 @@ export default function CashBook() {
     : page.name === "trip" ? tripName(book, page.arg)
     : PAGE_TITLES[page.name] || "Cash Book"
   ) : null;
-  const backTarget = page && { assets: "networth", liabilities: "networth" }[page.name];
+  // "investments" is the one page whose back-target varies by where it was
+  // opened from (Net Worth's holdings row vs. Dashboard/Reports' card) --
+  // encoded in page.arg by each caller, since `page` has no history stack.
+  const backTarget = page && (
+    page.name === "investments" ? (page.arg || null)
+    : { assets: "networth", liabilities: "networth", holdingDetail: "investments" }[page.name]
+  );
 
   const openRecordPayment = (p, dirDefault) =>
     setEntrySheet({
@@ -6350,7 +6384,14 @@ export default function CashBook() {
     });
 
   const pageEl = page && (
-    page.name === "networth" ? <NetWorthPage book={book} go={go} prices={prices} onOpenInvestments={() => setInvestmentsOpen(true)} />
+    page.name === "networth" ? <NetWorthPage book={book} go={go} prices={prices} onOpenInvestments={() => go("investments", "networth")} />
+    : page.name === "investments" ? (
+      <InvestmentsPage
+        book={book} go={go} prices={prices} instruments={instruments} pricesLoaded={pricesLoaded}
+        onAdd={() => setEntrySheet({ initial: { type: "holding", dir: "buy", date: today() } })}
+        onRefresh={(p, i) => { setPrices(p); setInstruments(i); }}
+      />
+    )
     : page.name === "assets" ? <AllocationPage book={book} kind="assets" prices={prices} />
     : page.name === "liabilities" ? <AllocationPage book={book} kind="liabilities" prices={prices} />
     : page.name === "party" ? (
@@ -6481,7 +6522,7 @@ export default function CashBook() {
                 onAdd={() => setEntrySheet({ initial: null })}
                 setTab={switchTab}
                 prices={prices}
-                onOpenInvestments={() => setInvestmentsOpen(true)}
+                onOpenInvestments={() => go("investments")}
               />
             )
             : tab === "owed" ? (
@@ -6497,7 +6538,7 @@ export default function CashBook() {
             : tab === "tx" ? (
               <TxView book={book} up={up} onEdit={(e) => setEntrySheet({ initial: e })} onAdd={() => setEntrySheet({ initial: null })} initialFilter={txFilter} />
             )
-            : tab === "reports" ? <ReportsHub book={book} go={go} prices={prices} onOpenInvestments={() => setInvestmentsOpen(true)} />
+            : tab === "reports" ? <ReportsHub book={book} go={go} prices={prices} onOpenInvestments={() => go("investments")} />
             : <SetupHub book={book} go={go} />
           )}
         </div>
@@ -6553,16 +6594,6 @@ export default function CashBook() {
           onSave={saveEntry} onClose={() => setEntrySheet(null)}
           onDelete={(id) => { deleteEntries([id]); setEntrySheet(null); }}
           onSaveSplit={saveSplitExpense}
-        />
-      )}
-      {investmentsOpen && (
-        <InvestmentsPage
-          book={book} prices={prices} instruments={instruments} pricesLoaded={pricesLoaded}
-          onClose={() => setInvestmentsOpen(false)}
-          onAdd={() => { setInvestmentsOpen(false); setEntrySheet({ initial: { type: "holding", dir: "buy", date: today() } }); }}
-          onOpenHolding={(h) => { setInvestmentsOpen(false); go("holdingDetail", h.id); }}
-          onManage={() => { setInvestmentsOpen(false); go("setupHoldings"); }}
-          onRefresh={(p, i) => { setPrices(p); setInstruments(i); }}
         />
       )}
       {memoSheet && (

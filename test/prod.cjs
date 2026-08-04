@@ -27,7 +27,7 @@ async function main() {
   await new Promise((r) => setTimeout(r, 400));
 
   const text = window.document.body.textContent;
-  for (const expected of ["Cash Book", "Dashboard", "Owed", "Transactions", "Reports", "Setup", "Net Worth", "Quick Actions"]) {
+  for (const expected of ["Cash Book", "Dashboard", "Owed", "Transactions", "Reports", "Setup", "Net Worth"]) {
     assert.ok(text.includes(expected), `rendered app should contain "${expected}"`);
   }
 
@@ -199,6 +199,11 @@ async function main() {
   const landHolding = { id: "l1", kind: "land", instrumentId: "land:seed", label: "Flat in Pune", units: 1, costBasis: 2500000 };
   assert.strictEqual(E.holdingsValue(landHolding, prices4), 2500000, "a land holding is never found in any price snapshot — always values at cost");
   assert.strictEqual(E.holdingsValue(landHolding, {}), 2500000, "a land holding values at cost with no price snapshot at all, same as gold");
+
+  // Same for the new "other" kind (crypto, collectibles, PPF, etc.).
+  const otherHolding = { id: "o1", kind: "other", instrumentId: "other:seed", label: "PPF", units: 1, costBasis: 150000 };
+  assert.strictEqual(E.holdingsValue(otherHolding, prices4), 150000, "an 'other' holding is never found in any price snapshot — always values at cost");
+  assert.strictEqual(E.holdingsValue(otherHolding, {}), 150000, "an 'other' holding values at cost with no price snapshot at all, same as gold/land");
 
   const pl4 = E.computePL(db4, "2025-06-01", asOf4);
   assert.strictEqual(pl4.expense["Finance charges"], 100, "the buy's charge posts as a Finance charges expense");
@@ -422,34 +427,34 @@ async function main() {
   assert.ok(fresh.parties.length >= 2, "placeholder parties seeded");
   assert.strictEqual(fresh.prefs.bankName, "Bank", "fresh books default the primary account's display name to Bank");
 
-  // Theme: a single "Royal Sapphire" (dark) / "Navy Professional" (light)
-  // glass identity with a light/dark pair. applyTheme swaps the shared C
-  // token object's FULL palette in place (accent family + bg/ink/surface/
+  // Theme: a single "Amber Violet" (dark) / "Paper White" (light) glass
+  // identity with a light/dark pair. applyTheme swaps the shared C token
+  // object's FULL palette in place (accent family + bg/ink/surface/
   // overlay/decorative-color tokens) -- the mechanism the whole live
   // theme-switcher relies on.
-  assert.strictEqual(fresh.prefs.theme, "dark", "fresh books default to the dark Royal Sapphire theme");
+  assert.strictEqual(fresh.prefs.theme, "dark", "fresh books default to the dark Amber Violet theme");
   assert.ok(E.THEMES && E.THEMES.dark && E.THEMES.light, "both theme entries are registered");
   assert.strictEqual(E.THEMES.dark.mode, "dark");
   assert.strictEqual(E.THEMES.light.mode, "light");
 
   E.applyTheme("light");
-  assert.strictEqual(E.C.accent, "#16357a", "applyTheme('light') swaps C.accent to the Navy Professional accent");
-  assert.strictEqual(E.C.grad, "linear-gradient(135deg,#16357a,#0b1d45)", "C.grad follows the active theme too");
+  assert.strictEqual(E.C.accent, "#4f46e5", "applyTheme('light') swaps C.accent to the Paper White accent");
+  assert.strictEqual(E.C.grad, "linear-gradient(135deg,#4f46e5,#4338ca)", "C.grad follows the active theme too");
   assert.strictEqual(E.C.mode, "light", "a light theme flips C.mode");
   assert.strictEqual(E.C.colorScheme, "light", "a light theme flips the native form-control color-scheme too");
-  assert.strictEqual(E.C.bg, "#f3f5f9", "a light theme actually changes the background, not just the accent");
-  assert.notStrictEqual(E.C.ink, "#eef3fb", "ink flips to a dark color on the light theme (not the dark theme's near-white)");
-  assert.ok(/^rgba\(11,24,53,/.test(E.C.overlayBorder), "the light theme's overlay scale is ink-tinted, not the dark theme's white-based scale");
-  assert.strictEqual(E.C.dc[0], "#16357a", "light mode's decorative-color slots are navy tints");
+  assert.strictEqual(E.C.bg, "#f6f5f3", "a light theme actually changes the background, not just the accent");
+  assert.notStrictEqual(E.C.ink, "#f1ecfb", "ink flips to a dark color on the light theme (not the dark theme's near-white)");
+  assert.ok(/^rgba\(0,0,0,/.test(E.C.overlayBorder), "the light theme's overlay scale is ink-tinted, not the dark theme's white-based scale");
+  assert.strictEqual(E.C.dc[0], "#a78bfa", "the decorative-color palette is fixed (not per-theme tinted)");
   assert.strictEqual(E.C.iconGlow, "none", "light mode's icon glow is a guaranteed no-op");
 
   E.applyTheme("dark");
-  assert.strictEqual(E.C.accent, "#3b82f6", "applyTheme('dark') restores the dark Royal Sapphire accent");
-  assert.strictEqual(E.C.bg, "#050912", "switching back to dark restores the dark background");
+  assert.strictEqual(E.C.accent, "#a78bfa", "applyTheme('dark') restores the dark Amber Violet accent");
+  assert.strictEqual(E.C.bg, "#050308", "switching back to dark restores the dark background");
   assert.strictEqual(E.C.mode, "dark", "switching back to dark restores dark mode");
-  assert.strictEqual(E.C.dc[0], "#3b82f6", "dark mode's decorative-color slots keep the vivid hue");
+  assert.strictEqual(E.C.dc[0], "#a78bfa", "dark mode's decorative-color slots match the light theme's fixed palette");
   E.applyTheme("nonexistent");
-  assert.strictEqual(E.C.accent, "#3b82f6", "an unknown theme name falls back to dark rather than throwing");
+  assert.strictEqual(E.C.accent, "#a78bfa", "an unknown theme name falls back to dark rather than throwing");
 
   console.log("ok — app renders and the balance sheet foots to the rupee");
   window.close();

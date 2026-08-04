@@ -5,7 +5,9 @@
   "description": "Personal cash book PWA — cash-basis ledger, on-device data",
   "scripts": {
     "build": "node scripts/build.mjs",
-    "test": "node test/prod.cjs"
+    "build:simple": "node scripts/build-simple.mjs",
+    "test": "node test/prod.cjs",
+    "test:simple": "node simple/test/prod.cjs"
   },
   "dependencies": {
     "pdfjs-dist": "^6.1.200",
