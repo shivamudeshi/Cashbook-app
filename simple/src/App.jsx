@@ -509,10 +509,11 @@ function TripDetailSheet({ book, up, tripId, openSheet, close }) {
 }
 
 /* ══════════════════════════ TRANSACTIONS ══════════════════════════ */
-function TransactionsScreen({ book, openSheet, openCodeTx }) {
+function TransactionsScreen({ book, openSheet, openCodeTx, selectMode, setSelectMode }) {
   const [seg, setSeg] = useState("explained");
   const [q, setQ] = useState("");
   const [acctFilter, setAcctFilter] = useState("all");
+  const [selected, setSelected] = useState(() => new Set());
   const accountName = (id) => (book.accounts.find((a) => a.id === id) || {}).name || "—";
 
   const all = book.entries.filter((e) => e.type === "in" || e.type === "out");
@@ -522,6 +523,17 @@ function TransactionsScreen({ book, openSheet, openCodeTx }) {
   const search = (list) => (q.trim() ? list.filter((e) => (e.merchant || e.category || "").toLowerCase().includes(q.toLowerCase())) : list);
   const explainedRows = search(filterAcct(explained));
   const unexplainedRows = search(filterAcct(unexplained));
+
+  useEffect(() => { setSelectMode(false); setSelected(new Set()); }, [seg]);
+
+  const toggleSelected = (id) => setSelected((s) => { const n = new Set(s); if (n.has(id)) n.delete(id); else n.add(id); return n; });
+  const selectedEntries = unexplainedRows.filter((e) => selected.has(e.id));
+  const mixedTypes = new Set(selectedEntries.map((e) => e.type)).size > 1;
+
+  const openBulkCode = () => {
+    if (selected.size === 0 || mixedTypes) return;
+    openSheet("bulkCode", { entryIds: [...selected], onApplied: () => { setSelected(new Set()); setSelectMode(false); } });
+  };
 
   return (
     <div style={{ padding: "4px 16px 90px" }}>
@@ -558,13 +570,38 @@ function TransactionsScreen({ book, openSheet, openCodeTx }) {
         </Card>
       ) : (
         <>
-          <div style={{ fontSize: 10, color: C.muted, fontWeight: 600, marginBottom: 8, padding: "0 2px" }}>From your imported statements — tap one to confirm or change its category.</div>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8, padding: "0 2px", gap: 8 }}>
+            <div style={{ fontSize: 10, color: C.muted, fontWeight: 600, flex: 1 }}>
+              {selectMode ? "Tap to select, then code them all at once." : "From your imported statements — tap one to confirm or change its category."}
+            </div>
+            {unexplainedRows.length > 0 && (
+              selectMode ? (
+                <button onClick={() => { setSelectMode(false); setSelected(new Set()); }} style={{ fontSize: 10.5, fontWeight: 700, color: C.muted, background: "none", border: "none", cursor: "pointer", flexShrink: 0, fontFamily: F.sans }}>Cancel</button>
+              ) : (
+                <button onClick={() => setSelectMode(true)} style={{ fontSize: 10.5, fontWeight: 700, color: C.accentText, background: "none", border: "none", cursor: "pointer", flexShrink: 0, fontFamily: F.sans }}>Select</button>
+              )
+            )}
+          </div>
+          {selectMode && unexplainedRows.length > 0 && (
+            <button
+              onClick={() => setSelected(selected.size === unexplainedRows.length ? new Set() : new Set(unexplainedRows.map((e) => e.id)))}
+              style={{ fontSize: 10.5, fontWeight: 700, color: C.accentText, background: "none", border: "none", cursor: "pointer", padding: "0 2px 8px", display: "block", fontFamily: F.sans }}
+            >
+              {selected.size === unexplainedRows.length ? "Deselect all" : "Select all"}
+            </button>
+          )}
           <Card style={{ padding: "2px 16px" }}>
             {unexplainedRows.length === 0 && <div style={{ padding: "14px 0", fontSize: 12.5, color: C.muted }}>Nothing to code — you're all caught up.</div>}
             {unexplainedRows.map((e, i) => {
               const match = suggestHead(book, e.merchant || "");
+              const checked = selected.has(e.id);
               return (
-                <RowLine key={e.id} last={i === unexplainedRows.length - 1} onClick={() => openCodeTx(e.id)}>
+                <RowLine key={e.id} last={i === unexplainedRows.length - 1} onClick={() => (selectMode ? toggleSelected(e.id) : openCodeTx(e.id))}>
+                  {selectMode && (
+                    <div style={{ width: 20, height: 20, borderRadius: "50%", flexShrink: 0, marginRight: 10, display: "flex", alignItems: "center", justifyContent: "center", background: checked ? C.grad : "transparent", border: checked ? "none" : `1px solid ${C.overlayBorder}`, color: "#fff", fontSize: 11, fontWeight: 800 }}>
+                      {checked ? "✓" : ""}
+                    </div>
+                  )}
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <div style={{ fontSize: 13.5, fontWeight: 700, color: C.amberText }}>{e.merchant || "Unrecognized transaction"}</div>
                     <div style={{ fontSize: 10.5, color: C.muted, fontWeight: 600, marginTop: 1 }}>{match !== "Suspense" ? `Auto-matched: ${match}` : "Needs a category"} · {accountName(e.accountId)}</div>
@@ -578,6 +615,16 @@ function TransactionsScreen({ book, openSheet, openCodeTx }) {
             })}
           </Card>
         </>
+      )}
+
+      {selectMode && selected.size > 0 && (
+        <div style={{ position: "fixed", left: 16, right: 16, bottom: 82, zIndex: 26, ...glass(16), padding: "10px 14px", display: "flex", alignItems: "center", gap: 10 }}>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ fontSize: 12.5, fontWeight: 700 }}>{selected.size} selected</div>
+            {mixedTypes && <div style={{ fontSize: 9.5, color: C.amberText, fontWeight: 600, marginTop: 1 }}>Debits and credits can't be coded together</div>}
+          </div>
+          <PrimaryBtn style={{ width: "auto", padding: "9px 18px", opacity: mixedTypes ? 0.5 : 1, cursor: mixedTypes ? "default" : "pointer" }} onClick={openBulkCode}>Code</PrimaryBtn>
+        </div>
       )}
     </div>
   );
@@ -1269,6 +1316,95 @@ function CodeTransactionSheet({ book, up, close, entryId }) {
   );
 }
 
+// Codes several Unexplained rows at once — all must share the same debit/
+// credit direction (a mix would need different category lists and party
+// dir per row, which defeats the point of doing this in one action).
+function BulkCodeSheet({ book, up, close, entryIds, onApplied }) {
+  const entries = book.entries.filter((e) => (entryIds || []).includes(e.id));
+  const debit = entries[0] ? entries[0].type === "out" : true;
+  const mixed = new Set(entries.map((e) => e.type)).size > 1;
+  const totalAmount = entries.reduce((s, e) => s + e.amount, 0);
+
+  const [subKind, setSubKind] = useState("category");
+  const [category, setCategory] = useState(() => (debit ? (book.categories.expense.find((c) => c !== "Suspense") || "") : (book.categories.income[0] || "")));
+  const [partyId, setPartyId] = useState(book.parties[0] ? book.parties[0].id : "");
+  const [toAccountId, setToAccountId] = useState(() => ((book.accounts.find((a) => entries.every((e) => e.accountId !== a.id))) || book.accounts[0] || {}).id || "");
+
+  if (entries.length === 0) return null;
+
+  const apply = () => {
+    up((b) => {
+      for (const id of entryIds) {
+        const idx = b.entries.findIndex((e) => e.id === id);
+        if (idx < 0) continue;
+        const base = b.entries[idx];
+        if (base.type !== "out" && base.type !== "in") continue;
+        const isDebit = base.type === "out";
+        if (subKind === "category") {
+          b.entries[idx] = { ...base, category };
+        } else if (subKind === "party") {
+          b.entries.splice(idx, 1);
+          b.entries.push({ id: base.id, date: base.date, amount: base.amount, type: "party", partyId, accountId: base.accountId, dir: isDebit ? "out" : "in", note: base.note || "" });
+        } else if (subKind === "transfer") {
+          if (toAccountId === base.accountId) continue; // would be a no-op self-transfer
+          b.entries.splice(idx, 1);
+          b.entries.push({
+            id: base.id, date: base.date, amount: base.amount, type: "transfer",
+            fromAccountId: isDebit ? base.accountId : toAccountId,
+            toAccountId: isDebit ? toAccountId : base.accountId,
+            note: base.note || "",
+          });
+        }
+      }
+      return b;
+    });
+    if (onApplied) onApplied();
+    close();
+  };
+
+  const KINDS = debit
+    ? [["category", "Expense"], ["party", "Party to Pay"], ["transfer", "Transfer"]]
+    : [["category", "Income"], ["party", "Party to Receive"], ["transfer", "Transfer"]];
+
+  return (
+    <Sheet open title={`Code ${entries.length} Transactions`} onClose={close}>
+      {mixed ? (
+        <div style={{ fontSize: 12.5, color: C.amberText, fontWeight: 600, lineHeight: 1.5 }}>
+          Select transactions that are all debits or all credits to code them together — this selection has a mix of both.
+        </div>
+      ) : (
+        <>
+          <Card style={{ padding: "13px 15px", marginBottom: 14 }}>
+            <div style={{ fontSize: 9, color: C.muted, textTransform: "uppercase", letterSpacing: ".05em", fontWeight: 700 }}>{entries.length} selected</div>
+            <div style={{ fontSize: 16, fontWeight: 800, color: debit ? C.red : C.green, marginTop: 4, fontVariantNumeric: "tabular-nums" }}>{debit ? "−" : "+"}{inr(totalAmount)} total</div>
+          </Card>
+          <div style={st.label}>Code all of these as...</div>
+          <Seg value={subKind} onChange={setSubKind} options={KINDS.map(([v, label]) => ({ v, label }))} />
+          {subKind === "category" && (
+            <>
+              <div style={st.label}>Category</div>
+              <CategorySelect book={book} value={category} onChange={setCategory} direction={debit ? "out" : "in"} />
+            </>
+          )}
+          {subKind === "party" && (
+            <>
+              <div style={st.label}>Party</div>
+              <PartySelect book={book} up={up} value={partyId} onChange={setPartyId} />
+            </>
+          )}
+          {subKind === "transfer" && (
+            <>
+              <div style={st.label}>{debit ? "To Account" : "From Account"}</div>
+              <AccountSelect book={book} value={toAccountId} onChange={setToAccountId} />
+            </>
+          )}
+          <PrimaryBtn style={{ marginTop: 16 }} onClick={apply}>Code {entries.length} Transactions</PrimaryBtn>
+        </>
+      )}
+    </Sheet>
+  );
+}
+
 /* ══════════════════════════ RECORD PAYMENT / NEW TRIP / IMPORT ══════════════════════════ */
 function RecordPaymentSheet({ book, up, close, presetPartyId }) {
   const owed = owedAsOf(book, today());
@@ -1521,6 +1657,7 @@ export default function App() {
   const [tab, setTab] = useState("home");
   const [sheet, setSheet] = useState(null); // { name, ctx }
   const [accountsPageOpen, setAccountsPageOpen] = useState(false);
+  const [txSelectMode, setTxSelectMode] = useState(false);
   // Whether THIS session still needs a PIN. Only decided once, right after
   // the book loads, from whatever book.prefs.lock.on was at that moment —
   // turning the lock on later in the same session (Setup) must NOT
@@ -1559,6 +1696,8 @@ export default function App() {
   const closeSheet = () => setSheet(null);
   const openCodeTx = (entryId) => setSheet({ name: "codeTx", ctx: { entryId } });
   const go = (t) => setTab(t);
+
+  useEffect(() => { if (tab !== "tx") setTxSelectMode(false); }, [tab]);
 
   if (!book || unlocked === null) {
     return (
@@ -1601,12 +1740,12 @@ export default function App() {
         {tab === "home" && <HomeScreen book={book} go={go} openSheet={openSheet} />}
         {tab === "owed" && <OwedScreen book={book} openSheet={openSheet} />}
         {tab === "travel" && <TravelScreen book={book} openSheet={openSheet} />}
-        {tab === "tx" && <TransactionsScreen book={book} openSheet={openSheet} openCodeTx={openCodeTx} />}
+        {tab === "tx" && <TransactionsScreen book={book} openSheet={openSheet} openCodeTx={openCodeTx} selectMode={txSelectMode} setSelectMode={setTxSelectMode} />}
         {tab === "reports" && <ReportsScreen book={book} />}
         {tab === "setup" && <SetupScreen book={book} openSheet={openSheet} openAccountsPage={() => setAccountsPageOpen(true)} />}
       </div>
 
-      {(tab === "home" || tab === "tx") && (
+      {(tab === "home" || (tab === "tx" && !txSelectMode)) && (
         <button onClick={() => openSheet("newTx")} style={{ position: "fixed", zIndex: 25, right: 18, bottom: 92, width: 50, height: 50, borderRadius: "50%", background: C.grad, display: "flex", alignItems: "center", justifyContent: "center", color: "#fff", boxShadow: `0 14px 28px -8px ${C.accentDeep}`, border: "none", cursor: "pointer" }}>
           <Ic name="plus" size={19} />
         </button>
@@ -1618,6 +1757,7 @@ export default function App() {
 
       {sheet && sheet.name === "newTx" && <NewTransactionSheet book={book} up={up} close={closeSheet} preset={sheet.ctx} />}
       {sheet && sheet.name === "codeTx" && <CodeTransactionSheet book={book} up={up} close={closeSheet} entryId={sheet.ctx.entryId} />}
+      {sheet && sheet.name === "bulkCode" && <BulkCodeSheet book={book} up={up} close={closeSheet} entryIds={sheet.ctx.entryIds} onApplied={sheet.ctx.onApplied} />}
       {sheet && sheet.name === "recordPayment" && <RecordPaymentSheet book={book} up={up} close={closeSheet} presetPartyId={sheet.ctx.partyId} />}
       {sheet && sheet.name === "newTrip" && <NewTripSheet up={up} close={closeSheet} />}
       {sheet && sheet.name === "tripDetail" && <TripDetailSheet book={book} up={up} tripId={sheet.ctx.tripId} openSheet={openSheet} close={closeSheet} />}
