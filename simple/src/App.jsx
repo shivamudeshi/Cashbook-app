@@ -950,6 +950,7 @@ function SetupScreen({ book, openSheet, openAccountsPage }) {
       <Card style={{ padding: "2px 16px" }}>
         <SetupRow title="Accounts" sub={`${book.accounts.length} account${book.accounts.length === 1 ? "" : "s"}`} onClick={openAccountsPage} />
         <SetupRow title="Categories" sub={`${book.categories.expense.filter((c) => c !== "Suspense").length} categories`} onClick={() => openSheet("setupCategories")} />
+        <SetupRow title="Income Categories" sub={`${book.categories.income.length} categor${book.categories.income.length === 1 ? "y" : "ies"}`} onClick={() => openSheet("setupIncomeCategories")} />
         <SetupRow title="Balance Sheet Categories" sub={`${book.bsCategories.length} categor${book.bsCategories.length === 1 ? "y" : "ies"}`} onClick={() => openSheet("setupBsCategories")} />
         <SetupRow title="Auto-coding Rules" sub={`${book.codingRules.length} rules`} onClick={() => openSheet("setupRules")} />
         <SetupRow title="Import & OCR" sub="Upload PDFs or photos" onClick={() => openSheet("import")} />
@@ -995,6 +996,28 @@ function SetupCategoriesSheet({ book, up, close }) {
         {cats.length === 0 && <div style={{ padding: "12px 0", fontSize: 12.5, color: C.muted }}>No categories yet.</div>}
       </Card>
       <AddInline placeholder="New category name" onAdd={(name) => up((b) => { if (!b.categories.expense.includes(name)) b.categories.expense.splice(b.categories.expense.length - 1, 0, name); return b; })} />
+    </Sheet>
+  );
+}
+
+function SetupIncomeCategoriesSheet({ book, up, close }) {
+  const cats = book.categories.income;
+  return (
+    <Sheet open title="Income Categories" onClose={close}>
+      <div style={{ fontSize: 10, color: C.muted, fontWeight: 600, marginBottom: 10 }}>Where money-in transactions get coded — these count toward P&amp;L too.</div>
+      <Card style={{ padding: "2px 16px", marginBottom: 14 }}>
+        {cats.map((c, i) => (
+          <RowLine key={c} last={i === cats.length - 1}>
+            <div style={{ flex: 1, fontSize: 13.5, fontWeight: 700 }}>{c}</div>
+            <RoundBtn onClick={() => {
+              if (!confirmCategoryDelete(book, c)) return;
+              up((b) => { b.categories.income = b.categories.income.filter((x) => x !== c); return b; });
+            }}><Ic name="close" size={12} /></RoundBtn>
+          </RowLine>
+        ))}
+        {cats.length === 0 && <div style={{ padding: "12px 0", fontSize: 12.5, color: C.muted }}>No income categories yet.</div>}
+      </Card>
+      <AddInline placeholder="New income category name" onAdd={(name) => up((b) => { if (!b.categories.income.includes(name)) b.categories.income.push(name); return b; })} />
     </Sheet>
   );
 }
@@ -1458,6 +1481,7 @@ function BulkCodeSheet({ book, up, close, entryIds, onApplied }) {
 
   const [subKind, setSubKind] = useState("category");
   const [category, setCategory] = useState(() => (debit ? (book.categories.expense.find((c) => c !== "Suspense") || "") : (book.categories.income[0] || "")));
+  const [refundFor, setRefundFor] = useState(() => book.categories.expense.find((c) => c !== "Suspense") || "");
   const [partyId, setPartyId] = useState(book.parties[0] ? book.parties[0].id : "");
   const [toAccountId, setToAccountId] = useState(() => ((book.accounts.find((a) => entries.every((e) => e.accountId !== a.id))) || book.accounts[0] || {}).id || "");
 
@@ -1473,6 +1497,8 @@ function BulkCodeSheet({ book, up, close, entryIds, onApplied }) {
         const isDebit = base.type === "out";
         if (subKind === "category") {
           b.entries[idx] = { ...base, category };
+        } else if (subKind === "refund") {
+          b.entries[idx] = { ...base, category: refundFor };
         } else if (subKind === "party") {
           b.entries.splice(idx, 1);
           b.entries.push({ id: base.id, date: base.date, amount: base.amount, type: "party", partyId, accountId: base.accountId, dir: isDebit ? "out" : "in", note: base.note || "" });
@@ -1495,7 +1521,7 @@ function BulkCodeSheet({ book, up, close, entryIds, onApplied }) {
 
   const KINDS = debit
     ? [["category", "Expense"], ["party", "Party to Pay"], ["transfer", "Transfer"]]
-    : [["category", "Income"], ["party", "Party to Receive"], ["transfer", "Transfer"]];
+    : [["category", "Income"], ["refund", "Refund"], ["party", "Party to Receive"], ["transfer", "Transfer"]];
 
   return (
     <Sheet open title={`Code ${entries.length} Transactions`} onClose={close}>
@@ -1510,11 +1536,20 @@ function BulkCodeSheet({ book, up, close, entryIds, onApplied }) {
             <div style={{ fontSize: 16, fontWeight: 800, color: debit ? C.red : C.green, marginTop: 4, fontVariantNumeric: "tabular-nums" }}>{debit ? "−" : "+"}{inr(totalAmount)} total</div>
           </Card>
           <div style={st.label}>Code all of these as...</div>
-          <Seg value={subKind} onChange={setSubKind} options={KINDS.map(([v, label]) => ({ v, label }))} />
+          <Seg value={subKind} onChange={setSubKind} wrap4={!debit} options={KINDS.map(([v, label]) => ({ v, label }))} />
           {subKind === "category" && (
             <>
               <div style={st.label}>Category</div>
               <CategorySelect book={book} value={category} onChange={setCategory} direction={debit ? "out" : "in"} />
+            </>
+          )}
+          {subKind === "refund" && (
+            <>
+              <div style={st.label}>Refund For</div>
+              <select style={st.input} value={refundFor} onChange={(e) => setRefundFor(e.target.value)}>
+                {book.categories.expense.filter((c) => c !== "Suspense").map((c) => <option key={c} value={c}>{c}</option>)}
+              </select>
+              <div style={{ fontSize: 10, color: C.accentText, fontWeight: 600, marginTop: 6 }}>Refunds reduce that category's spend this month instead of counting as new income.</div>
             </>
           )}
           {subKind === "party" && (
@@ -1900,6 +1935,7 @@ export default function App() {
       {sheet && sheet.name === "tripDetail" && <TripDetailSheet book={book} up={up} tripId={sheet.ctx.tripId} openSheet={openSheet} close={closeSheet} />}
       {sheet && sheet.name === "import" && <ImportSheet book={book} up={up} close={closeSheet} />}
       {sheet && sheet.name === "setupCategories" && <SetupCategoriesSheet book={book} up={up} close={closeSheet} />}
+      {sheet && sheet.name === "setupIncomeCategories" && <SetupIncomeCategoriesSheet book={book} up={up} close={closeSheet} />}
       {sheet && sheet.name === "setupBsCategories" && <SetupBsCategoriesSheet book={book} up={up} close={closeSheet} />}
       {sheet && sheet.name === "setupRules" && <SetupRulesSheet book={book} up={up} close={closeSheet} />}
       {sheet && sheet.name === "setupPrefs" && <SetupPrefsSheet book={book} up={up} close={closeSheet} />}
