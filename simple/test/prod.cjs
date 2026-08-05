@@ -119,6 +119,51 @@ async function main() {
   assert.strictEqual(E.suggestHead(db, "UNKNOWN MERCHANT XYZ"), "Suspense", "no rule match falls back to Suspense");
 
   console.log("ok — simple app renders and the engine's worked example checks out to the rupee");
+
+  await testPdfParser();
+}
+
+// Real Axis Bank ("Flipkart Visa") credit card statement layout, positional
+// text extracted directly from an actual statement PDF (not synthesized) —
+// this fixture is what caught the original gap: a single "Amount (INR)"
+// column (not split Withdrawal/Deposit), a "Debit/Credit" type column, a
+// "Transaction Details" narration header, and amount cells carrying a
+// literal "₹" glyph, none of which the parser's header-label regexes or
+// digit-prefix checks recognized before this fix. Also covers one row whose
+// narration wraps onto two separate lines *around* the numeric row instead
+// of sharing its line, the same class of bug the HDFC savings-account fix
+// addressed earlier.
+async function testPdfParser() {
+  const pdf = await import(require("node:url").pathToFileURL(path.join(__dirname, "..", "src", "pdf.js")).href);
+  const axisPage = [
+    { x: 52, y: 552, s: "Date" }, { x: 152, y: 552, s: "Transaction Details" },
+    { x: 352, y: 552, s: "Amount (INR)" }, { x: 452, y: 552, s: "Debit/Credit" },
+    { x: 52, y: 528, s: "06 May '25" }, { x: 152, y: 528, s: "CASHBACK CREDIT APR 2025" },
+    { x: 352, y: 528, s: "₹ 46.00" }, { x: 452, y: 528, s: "Credit" },
+    { x: 52, y: 504, s: "04 May '25" }, { x: 152, y: 504, s: "Foreign Currency Transaction Fee" },
+    { x: 352, y: 504, s: "₹ 617.86" }, { x: 452, y: 504, s: "Debit" },
+    { x: 52, y: 400, s: "22 Apr '25" },
+    { x: 152, y: 408, s: "BBPS Payment Received -" }, { x: 152, y: 392, s: "DP015112133842couvGb" },
+    { x: 352, y: 400, s: "₹ 4,874.96" }, { x: 452, y: 400, s: "Credit" },
+    { x: 52, y: 368, s: "14 Apr '25" }, { x: 152, y: 368, s: "ZEPTO MARKETPLACE PRIV,BANGALORE" },
+    { x: 352, y: 368, s: "₹ 284.00" }, { x: 452, y: 368, s: "Debit" },
+    { x: 240, y: 293, s: "**End of Transaction Summary**" },
+  ];
+  const rows = pdf.parsePdfTable([axisPage]);
+  assert.strictEqual(rows.length, 4, "all 4 Axis transactions recovered, got: " + JSON.stringify(rows));
+  const [r1, r2, r3, r4] = rows;
+  assert.strictEqual(r1.date, "2025-05-06");
+  assert.strictEqual(r1.amount, 46, "leading ₹ glyph stripped from the amount cell");
+  assert.strictEqual(r1.type, "in", "\"Credit\" (not just \"Cr\") recognized as money-in");
+  assert.strictEqual(r1.note, "CASHBACK CREDIT APR 2025", "note excludes the Debit/Credit type token");
+  assert.strictEqual(r2.type, "out", "\"Debit\" recognized as money-out");
+  assert.strictEqual(r3.amount, 4875, "amount with a thousands comma (₹ 4,874.96) rounds correctly");
+  assert.ok(/BBPS Payment Received/.test(r3.note) && /DP015112133842couvGb/.test(r3.note),
+    "narration wrapped onto two lines around (not on) the numeric row is still stitched together, got: " + r3.note);
+  assert.strictEqual(r4.amount, 284);
+  assert.ok(!rows.some((r) => /End of Transaction Summary/.test(r.note)), "trailing footer line isn't absorbed as a note fragment");
+
+  console.log("ok — Axis Bank credit card PDF statement layout parses correctly");
 }
 
 main().catch((err) => {

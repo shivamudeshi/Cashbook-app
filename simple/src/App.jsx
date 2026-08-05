@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { loadBook, saveBook, defaultBook } from "./storage.js";
 import {
-  inr, parseAmount, today, fyOf, fyRange, periodRange, comparePeriod, periodVariance,
+  inr, parseAmount, today, fyOf, fyRange, periodRange,
   uid, isExplained, isRefund, computePL, computeCashFlow, accountsWithBalances,
   owedAsOf, tripSpendAsOf, suggestHead, keywordOf,
 } from "./engine.js";
@@ -120,15 +120,12 @@ function Seg({ value, onChange, options, wrap4, style }) {
         return (
           <button key={o.v} onClick={() => onChange(o.v)} style={{ flex: wrap4 ? "0 0 48%" : 1, border: "none", borderRadius: 10, padding: "8px 4px", fontSize: 11.5, fontWeight: 700, fontFamily: F.sans, cursor: "pointer", background: active ? C.grad : "transparent", color: active ? "#fff" : C.muted, display: "flex", alignItems: "center", justifyContent: "center", gap: 4 }}>
             {o.label}
-            {o.badge != null && <span style={{ background: C.amberText, color: "#1c1024", borderRadius: 999, padding: "1px 6px", fontSize: 9.5 }}>{o.badge}</span>}
+            {o.badge != null && <span style={{ background: "rgba(251,191,36,.18)", border: "1px solid rgba(251,191,36,.4)", color: C.amberText, borderRadius: 999, padding: "1px 6px", fontSize: 9.5, fontWeight: 800 }}>{o.badge}</span>}
           </button>
         );
       })}
     </div>
   );
-}
-function FilterChip({ active, onClick, children }) {
-  return <button onClick={onClick} style={{ fontSize: 10.5, fontWeight: 700, padding: "6px 12px", borderRadius: 999, border: `1px solid ${C.border ? "" : ""}${active ? "transparent" : C.overlayBorder}`, color: active ? "#fff" : C.muted, background: active ? C.grad : "none", cursor: "pointer", fontFamily: F.sans, flexShrink: 0 }}>{children}</button>;
 }
 function Toggle({ value, onChange }) {
   return (
@@ -361,6 +358,62 @@ function dueOrdinal(d) {
   return "th";
 }
 
+// The next occurrence of dueDay on or after todayStr -- this month's if it
+// hasn't passed yet, otherwise next month's.
+function nextDueDate(dueDay, todayStr) {
+  const [y, m, d] = todayStr.split("-").map(Number);
+  let dd = new Date(y, m - 1, dueDay);
+  if (dd < new Date(y, m - 1, d)) dd = new Date(y, m, dueDay);
+  return dd;
+}
+
+// What the notification bell surfaces: unexplained transactions, credit
+// card payments due within a week, and trips that have gone over budget --
+// the three things in this app that actually need the user's attention,
+// as opposed to routine day-to-day activity.
+function notificationsFor(book) {
+  const t = today();
+  const list = [];
+  const unexplainedCount = book.entries.filter((e) => (e.type === "in" || e.type === "out") && !isExplained(e)).length;
+  if (unexplainedCount > 0) {
+    list.push({ id: "unexplained", title: `${unexplainedCount} unexplained transaction${unexplainedCount === 1 ? "" : "s"}`, sub: "Tap to review and code them", tab: "tx" });
+  }
+  for (const a of book.accounts) {
+    if (a.kind !== "card" || !a.dueDay) continue;
+    const due = nextDueDate(a.dueDay, t);
+    const days = Math.round((due - new Date(t + "T00:00:00")) / 86400000);
+    if (days >= 0 && days <= 7) {
+      list.push({ id: "due-" + a.id, title: `${a.name} payment due ${days === 0 ? "today" : days === 1 ? "tomorrow" : `in ${days} days`}`, sub: `Due on the ${a.dueDay}${dueOrdinal(a.dueDay)}`, tab: "home" });
+    }
+  }
+  for (const tr of tripSpendAsOf(book, t)) {
+    if (tr.budget > 0 && tr.spent > tr.budget) {
+      list.push({ id: "trip-" + tr.id, title: `${tr.name} is over budget`, sub: `${inr(tr.spent)} spent of ${inr(tr.budget)}`, tab: "travel" });
+    }
+  }
+  return list;
+}
+
+function NotificationsSheet({ book, go, close }) {
+  const items = notificationsFor(book);
+  return (
+    <Sheet open title="Notifications" onClose={close}>
+      <Card style={{ padding: "2px 16px" }}>
+        {items.length === 0 && <div style={{ padding: "14px 0", fontSize: 12.5, color: C.muted }}>You're all caught up — nothing needs your attention.</div>}
+        {items.map((n, i) => (
+          <RowLine key={n.id} last={i === items.length - 1} onClick={() => { go(n.tab); close(); }}>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ fontSize: 13, fontWeight: 700 }}>{n.title}</div>
+              <div style={{ fontSize: 10.5, color: C.muted, fontWeight: 600, marginTop: 1 }}>{n.sub}</div>
+            </div>
+            <Ic name="back" size={12} color={C.faint} style={{ transform: "rotate(180deg)", flexShrink: 0 }} />
+          </RowLine>
+        ))}
+      </Card>
+    </Sheet>
+  );
+}
+
 /* ══════════════════════════ OWED ══════════════════════════ */
 function OwedScreen({ book, openSheet }) {
   const t = today();
@@ -395,7 +448,7 @@ function OwedScreen({ book, openSheet }) {
       <Card style={{ padding: "2px 16px", marginBottom: 14 }}>
         {rows.length === 0 && <div style={{ padding: "14px 0", fontSize: 12.5, color: C.muted }}>Nothing here yet.</div>}
         {rows.map((p, i) => (
-          <RowLine key={p.id} last={i === rows.length - 1} onClick={() => openSheet("recordPayment", { partyId: p.id })}>
+          <RowLine key={p.id} last={i === rows.length - 1} onClick={() => openSheet("partyDetail", { partyId: p.id })}>
             <div style={{ flex: 1, minWidth: 0 }}>
               <div style={{ fontSize: 13.5, fontWeight: 700 }}>{p.name}</div>
               <div style={{ fontSize: 10.5, color: C.muted, fontWeight: 600, marginTop: 1 }}>{p.balance > 0 ? "Owes you" : "You owe them"}</div>
@@ -410,6 +463,55 @@ function OwedScreen({ book, openSheet }) {
         <GhostBtn onClick={() => openSheet("recordPayment")}>Record Payment</GhostBtn>
       </div>
     </div>
+  );
+}
+
+// Tapping a party row in Owed used to jump straight to Record Payment,
+// which is fine for settling up but gives no way to actually see what
+// made up the outstanding balance -- this is the "what do I actually owe
+// them for" detail view, with Record Payment reachable from here too.
+function PartyDetailSheet({ book, partyId, openSheet, close }) {
+  const t = today();
+  const party = book.parties.find((x) => x.id === partyId);
+  if (!party) return null;
+  const owed = owedAsOf(book, t);
+  const row = owed.perParty.find((p) => p.id === partyId);
+  const balance = row ? row.balance : 0;
+  const accountName = (id) => (book.accounts.find((a) => a.id === id) || {}).name || "—";
+  const entries = book.entries
+    .filter((e) => e.type === "party" && e.partyId === partyId && isExplained(e))
+    .sort((a, b) => b.date.localeCompare(a.date));
+
+  return (
+    <Sheet open title={party.name} onClose={close}>
+      <Card style={{ marginBottom: 14 }}>
+        <div style={{ fontSize: 10.5, color: C.muted, textTransform: "uppercase", letterSpacing: ".06em", fontWeight: 700 }}>{balance > 0 ? "Owes You" : balance < 0 ? "You Owe Them" : "Settled Up"}</div>
+        <div style={{ fontSize: 24, fontWeight: 800, color: balance > 0 ? C.green : balance < 0 ? C.red : C.ink, margin: "6px 0 2px", fontVariantNumeric: "tabular-nums" }}>{inr(Math.abs(balance))}</div>
+      </Card>
+
+      <div style={{ fontSize: 12, fontWeight: 800, marginBottom: 6 }}>Activity</div>
+      <Card style={{ padding: "2px 16px", marginBottom: 14 }}>
+        {entries.length === 0 && <div style={{ padding: "14px 0", fontSize: 12.5, color: C.muted }}>No transactions with {party.name} yet.</div>}
+        {entries.map((e, i) => {
+          const out = e.dir === "out";
+          const title = e.merchant || e.note || (out ? "Paid" : "Received");
+          return (
+            <RowLine key={e.id} last={i === entries.length - 1}>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontSize: 13, fontWeight: 700, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{title}</div>
+                <div style={{ fontSize: 10.5, color: C.muted, fontWeight: 600, marginTop: 1 }}>{accountName(e.accountId)}</div>
+              </div>
+              <div style={{ textAlign: "right", flexShrink: 0 }}>
+                <div style={{ fontSize: 13, fontWeight: 800, color: out ? C.red : C.green, fontVariantNumeric: "tabular-nums" }}>{out ? "−" : "+"}{inr(e.amount)}</div>
+                <div style={{ fontSize: 9.5, color: C.faint, fontWeight: 600, marginTop: 1 }}>{e.date}</div>
+              </div>
+            </RowLine>
+          );
+        })}
+      </Card>
+
+      {balance !== 0 && <PrimaryBtn style={{ width: "100%" }} onClick={() => openSheet("recordPayment", { partyId })}>Record Payment</PrimaryBtn>}
+    </Sheet>
   );
 }
 
@@ -495,7 +597,7 @@ function TripDetailSheet({ book, up, tripId, openSheet, close }) {
       <PrimaryBtn style={{ marginBottom: 14 }} onClick={() => openSheet("newTx", { presetTripId: tripId })}>+ Add Expense</PrimaryBtn>
 
       <div style={{ fontSize: 12, fontWeight: 800, marginBottom: 6 }}>Activity</div>
-      <Card style={{ padding: "2px 16px" }}>
+      <Card style={{ padding: "2px 16px", marginBottom: 14 }}>
         {entries.length === 0 && <div style={{ padding: "14px 0", fontSize: 12.5, color: C.muted }}>No expenses tagged to this trip yet.</div>}
         {entries.map((e, i) => (
           <RowLine key={e.id} last={i === entries.length - 1}>
@@ -504,6 +606,13 @@ function TripDetailSheet({ book, up, tripId, openSheet, close }) {
           </RowLine>
         ))}
       </Card>
+
+      <GhostBtn style={{ width: "100%", color: C.red }} onClick={() => {
+        const extra = entries.length > 0 ? `Its ${entries.length} tagged expense${entries.length === 1 ? "" : "s"} will stay in your records, just no longer grouped under this trip. ` : "";
+        if (!window.confirm(`Delete "${trip.name}"? ${extra}This can't be undone.`)) return;
+        up((b) => { b.trips = b.trips.filter((x) => x.id !== tripId); return b; });
+        close();
+      }}>Delete Trip</GhostBtn>
     </Sheet>
   );
 }
@@ -531,6 +640,51 @@ function explainedRowInfo(book, e) {
     sub: e.note ? `${e.note} · ${accountName(e.accountId)}` : accountName(e.accountId),
     sign: e.type === "in" ? "+" : "−", color: e.type === "in" ? C.green : C.red,
   };
+}
+
+function FilterListRow({ label, active, onClick, last }) {
+  return (
+    <RowLine onClick={onClick} last={last}>
+      <div style={{ flex: 1, minWidth: 0, fontSize: 13.5, fontWeight: active ? 800 : 600, color: active ? C.accentText : C.ink, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{label}</div>
+      {active && <span style={{ fontSize: 14, fontWeight: 800, color: C.accentText, flexShrink: 0 }}>✓</span>}
+    </RowLine>
+  );
+}
+
+// A dedicated sheet instead of a horizontal chip row -- with an account
+// list, a type list, and (when the book has any) a category list, a chip
+// row would either wrap onto multiple lines or need horizontal scrolling
+// past a dozen+ entries; a list-per-section sheet scales to any number of
+// accounts/categories without changing shape.
+function TxFilterSheet({ book, usedCategories, acctFilter, setAcctFilter, dirFilter, setDirFilter, catFilter, setCatFilter, close }) {
+  return (
+    <Sheet open title="Filters" onClose={close}>
+      <div style={st.label}>Account</div>
+      <Card style={{ padding: "2px 16px", marginBottom: 14 }}>
+        <FilterListRow label="All accounts" active={acctFilter === "all"} onClick={() => setAcctFilter("all")} last={book.accounts.length === 0} />
+        {book.accounts.map((a, i) => <FilterListRow key={a.id} label={a.name} active={acctFilter === a.id} onClick={() => setAcctFilter(a.id)} last={i === book.accounts.length - 1} />)}
+      </Card>
+
+      <div style={st.label}>Type</div>
+      <Card style={{ padding: "2px 16px", marginBottom: 14 }}>
+        <FilterListRow label="All types" active={dirFilter === "all"} onClick={() => setDirFilter("all")} />
+        <FilterListRow label="Money Out" active={dirFilter === "out"} onClick={() => setDirFilter("out")} />
+        <FilterListRow label="Money In" active={dirFilter === "in"} onClick={() => setDirFilter("in")} last />
+      </Card>
+
+      {usedCategories.length > 0 && (
+        <>
+          <div style={st.label}>Category</div>
+          <Card style={{ padding: "2px 16px", marginBottom: 14 }}>
+            <FilterListRow label="All categories" active={catFilter === "all"} onClick={() => setCatFilter("all")} />
+            {usedCategories.map((c, i) => <FilterListRow key={c} label={c} active={catFilter === c} onClick={() => setCatFilter(c)} last={i === usedCategories.length - 1} />)}
+          </Card>
+        </>
+      )}
+
+      <GhostBtn style={{ width: "100%" }} onClick={() => { setAcctFilter("all"); setDirFilter("all"); setCatFilter("all"); }}>Reset Filters</GhostBtn>
+    </Sheet>
+  );
 }
 
 function TransactionsScreen({ book, openSheet, openCodeTx, selectMode, setSelectMode }) {
@@ -562,6 +716,7 @@ function TransactionsScreen({ book, openSheet, openCodeTx, selectMode, setSelect
   };
   const explainedRows = search(filterCat(filterDir(filterAcct(explained))));
   const unexplainedRows = search(filterDir(filterAcct(unexplained)));
+  const activeFilterCount = (acctFilter !== "all" ? 1 : 0) + (dirFilter !== "all" ? 1 : 0) + (catFilter !== "all" ? 1 : 0);
 
   useEffect(() => { setSelectMode(false); setSelected(new Set()); }, [seg]);
 
@@ -593,19 +748,12 @@ function TransactionsScreen({ book, openSheet, openCodeTx, selectMode, setSelect
         { v: "explained", label: "Explained" },
         { v: "unexplained", label: "Unexplained", badge: unexplained.length || undefined },
       ]} />
-      <div style={{ display: "flex", gap: 8, marginBottom: 14, overflowX: "auto" }}>
-        <FilterChip active={acctFilter === "all"} onClick={() => setAcctFilter("all")}>All accounts</FilterChip>
-        {book.accounts.map((a) => <FilterChip key={a.id} active={acctFilter === a.id} onClick={() => setAcctFilter(a.id)}>{a.name}</FilterChip>)}
-        <FilterChip active={dirFilter === "all"} onClick={() => setDirFilter("all")}>All types</FilterChip>
-        <FilterChip active={dirFilter === "out"} onClick={() => setDirFilter("out")}>Money Out</FilterChip>
-        <FilterChip active={dirFilter === "in"} onClick={() => setDirFilter("in")}>Money In</FilterChip>
-        {usedCategories.length > 0 && (
-          <select value={catFilter} onChange={(e) => setCatFilter(e.target.value)} style={{ fontSize: 10.5, fontWeight: 700, padding: "0 12px", borderRadius: 999, border: `1px solid ${catFilter !== "all" ? "transparent" : C.overlayBorder}`, color: catFilter !== "all" ? "#fff" : C.muted, background: catFilter !== "all" ? C.grad : "none", cursor: "pointer", fontFamily: F.sans, flexShrink: 0 }}>
-            <option value="all">All categories</option>
-            {usedCategories.map((c) => <option key={c} value={c}>{c}</option>)}
-          </select>
-        )}
-      </div>
+      <button
+        onClick={() => openSheet("txFilters", { acctFilter, setAcctFilter, dirFilter, setDirFilter, catFilter, setCatFilter, usedCategories })}
+        style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 11, fontWeight: 700, padding: "8px 14px", marginBottom: 14, borderRadius: 999, border: `1px solid ${activeFilterCount > 0 ? "transparent" : C.overlayBorder}`, color: activeFilterCount > 0 ? "#fff" : C.muted, background: activeFilterCount > 0 ? C.grad : "none", cursor: "pointer", fontFamily: F.sans }}>
+        <Ic name="sliders" size={12} />
+        Filters{activeFilterCount > 0 ? ` · ${activeFilterCount}` : ""}
+      </button>
 
       {seg === "explained" ? (
         <Card style={{ padding: "2px 16px" }}>
@@ -691,15 +839,6 @@ function TransactionsScreen({ book, openSheet, openCodeTx, selectMode, setSelect
 }
 
 /* ══════════════════════════ REPORTS ══════════════════════════ */
-function Variance({ cur, prev, show, goodWhenUp = true }) {
-  if (!show) return null;
-  const v = periodVariance(cur, prev);
-  const good = v.dir === "flat" ? null : v.dir === "up" ? goodWhenUp : !goodWhenUp;
-  const color = v.dir === "flat" ? C.muted : good ? C.green : C.red;
-  const arrow = v.dir === "flat" ? "•" : v.dir === "up" ? "▲" : "▼";
-  return <div style={{ fontSize: 10, fontWeight: 700, marginTop: 2, color }}>{arrow} {v.dir === "flat" ? "flat" : `${v.pct}%`} vs last period</div>;
-}
-
 function usePeriodPicker(book) {
   const t = today();
   const fys = useMemo(() => {
@@ -721,15 +860,13 @@ function usePeriodPicker(book) {
   const [span, setSpan] = useState(latestEntryDate.slice(0, 7) === t.slice(0, 7) ? "thisMonth" : "year");
   const [customFrom, setCustomFrom] = useState(t.slice(0, 8) + "01");
   const [customTo, setCustomTo] = useState(t);
-  const [cmp, setCmp] = useState("off");
   const [from, to] = periodRange(span, fy, customFrom, customTo);
-  const [pFrom, pTo] = cmp === "off" ? [null, null] : comparePeriod(from, to, cmp);
-  return { fys, fy, setFy, span, setSpan, customFrom, setCustomFrom, customTo, setCustomTo, cmp, setCmp, from, to, pFrom, pTo };
+  return { fys, fy, setFy, span, setSpan, customFrom, setCustomFrom, customTo, setCustomTo, from, to };
 }
 
 function PeriodPicker(p) {
   return (
-    <div style={{ marginBottom: 8 }}>
+    <div style={{ marginBottom: 14 }}>
       <div style={{ display: "flex", gap: 8 }}>
         <select style={{ ...st.input, flex: "0 0 40%" }} value={p.fy} onChange={(e) => p.setFy(+e.target.value)}>
           {p.fys.map((y) => <option key={y} value={y}>FY {y}–{String(y + 1).slice(2)}</option>)}
@@ -747,19 +884,86 @@ function PeriodPicker(p) {
           <input style={st.input} type="date" value={p.customTo} onChange={(e) => p.setCustomTo(e.target.value)} />
         </div>
       )}
-      <Seg value={p.cmp} onChange={p.setCmp} style={{ marginTop: 8 }} options={[{ v: "off", label: "No compare" }, { v: "prev", label: "vs previous" }, { v: "lastyear", label: "vs last year" }]} />
-      {p.cmp !== "off" && <div style={{ fontSize: 10.5, color: C.faint, fontWeight: 600, marginTop: 6 }}>Comparing {p.from} → {p.to} with {p.pFrom} → {p.pTo}</div>}
     </div>
   );
 }
 
-function PLReport({ book, p }) {
+// Shared read-only row used by the report drill-down sheet -- description
+// (the imported merchant text or a manually-typed note) is the primary
+// line since the category/party grouping is already known from context
+// (it's the sheet's own title), account is secondary, amount+date sit
+// right-aligned matching every other transaction list in the app.
+function reportDetailRowInfo(book, e) {
+  const accountName = (id) => (book.accounts.find((a) => a.id === id) || {}).name || "—";
+  const partyName = (id) => (book.parties.find((p) => p.id === id) || {}).name || "Unknown";
+  if (e.type === "party") {
+    const out = e.dir === "out";
+    return {
+      title: e.merchant || e.note || (out ? `Paid ${partyName(e.partyId)}` : `Received from ${partyName(e.partyId)}`),
+      sub: accountName(e.accountId), sign: out ? "−" : "+", color: out ? C.red : C.green,
+    };
+  }
+  return {
+    title: e.merchant || e.note || e.category,
+    sub: accountName(e.accountId), sign: e.type === "in" ? "+" : "−", color: e.type === "in" ? C.green : C.red,
+  };
+}
+
+function CategoryDetailSheet({ book, title, entries, close }) {
+  const rows = (entries || []).slice().sort((a, b) => b.date.localeCompare(a.date));
+  return (
+    <Sheet open title={title} onClose={close}>
+      <Card style={{ padding: "2px 16px" }}>
+        {rows.length === 0 && <div style={{ padding: "14px 0", fontSize: 12.5, color: C.muted }}>No transactions in this period.</div>}
+        {rows.map((e, i) => {
+          const info = reportDetailRowInfo(book, e);
+          return (
+            <RowLine key={e.id} last={i === rows.length - 1}>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontSize: 13, fontWeight: 700, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{info.title}</div>
+                <div style={{ fontSize: 10.5, color: C.muted, fontWeight: 600, marginTop: 1 }}>{info.sub}</div>
+              </div>
+              <div style={{ textAlign: "right", flexShrink: 0 }}>
+                <div style={{ fontSize: 13, fontWeight: 800, color: info.color, fontVariantNumeric: "tabular-nums" }}>{info.sign}{inr(e.amount)}</div>
+                <div style={{ fontSize: 9.5, color: C.faint, fontWeight: 600, marginTop: 1 }}>{e.date}</div>
+              </div>
+            </RowLine>
+          );
+        })}
+      </Card>
+    </Sheet>
+  );
+}
+
+// A category/expense/income row is a plain flex row (not a Card) so drill-
+// down rows read as one continuous list per section rather than a stack of
+// separate boxes -- the single biggest contributor to the "clustered"
+// feedback was every row also carrying its own vs-previous-period line;
+// dropping Compare entirely (below) already halves the visual noise here.
+function ReportRow({ label, amount, onClick, badge, bar, last }) {
+  return (
+    <div onClick={onClick} style={{ padding: "12px 0", borderTop: last ? "none" : `1px solid ${C.line}`, cursor: onClick ? "pointer" : "default" }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
+        <span style={{ fontSize: 13, fontWeight: 700, flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+          {label}
+          {badge}
+        </span>
+        <span style={{ fontWeight: 700, fontVariantNumeric: "tabular-nums", flexShrink: 0 }}>{amount}</span>
+        {onClick && <Ic name="back" size={11} color={C.faint} style={{ transform: "rotate(180deg)", flexShrink: 0 }} />}
+      </div>
+      {bar}
+    </div>
+  );
+}
+
+function PLReport({ book, p, openSheet }) {
   const pl = computePL(book, p.from, p.to);
-  const plPrev = p.cmp === "off" ? null : computePL(book, p.pFrom, p.pTo);
-  const cmpOn = p.cmp !== "off";
   const income = Object.entries(pl.income);
   const expense = Object.entries(pl.expense).sort((a, b) => b[1] - a[1]);
   const maxExp = expense.length ? expense[0][1] : 0;
+  const inRange = (e) => e.date >= p.from && e.date <= p.to && isExplained(e);
+
+  const openCategory = (title, entries) => openSheet("categoryDetail", { title, entries });
 
   const downloadCsv = () => {
     const esc = (s) => `"${String(s).replace(/"/g, '""')}"`;
@@ -780,26 +984,21 @@ function PLReport({ book, p }) {
   return (
     <div>
       <PeriodPicker {...p} />
-      <Card style={{ margin: "14px 0", position: "relative", overflow: "hidden" }}>
-        <div style={{ position: "absolute", top: 0, left: 0, right: 0, height: 5, background: C.stripeGrad }} />
+      <Card style={{ marginBottom: 14 }}>
         <div style={{ fontSize: 10.5, color: C.muted, textTransform: "uppercase", letterSpacing: ".06em", fontWeight: 700 }}>Net This Period</div>
         <div style={{ fontSize: 24, fontWeight: 800, margin: "6px 0 2px", fontVariantNumeric: "tabular-nums" }}>{inr(pl.net)}</div>
-        <Variance cur={pl.net} prev={plPrev ? plPrev.net : 0} show={cmpOn} goodWhenUp />
-        <div style={{ fontSize: 10, color: C.faint, fontWeight: 600, marginTop: 10 }}>Cash basis · Balance Sheet categories are excluded here — see Cash Flow below</div>
+        <div style={{ fontSize: 10, color: C.faint, fontWeight: 600, marginTop: 8 }}>Cash basis · Balance Sheet categories are excluded here — see Cash Flow below</div>
       </Card>
 
       <div style={{ fontSize: 13, fontWeight: 800, marginBottom: 6, padding: "0 2px" }}>Income</div>
       <Card style={{ padding: "2px 16px", marginBottom: 14 }}>
         {income.length === 0 && <div style={{ padding: "10px 0", fontSize: 12.5, color: C.muted }}>Nothing in this period.</div>}
-        {income.map(([c, a]) => (
-          <div key={c} style={{ padding: "11px 0", borderTop: `1px solid ${C.line}` }}>
-            <div style={{ display: "flex", justifyContent: "space-between" }}><span style={{ fontSize: 13, fontWeight: 700 }}>{c}</span><span style={{ fontWeight: 700, fontVariantNumeric: "tabular-nums" }}>{inr(a)}</span></div>
-            <Variance cur={a} prev={plPrev ? (plPrev.income[c] || 0) : 0} show={cmpOn} goodWhenUp />
-          </div>
+        {income.map(([c, a], i) => (
+          <ReportRow key={c} last={false} label={c} amount={inr(a)}
+            onClick={() => openCategory(c, book.entries.filter((e) => inRange(e) && e.type === "in" && e.category === c && !isRefund(book, e)))} />
         ))}
-        <div style={{ borderTop: `1px solid ${C.line}`, marginTop: 2, paddingTop: 9 }}>
+        <div style={{ borderTop: `1px solid ${C.line}`, marginTop: 2, paddingTop: 10 }}>
           <div style={{ display: "flex", fontSize: 14, fontWeight: 800 }}><span style={{ flex: 1 }}>Total income</span><span style={{ color: C.green }}>{inr(pl.totalIncome)}</span></div>
-          <Variance cur={pl.totalIncome} prev={plPrev ? plPrev.totalIncome : 0} show={cmpOn} goodWhenUp />
         </div>
       </Card>
 
@@ -807,15 +1006,12 @@ function PLReport({ book, p }) {
       <Card style={{ padding: "2px 16px 6px", marginBottom: 14 }}>
         {expense.length === 0 && <div style={{ padding: "10px 0", fontSize: 12.5, color: C.muted }}>Nothing in this period.</div>}
         {expense.map(([c, a]) => (
-          <div key={c} style={{ padding: "11px 0", borderTop: `1px solid ${C.line}` }}>
-            <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 6 }}><span style={{ fontSize: 13, fontWeight: 700 }}>{c}</span><span style={{ fontWeight: 700, fontVariantNumeric: "tabular-nums" }}>{inr(a)}</span></div>
-            <div style={{ height: 6, borderRadius: 3, background: C.overlayWash, overflow: "hidden" }}><div style={{ height: "100%", width: `${maxExp ? Math.max(2, Math.round((a / maxExp) * 100)) : 0}%`, borderRadius: 3, background: C.accent }} /></div>
-            <Variance cur={a} prev={plPrev ? (plPrev.expense[c] || 0) : 0} show={cmpOn} goodWhenUp={false} />
-          </div>
+          <ReportRow key={c} last={false} label={c} amount={inr(a)}
+            onClick={() => openCategory(c, book.entries.filter((e) => inRange(e) && e.category === c && (e.type === "out" || isRefund(book, e))))}
+            bar={<div style={{ height: 5, borderRadius: 3, background: C.overlayWash, overflow: "hidden", marginTop: 7 }}><div style={{ height: "100%", width: `${maxExp ? Math.max(2, Math.round((a / maxExp) * 100)) : 0}%`, borderRadius: 3, background: C.accent }} /></div>} />
         ))}
-        <div style={{ borderTop: `1px solid ${C.line}`, marginTop: 2, paddingTop: 9 }}>
+        <div style={{ borderTop: `1px solid ${C.line}`, marginTop: 2, paddingTop: 10 }}>
           <div style={{ display: "flex", fontSize: 14, fontWeight: 800 }}><span style={{ flex: 1 }}>Total expenses</span><span style={{ color: C.red }}>{inr(pl.totalExpense)}</span></div>
-          <Variance cur={pl.totalExpense} prev={plPrev ? plPrev.totalExpense : 0} show={cmpOn} goodWhenUp={false} />
         </div>
       </Card>
 
@@ -827,15 +1023,10 @@ function PLReport({ book, p }) {
   );
 }
 
-function CashFlowReport({ book, p }) {
+function CashFlowReport({ book, p, openSheet }) {
   const cf = computeCashFlow(book, p.from, p.to);
-  const cfPrev = p.cmp === "off" ? null : computeCashFlow(book, p.pFrom, p.pTo);
-  const cmpOn = p.cmp !== "off";
-  const prevRowAmt = (label) => {
-    if (!cfPrev) return 0;
-    const r = cfPrev.bs.rows.find((x) => x.label === label);
-    return r ? r.amount : 0;
-  };
+  const inRange = (e) => e.date >= p.from && e.date <= p.to && isExplained(e);
+  const openCategory = (title, entries) => openSheet("categoryDetail", { title, entries });
 
   const downloadCsv = () => {
     const esc = (s) => `"${String(s).replace(/"/g, '""')}"`;
@@ -857,45 +1048,36 @@ function CashFlowReport({ book, p }) {
   return (
     <div>
       <PeriodPicker {...p} />
-      <Card style={{ margin: "14px 0", position: "relative", overflow: "hidden" }}>
-        <div style={{ position: "absolute", top: 0, left: 0, right: 0, height: 5, background: C.stripeGrad }} />
+      <Card style={{ marginBottom: 14 }}>
         <div style={{ fontSize: 10.5, color: C.muted, textTransform: "uppercase", letterSpacing: ".06em", fontWeight: 700 }}>Net Cash Movement</div>
         <div style={{ fontSize: 24, fontWeight: 800, color: cf.net >= 0 ? C.green : C.red, margin: "6px 0 2px", fontVariantNumeric: "tabular-nums" }}>{cf.net >= 0 ? "+" : "−"}{inr(Math.abs(cf.net))}</div>
-        <Variance cur={cf.net} prev={cfPrev ? cfPrev.net : 0} show={cmpOn} goodWhenUp />
-        <div style={{ fontSize: 10, color: C.faint, fontWeight: 600, marginTop: 10 }}>Every rupee that actually moved through your accounts — bifurcated below into P&amp;L versus Balance Sheet activity. Excludes transfers between your own accounts.</div>
+        <div style={{ fontSize: 10, color: C.faint, fontWeight: 600, marginTop: 8 }}>Every rupee that actually moved through your accounts — bifurcated below into P&amp;L versus Balance Sheet activity. Excludes transfers between your own accounts.</div>
       </Card>
 
       <div style={{ fontSize: 13, fontWeight: 800, marginBottom: 6, padding: "0 2px" }}>From P&amp;L Activities</div>
       <Card style={{ padding: "2px 16px", marginBottom: 14 }}>
-        <div style={{ padding: "11px 0", borderTop: `1px solid ${C.line}` }}>
-          <div style={{ display: "flex", justifyContent: "space-between" }}><span style={{ fontSize: 13, fontWeight: 700 }}>Income</span><span style={{ fontWeight: 700, color: C.green, fontVariantNumeric: "tabular-nums" }}>+{inr(cf.pl.income)}</span></div>
-          <Variance cur={cf.pl.income} prev={cfPrev ? cfPrev.pl.income : 0} show={cmpOn} goodWhenUp />
-        </div>
-        <div style={{ padding: "11px 0", borderTop: `1px solid ${C.line}` }}>
-          <div style={{ display: "flex", justifyContent: "space-between" }}><span style={{ fontSize: 13, fontWeight: 700 }}>Expenses</span><span style={{ fontWeight: 700, color: C.red, fontVariantNumeric: "tabular-nums" }}>−{inr(cf.pl.expense)}</span></div>
-          <Variance cur={cf.pl.expense} prev={cfPrev ? cfPrev.pl.expense : 0} show={cmpOn} goodWhenUp={false} />
-        </div>
-        <div style={{ borderTop: `1px solid ${C.line}`, marginTop: 2, paddingTop: 9 }}>
+        <ReportRow last={false} label="Income" amount={<span style={{ color: C.green }}>+{inr(cf.pl.income)}</span>}
+          onClick={() => openCategory("Income", book.entries.filter((e) => inRange(e) && e.type === "in" && !isRefund(book, e)))} />
+        <ReportRow last={false} label="Expenses" amount={<span style={{ color: C.red }}>−{inr(cf.pl.expense)}</span>}
+          onClick={() => openCategory("Expenses", book.entries.filter((e) => inRange(e) && (e.type === "out" || isRefund(book, e))))} />
+        <div style={{ borderTop: `1px solid ${C.line}`, marginTop: 2, paddingTop: 10 }}>
           <div style={{ display: "flex", fontSize: 14, fontWeight: 800 }}><span style={{ flex: 1 }}>Net from P&amp;L Activities</span><span>{cf.pl.net >= 0 ? "+" : "−"}{inr(Math.abs(cf.pl.net))}</span></div>
-          <Variance cur={cf.pl.net} prev={cfPrev ? cfPrev.pl.net : 0} show={cmpOn} goodWhenUp />
         </div>
       </Card>
 
       <div style={{ fontSize: 13, fontWeight: 800, marginBottom: 6, padding: "0 2px" }}>From Balance Sheet Items</div>
       <Card style={{ padding: "2px 16px", marginBottom: 14 }}>
         {cf.bs.rows.length === 0 && <div style={{ padding: "10px 0", fontSize: 12.5, color: C.muted }}>Nothing in this period.</div>}
-        {cf.bs.rows.map((r, i) => (
-          <div key={r.label} style={{ padding: "11px 0", borderTop: i === 0 ? "none" : `1px solid ${C.line}` }}>
-            <div style={{ display: "flex", justifyContent: "space-between" }}>
-              <span style={{ fontSize: 13, fontWeight: 700 }}>{r.label}{r.bs && <span style={{ fontSize: 9, fontWeight: 800, padding: "2px 7px", borderRadius: 999, background: "rgba(251,191,36,.18)", border: "1px solid rgba(251,191,36,.4)", color: C.amberText, marginLeft: 6 }}>BS</span>}</span>
-              <span style={{ fontWeight: 700, color: r.amount >= 0 ? C.green : C.red, fontVariantNumeric: "tabular-nums" }}>{r.amount >= 0 ? "+" : "−"}{inr(Math.abs(r.amount))}</span>
-            </div>
-            <Variance cur={r.amount} prev={prevRowAmt(r.label)} show={cmpOn} goodWhenUp />
-          </div>
+        {cf.bs.rows.map((r) => (
+          <ReportRow key={r.label} last={false}
+            label={<>{r.label}{r.bs && <span style={{ fontSize: 9, fontWeight: 800, padding: "2px 7px", borderRadius: 999, background: "rgba(251,191,36,.18)", border: "1px solid rgba(251,191,36,.4)", color: C.amberText, marginLeft: 6 }}>BS</span>}</>}
+            amount={<span style={{ color: r.amount >= 0 ? C.green : C.red }}>{r.amount >= 0 ? "+" : "−"}{inr(Math.abs(r.amount))}</span>}
+            onClick={() => openCategory(r.label, book.entries.filter((e) => r.partyIds
+              ? (inRange(e) && e.type === "party" && r.partyIds.includes(e.partyId))
+              : (inRange(e) && e.category === r.label && (e.type === "out" || e.type === "in"))))} />
         ))}
-        <div style={{ borderTop: `1px solid ${C.line}`, marginTop: 2, paddingTop: 9 }}>
+        <div style={{ borderTop: `1px solid ${C.line}`, marginTop: 2, paddingTop: 10 }}>
           <div style={{ display: "flex", fontSize: 14, fontWeight: 800 }}><span style={{ flex: 1 }}>Net from Balance Sheet Items</span><span>{cf.bs.net >= 0 ? "+" : "−"}{inr(Math.abs(cf.bs.net))}</span></div>
-          <Variance cur={cf.bs.net} prev={cfPrev ? cfPrev.bs.net : 0} show={cmpOn} goodWhenUp />
         </div>
       </Card>
 
@@ -907,13 +1089,13 @@ function CashFlowReport({ book, p }) {
   );
 }
 
-function ReportsScreen({ book }) {
+function ReportsScreen({ book, openSheet }) {
   const [view, setView] = useState("pl");
   const p = usePeriodPicker(book);
   return (
     <div style={{ padding: "4px 16px 90px" }}>
       <Seg value={view} onChange={setView} style={{ marginBottom: 14 }} options={[{ v: "pl", label: "Profit & Loss" }, { v: "cashflow", label: "Cash Flow" }]} />
-      {view === "pl" ? <PLReport book={book} p={p} /> : <CashFlowReport book={book} p={p} />}
+      {view === "pl" ? <PLReport book={book} p={p} openSheet={openSheet} /> : <CashFlowReport book={book} p={p} openSheet={openSheet} />}
     </div>
   );
 }
@@ -1346,28 +1528,39 @@ function ViewTransactionSheet({ book, up, close, entryId }) {
   const canUnexplain = entry.type === "in" || entry.type === "out";
   const isBS = canUnexplain && book.bsCategories.includes(entry.category);
   const refund = canUnexplain && isRefund(book, entry);
+  // "Description" is the transaction's own identifying text: the raw
+  // bank-statement narration for an imported row (entry.merchant, which
+  // survives coding untouched), falling back to whatever note was typed in
+  // for a manually-added row. Direction is dropped as a separate row --
+  // it's already conveyed by the amount's sign/color below, and Type
+  // already implies it (Income/Expense/Party to Pay/Party to Receive).
+  const description = entry.merchant || entry.note || "";
+  const amountSign = entry.type === "transfer" ? null : (entry.type === "in" || (entry.type === "party" && entry.dir === "in")) ? "+" : "−";
+  const amountColor = amountSign === "+" ? C.green : amountSign === "−" ? C.red : C.ink;
 
-  const rows = [["Amount", inr(entry.amount)]];
+  const rows = [];
+  if (description) rows.push(["Description", description]);
   if (entry.type === "transfer") {
     rows.push(["Type", "Transfer"]);
     rows.push(["From Account", accountName(entry.fromAccountId)]);
     rows.push(["To Account", accountName(entry.toAccountId)]);
   } else if (entry.type === "party") {
-    rows.push(["Direction", entry.dir === "out" ? "Money Out" : "Money In"]);
     rows.push(["Type", entry.dir === "out" ? "Party to Pay" : "Party to Receive"]);
     rows.push(["Party", partyName(entry.partyId)]);
     rows.push(["Account", accountName(entry.accountId)]);
   } else {
-    rows.push(["Direction", entry.type === "in" ? "Money In" : "Money Out"]);
     rows.push(["Type", refund ? "Refund" : entry.type === "in" ? "Income" : "Expense"]);
     rows.push(["Category", entry.category]);
     rows.push(["Account", accountName(entry.accountId)]);
   }
-  rows.push(["Note", entry.note || "—"]);
   rows.push(["Date", entry.date]);
 
   return (
     <Sheet open title="Transaction Details" onClose={close}>
+      <Card style={{ padding: "13px 15px", marginBottom: 14 }}>
+        <div style={{ fontSize: 9, color: C.muted, textTransform: "uppercase", letterSpacing: ".05em", fontWeight: 700 }}>Amount</div>
+        <div style={{ fontSize: 20, fontWeight: 800, color: amountColor, marginTop: 4, fontVariantNumeric: "tabular-nums" }}>{amountSign || ""}{inr(entry.amount)}</div>
+      </Card>
       <Card style={{ padding: "4px 16px" }}>
         {rows.map(([label, value], i) => (
           <div key={label} style={{ padding: "11px 0", borderTop: i === 0 ? "none" : `1px solid ${C.line}`, display: "flex", justifyContent: "space-between", gap: 10 }}>
@@ -1816,7 +2009,7 @@ function useTheme(pref) {
 
 const GLOBAL_CSS = `
 * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
-html, body { margin: 0; padding: 0; overflow-x: hidden; overscroll-behavior-x: none; touch-action: manipulation; -webkit-touch-callout: none; }
+html, body { margin: 0; padding: 0; overflow-x: hidden; overscroll-behavior-x: none; touch-action: manipulation; -webkit-touch-callout: none; -webkit-user-select: none; user-select: none; }
 ::-webkit-scrollbar { display: none; }
 input, select, textarea { -webkit-user-select: text; user-select: text; }
 @keyframes cbShake { 0%,100% { transform: translateX(0); } 20%,60% { transform: translateX(-8px); } 40%,80% { transform: translateX(8px); } }
@@ -1896,8 +2089,18 @@ export default function App() {
     );
   }
 
+  const notifCount = notificationsFor(book).length;
   const headerActions = tab === "home"
-    ? <><IconBtn onClick={() => openSheet("import")}><Ic name="upload" size={13} /></IconBtn><IconBtn><Ic name="search" size={13} /></IconBtn><IconBtn><Ic name="bell" size={13} /></IconBtn></>
+    ? <>
+        <IconBtn onClick={() => openSheet("import")}><Ic name="upload" size={13} /></IconBtn>
+        <IconBtn onClick={() => go("tx")}><Ic name="search" size={13} /></IconBtn>
+        <IconBtn onClick={() => openSheet("notifications")}>
+          <div style={{ position: "relative", display: "flex" }}>
+            <Ic name="bell" size={13} />
+            {notifCount > 0 && <span style={{ position: "absolute", top: -2, right: -2, width: 7, height: 7, borderRadius: "50%", background: C.red, border: `1.5px solid ${C.bg}` }} />}
+          </div>
+        </IconBtn>
+      </>
     : tab === "tx" ? <IconBtn onClick={() => openSheet("import")}><Ic name="upload" size={13} /></IconBtn>
     : null;
 
@@ -1912,11 +2115,11 @@ export default function App() {
         {tab === "owed" && <OwedScreen book={book} openSheet={openSheet} />}
         {tab === "travel" && <TravelScreen book={book} openSheet={openSheet} />}
         {tab === "tx" && <TransactionsScreen book={book} openSheet={openSheet} openCodeTx={openCodeTx} selectMode={txSelectMode} setSelectMode={setTxSelectMode} />}
-        {tab === "reports" && <ReportsScreen book={book} />}
+        {tab === "reports" && <ReportsScreen book={book} openSheet={openSheet} />}
         {tab === "setup" && <SetupScreen book={book} openSheet={openSheet} openAccountsPage={() => setAccountsPageOpen(true)} />}
       </div>
 
-      {(tab === "home" || (tab === "tx" && !txSelectMode)) && (
+      {tab === "tx" && !txSelectMode && (
         <button onClick={() => openSheet("newTx")} style={{ position: "fixed", zIndex: 25, right: 18, bottom: 92, width: 50, height: 50, borderRadius: "50%", background: C.grad, display: "flex", alignItems: "center", justifyContent: "center", color: "#fff", boxShadow: `0 14px 28px -8px ${C.accentDeep}`, border: "none", cursor: "pointer" }}>
           <Ic name="plus" size={19} />
         </button>
@@ -1929,8 +2132,12 @@ export default function App() {
       {sheet && sheet.name === "newTx" && <NewTransactionSheet book={book} up={up} close={closeSheet} preset={sheet.ctx} />}
       {sheet && sheet.name === "codeTx" && <CodeTransactionSheet book={book} up={up} close={closeSheet} entryId={sheet.ctx.entryId} />}
       {sheet && sheet.name === "viewTx" && <ViewTransactionSheet book={book} up={up} close={closeSheet} entryId={sheet.ctx.entryId} />}
+      {sheet && sheet.name === "categoryDetail" && <CategoryDetailSheet book={book} close={closeSheet} title={sheet.ctx.title} entries={sheet.ctx.entries} />}
+      {sheet && sheet.name === "txFilters" && <TxFilterSheet book={book} close={closeSheet} {...sheet.ctx} />}
       {sheet && sheet.name === "bulkCode" && <BulkCodeSheet book={book} up={up} close={closeSheet} entryIds={sheet.ctx.entryIds} onApplied={sheet.ctx.onApplied} />}
       {sheet && sheet.name === "recordPayment" && <RecordPaymentSheet book={book} up={up} close={closeSheet} presetPartyId={sheet.ctx.partyId} />}
+      {sheet && sheet.name === "partyDetail" && <PartyDetailSheet book={book} openSheet={openSheet} close={closeSheet} partyId={sheet.ctx.partyId} />}
+      {sheet && sheet.name === "notifications" && <NotificationsSheet book={book} go={go} close={closeSheet} />}
       {sheet && sheet.name === "newTrip" && <NewTripSheet up={up} close={closeSheet} />}
       {sheet && sheet.name === "tripDetail" && <TripDetailSheet book={book} up={up} tripId={sheet.ctx.tripId} openSheet={openSheet} close={closeSheet} />}
       {sheet && sheet.name === "import" && <ImportSheet book={book} up={up} close={closeSheet} />}

@@ -149,17 +149,22 @@ function pdfGroupLines(items) {
  * layout doesn't look like a table it can read confidently — callers
  * should fall back to parseStatementText() then. */
 const PDF_NOISE_RE = /^\d+\s+of\s+\d+$/i;
-const PDF_STOP_RE = /closing balance|total (debit|credit)s?|other account details|^summary\s*:?$|^[a-z][a-z .]*bank limited$/i;
+const PDF_STOP_RE = /closing balance|total (debit|credit)s?|other account details|^summary\s*:?$|^[a-z][a-z .]*bank limited$|end of transaction/i;
 const PDF_LABEL_RE =
-  /^(si|date|particulars|narration|description|transaction remarks|remarks|details|chq num|withdrawal|deposit|balance|debit|credit|amount|type|dr\/cr|cr\/dr)\.?$/i;
+  /^(si|date|particulars|narration|description|transaction remarks|remarks|details|transaction details|chq num|withdrawal|deposit|balance|debit|credit|amount|amount \(inr\)|type|dr\/cr|cr\/dr|debit\/credit)\.?$/i;
+// Some statements (Axis Bank credit cards, seen so far) print amount cells
+// with a leading currency glyph -- "₹ 46.00" -- which a bare /^\d/ check
+// would treat as non-numeric narration text. Matches with or without the
+// symbol so the same code path handles both styles.
+const AMOUNT_ITEM_RE = /^(?:₹|rs\.?|inr)?\s*\d/i;
 
 function pdfFindHeader(lines) {
   const DATE_LBL = /^(date|txn date|value date)$/i;
-  const NARR_LBL = /^(particulars|narration|description|transaction remarks|remarks|details)$/i;
+  const NARR_LBL = /^(particulars|narration|description|transaction remarks|remarks|details|transaction details)$/i;
   const WITHDRAWAL_LBL = /^(withdrawal|debit)(\s*amt\.?)?$/i;
   const DEPOSIT_LBL = /^(deposit|credit)(\s*amt\.?)?$/i;
-  const AMOUNT_LBL = /^amount$/i;
-  const TYPE_LBL = /^(dr\/cr|cr\/dr|type)$/i;
+  const AMOUNT_LBL = /^amount\b/i;
+  const TYPE_LBL = /^(dr\/cr|cr\/dr|type|debit\/credit)$/i;
   const BALANCE_LBL = /(^|\s)balance$/i;
 
   for (let li = 0; li < lines.length; li++) {
@@ -201,7 +206,7 @@ function pdfColumnAt(x, ranges) {
 }
 
 function pdfLeadingNumber(s) {
-  const m = s.trim().match(/^\d[\d,]*(?:\.\d{1,2})?/);
+  const m = s.trim().replace(/^(?:₹|rs\.?|inr)\s*/i, "").match(/^\d[\d,]*(?:\.\d{1,2})?/);
   return m ? parseFloat(m[0].replace(/,/g, "")) : null;
 }
 
@@ -220,7 +225,7 @@ function pdfExtractRows(lines, hdr, startIndex) {
 
     if (date && dateItem) {
       const candidates = line.items
-        .filter((it) => it.x > hdr.dateX + 5 && /^\d/.test(it.s.trim()))
+        .filter((it) => it.x > hdr.dateX + 5 && AMOUNT_ITEM_RE.test(it.s.trim()))
         .map((it) => ({ it, v: pdfLeadingNumber(it.s) }))
         .filter((c) => Number.isFinite(c.v) && c.v >= 0);
 
@@ -243,7 +248,7 @@ function pdfExtractRows(lines, hdr, startIndex) {
 
       if (amount != null) {
         const inline = line.items
-          .filter((it) => it.x > hdr.dateX + 5 && it !== dateItem && !/^\d/.test(it.s.trim()))
+          .filter((it) => it.x > hdr.dateX + 5 && it !== dateItem && !AMOUNT_ITEM_RE.test(it.s.trim()) && !(hdr.mode === "typed" && Math.abs(it.x - hdr.typeX) < 40))
           .map((it) => it.s)
           .join(" ")
           .trim();
@@ -252,7 +257,7 @@ function pdfExtractRows(lines, hdr, startIndex) {
       }
     }
 
-    const looksNumeric = line.items.some((it) => /^\d/.test(it.s.trim()));
+    const looksNumeric = line.items.some((it) => AMOUNT_ITEM_RE.test(it.s.trim()));
     if (!dm && !looksNumeric && !PDF_LABEL_RE.test(trimmed)) fragments.push({ y: line.y, text: trimmed });
   }
 

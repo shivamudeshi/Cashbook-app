@@ -40,17 +40,6 @@ export function today() {
   const d = new Date();
   return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
 }
-export function addDays(dateStr, n) {
-  const d = new Date(dateStr + "T00:00:00");
-  d.setDate(d.getDate() + n);
-  return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
-}
-export function shiftYear(dateStr, n) {
-  const [y, m, d] = dateStr.split("-").map(Number);
-  const dt = new Date(y + n, m - 1, d);
-  if (dt.getMonth() !== m - 1) dt.setDate(0);
-  return `${dt.getFullYear()}-${pad2(dt.getMonth() + 1)}-${pad2(dt.getDate())}`;
-}
 export function monthBounds(dateStr) {
   const [y, m] = dateStr.split("-").map(Number);
   const last = new Date(y, m, 0).getDate();
@@ -70,20 +59,6 @@ export function periodRange(span, fy, customFrom, customTo) {
   if (span === "year") return fyRange(fy);
   return [customFrom, customTo];
 }
-// "vs previous": an equal-length window immediately before `from`.
-// "vs last year": the same window, shifted back exactly one year.
-export function comparePeriod(from, to, mode) {
-  if (mode === "lastyear") return [shiftYear(from, -1), shiftYear(to, -1)];
-  const days = Math.round((new Date(to) - new Date(from)) / 86400000) + 1;
-  const pTo = addDays(from, -1);
-  return [addDays(pTo, -(days - 1)), pTo];
-}
-export function periodVariance(cur, prev) {
-  if (cur === prev) return { pct: 0, dir: "flat" };
-  const pct = prev ? Math.round(Math.abs((cur - prev) / prev) * 100) : 100;
-  return { pct, dir: cur > prev ? "up" : "down" };
-}
-
 export const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
 
 /* ────────────────────────── entry predicates ──────────────────────────
@@ -160,18 +135,21 @@ export function computeCashFlow(db, from, to) {
     const signed = e.dir === "in" ? e.amount : -e.amount;
     partyNet[e.partyId] = (partyNet[e.partyId] || 0) + signed;
   }
-  const lentNames = [], borrowedNames = [];
+  const lentNames = [], borrowedNames = [], lentIds = [], borrowedIds = [];
   let lentTotal = 0, borrowedTotal = 0;
   for (const [partyId, net] of Object.entries(partyNet)) {
     if (net === 0) continue;
     const party = (db.parties || []).find((p) => p.id === partyId);
     const name = party ? party.name : "Unknown";
-    if (net < 0) { lentNames.push(name); lentTotal += net; }
-    else { borrowedNames.push(name); borrowedTotal += net; }
+    if (net < 0) { lentNames.push(name); lentIds.push(partyId); lentTotal += net; }
+    else { borrowedNames.push(name); borrowedIds.push(partyId); borrowedTotal += net; }
   }
+  // partyIds lets a UI drill into exactly which party entries made up a
+  // grouped "Lent to X, Y"/"Borrowed from Z" row, without re-deriving the
+  // net-lent/net-borrowed classification itself.
   const partyRows = [];
-  if (lentNames.length) partyRows.push({ label: `Lent to ${lentNames.join(", ")}`, amount: lentTotal });
-  if (borrowedNames.length) partyRows.push({ label: `Borrowed from ${borrowedNames.join(", ")}`, amount: borrowedTotal });
+  if (lentNames.length) partyRows.push({ label: `Lent to ${lentNames.join(", ")}`, amount: lentTotal, partyIds: lentIds });
+  if (borrowedNames.length) partyRows.push({ label: `Borrowed from ${borrowedNames.join(", ")}`, amount: borrowedTotal, partyIds: borrowedIds });
 
   const rows = [...bsRows, ...partyRows];
   const bsNet = rows.reduce((s, r) => s + r.amount, 0);
