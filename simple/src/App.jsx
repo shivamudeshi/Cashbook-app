@@ -509,21 +509,58 @@ function TripDetailSheet({ book, up, tripId, openSheet, close }) {
 }
 
 /* ══════════════════════════ TRANSACTIONS ══════════════════════════ */
+// Explained rows now include Transfer and Party entries too (they used to
+// be filtered out of Transactions entirely, which made them vanish the
+// moment an Unexplained row was coded as one -- looked exactly like the
+// app "didn't save" the change). Each type gets its own title/subtitle/
+// amount-sign treatment since none of them share Category/Party/Transfer
+// shape.
+function explainedRowInfo(book, e) {
+  const accountName = (id) => (book.accounts.find((a) => a.id === id) || {}).name || "—";
+  const partyName = (id) => (book.parties.find((p) => p.id === id) || {}).name || "Unknown";
+  if (e.type === "transfer") {
+    return { title: "Transfer", sub: `${accountName(e.fromAccountId)} → ${accountName(e.toAccountId)}`, sign: null, color: C.ink };
+  }
+  if (e.type === "party") {
+    const out = e.dir === "out";
+    return { title: out ? `Paid ${partyName(e.partyId)}` : `Received from ${partyName(e.partyId)}`, sub: accountName(e.accountId), sign: out ? "−" : "+", color: out ? C.red : C.green };
+  }
+  const isBS = book.bsCategories.includes(e.category);
+  return {
+    title: e.category, isBS,
+    sub: e.note ? `${e.note} · ${accountName(e.accountId)}` : accountName(e.accountId),
+    sign: e.type === "in" ? "+" : "−", color: e.type === "in" ? C.green : C.red,
+  };
+}
+
 function TransactionsScreen({ book, openSheet, openCodeTx, selectMode, setSelectMode }) {
   const [seg, setSeg] = useState("explained");
   const [q, setQ] = useState("");
   const [acctFilter, setAcctFilter] = useState("all");
   const [dirFilter, setDirFilter] = useState("all"); // all | out | in
+  const [catFilter, setCatFilter] = useState("all");
   const [selected, setSelected] = useState(() => new Set());
   const accountName = (id) => (book.accounts.find((a) => a.id === id) || {}).name || "—";
 
-  const all = book.entries.filter((e) => e.type === "in" || e.type === "out");
-  const explained = all.filter(isExplained).sort((a, b) => b.date.localeCompare(a.date));
-  const unexplained = all.filter((e) => !isExplained(e)).sort((a, b) => b.date.localeCompare(a.date));
-  const filterAcct = (list) => (acctFilter === "all" ? list : list.filter((e) => e.accountId === acctFilter));
-  const filterDir = (list) => (dirFilter === "all" ? list : list.filter((e) => e.type === dirFilter));
-  const search = (list) => (q.trim() ? list.filter((e) => (e.merchant || e.category || "").toLowerCase().includes(q.toLowerCase())) : list);
-  const explainedRows = search(filterDir(filterAcct(explained)));
+  const codable = book.entries.filter((e) => e.type === "in" || e.type === "out");
+  const explained = book.entries
+    .filter((e) => (e.type === "in" || e.type === "out" || e.type === "transfer" || e.type === "party") && isExplained(e))
+    .sort((a, b) => b.date.localeCompare(a.date));
+  const unexplained = codable.filter((e) => !isExplained(e)).sort((a, b) => b.date.localeCompare(a.date));
+  const usedCategories = [...new Set(codable.filter(isExplained).map((e) => e.category))].sort();
+
+  const filterAcct = (list) => (acctFilter === "all" ? list : list.filter((e) => e.accountId === acctFilter || e.fromAccountId === acctFilter || e.toAccountId === acctFilter));
+  const filterDir = (list) => (dirFilter === "all" ? list : list.filter((e) => e.type === dirFilter || (e.type === "party" && e.dir === dirFilter)));
+  const filterCat = (list) => (catFilter === "all" ? list : list.filter((e) => e.category === catFilter));
+  const search = (list) => {
+    const needle = q.trim().toLowerCase();
+    if (!needle) return list;
+    return list.filter((e) => {
+      const hay = [e.merchant, e.category, e.note, e.date, String(e.amount)].filter(Boolean).join(" ").toLowerCase();
+      return hay.includes(needle);
+    });
+  };
+  const explainedRows = search(filterCat(filterDir(filterAcct(explained))));
   const unexplainedRows = search(filterDir(filterAcct(unexplained)));
 
   useEffect(() => { setSelectMode(false); setSelected(new Set()); }, [seg]);
@@ -548,36 +585,43 @@ function TransactionsScreen({ book, openSheet, openCodeTx, selectMode, setSelect
 
   return (
     <div style={{ padding: "4px 16px 90px" }}>
-      <input style={{ ...st.input, marginBottom: 10 }} placeholder="Search transactions" value={q} onChange={(e) => setQ(e.target.value)} />
+      <div style={{ display: "flex", gap: 8, marginBottom: 10, alignItems: "center" }}>
+        <input style={{ ...st.input, flex: 1 }} placeholder="Search by name, category, note, date, or amount" value={q} onChange={(e) => setQ(e.target.value)} />
+        {q && <button onClick={() => setQ("")} style={{ fontSize: 10.5, fontWeight: 700, color: C.muted, background: "none", border: "none", cursor: "pointer", flexShrink: 0, fontFamily: F.sans }}>Clear</button>}
+      </div>
       <Seg value={seg} onChange={setSeg} style={{ marginBottom: 10 }} options={[
         { v: "explained", label: "Explained" },
         { v: "unexplained", label: "Unexplained", badge: unexplained.length || undefined },
       ]} />
-      <div style={{ display: "flex", gap: 8, marginBottom: 8, overflowX: "auto" }}>
+      <div style={{ display: "flex", gap: 8, marginBottom: 14, overflowX: "auto" }}>
         <FilterChip active={acctFilter === "all"} onClick={() => setAcctFilter("all")}>All accounts</FilterChip>
         {book.accounts.map((a) => <FilterChip key={a.id} active={acctFilter === a.id} onClick={() => setAcctFilter(a.id)}>{a.name}</FilterChip>)}
-      </div>
-      <div style={{ display: "flex", gap: 8, marginBottom: 14, overflowX: "auto" }}>
         <FilterChip active={dirFilter === "all"} onClick={() => setDirFilter("all")}>All types</FilterChip>
         <FilterChip active={dirFilter === "out"} onClick={() => setDirFilter("out")}>Money Out</FilterChip>
         <FilterChip active={dirFilter === "in"} onClick={() => setDirFilter("in")}>Money In</FilterChip>
+        {usedCategories.length > 0 && (
+          <select value={catFilter} onChange={(e) => setCatFilter(e.target.value)} style={{ fontSize: 10.5, fontWeight: 700, padding: "0 12px", borderRadius: 999, border: `1px solid ${catFilter !== "all" ? "transparent" : C.overlayBorder}`, color: catFilter !== "all" ? "#fff" : C.muted, background: catFilter !== "all" ? C.grad : "none", cursor: "pointer", fontFamily: F.sans, flexShrink: 0 }}>
+            <option value="all">All categories</option>
+            {usedCategories.map((c) => <option key={c} value={c}>{c}</option>)}
+          </select>
+        )}
       </div>
 
       {seg === "explained" ? (
         <Card style={{ padding: "2px 16px" }}>
           {explainedRows.length === 0 && <div style={{ padding: "14px 0", fontSize: 12.5, color: C.muted }}>No transactions yet.</div>}
           {explainedRows.map((e, i) => {
-            const isBS = book.bsCategories.includes(e.category);
+            const info = explainedRowInfo(book, e);
             return (
-              <RowLine key={e.id} last={i === explainedRows.length - 1} onClick={() => openSheet("newTx", { editId: e.id })}>
+              <RowLine key={e.id} last={i === explainedRows.length - 1} onClick={() => openSheet("viewTx", { entryId: e.id })}>
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{ fontSize: 13.5, fontWeight: 700, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
-                    {e.category}{isBS && <span style={{ fontSize: 9, fontWeight: 800, padding: "2px 7px", borderRadius: 999, background: "rgba(251,191,36,.18)", border: "1px solid rgba(251,191,36,.4)", color: C.amberText, marginLeft: 6 }}>BS</span>}
+                    {info.title}{info.isBS && <span style={{ fontSize: 9, fontWeight: 800, padding: "2px 7px", borderRadius: 999, background: "rgba(251,191,36,.18)", border: "1px solid rgba(251,191,36,.4)", color: C.amberText, marginLeft: 6 }}>BS</span>}
                   </div>
-                  <div style={{ fontSize: 10.5, color: C.muted, fontWeight: 600, marginTop: 1 }}>{e.category} · {accountName(e.accountId)}</div>
+                  <div style={{ fontSize: 10.5, color: C.muted, fontWeight: 600, marginTop: 1, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{info.sub}</div>
                 </div>
                 <div style={{ textAlign: "right", flexShrink: 0 }}>
-                  <div style={{ fontSize: 13.5, fontWeight: 800, color: e.type === "in" ? C.green : C.red, fontVariantNumeric: "tabular-nums" }}>{e.type === "in" ? "+" : "−"}{inr(e.amount)}</div>
+                  <div style={{ fontSize: 13.5, fontWeight: 800, color: info.color, fontVariantNumeric: "tabular-nums" }}>{info.sign || ""}{inr(e.amount)}</div>
                   <div style={{ fontSize: 9.5, color: C.faint, fontWeight: 600, marginTop: 1 }}>{e.date}</div>
                 </div>
               </RowLine>
@@ -663,8 +707,18 @@ function usePeriodPicker(book) {
     for (const e of book.entries) s.add(fyOf(e.date));
     return [...s].sort((a, b) => b - a);
   }, [book.entries, t]);
-  const [fy, setFy] = useState(fyOf(t));
-  const [span, setSpan] = useState("thisMonth");
+  // Defaulting to "this month of the current FY" silently shows nothing for
+  // a book whose data is all in the past (e.g. everything just imported
+  // from an old statement) -- default to wherever the most recent entry
+  // actually is instead, only falling back to "this month" when that
+  // happens to be the real current month.
+  const latestEntryDate = useMemo(() => {
+    let max = null;
+    for (const e of book.entries) if (!max || e.date > max) max = e.date;
+    return max || t;
+  }, [book.entries, t]);
+  const [fy, setFy] = useState(fyOf(latestEntryDate));
+  const [span, setSpan] = useState(latestEntryDate.slice(0, 7) === t.slice(0, 7) ? "thisMonth" : "year");
   const [customFrom, setCustomFrom] = useState(t.slice(0, 8) + "01");
   const [customTo, setCustomTo] = useState(t);
   const [cmp, setCmp] = useState("off");
@@ -900,6 +954,7 @@ function SetupScreen({ book, openSheet, openAccountsPage }) {
         <SetupRow title="Auto-coding Rules" sub={`${book.codingRules.length} rules`} onClick={() => openSheet("setupRules")} />
         <SetupRow title="Import & OCR" sub="Upload PDFs or photos" onClick={() => openSheet("import")} />
         <SetupRow title="Security & App Lock" sub={book.prefs.lock.on ? "PIN lock is on" : "PIN lock is off"} onClick={() => openSheet("setupPrefs")} />
+        <SetupRow title="Appearance" sub={{ system: "Match system", dark: "Dark", light: "Light" }[book.prefs.theme || "system"]} onClick={() => openSheet("setupPrefs")} />
         <SetupRow title="Backup & Restore" sub="Export or import your data" onClick={() => openSheet("setupPrefs")} last />
       </Card>
     </div>
@@ -1003,6 +1058,14 @@ function SetupPrefsSheet({ book, up, close }) {
   const [pin, setPin] = useState(book.prefs.lock.pin || "");
   return (
     <Sheet open title="Preferences" onClose={close}>
+      <Card style={{ padding: "16px 18px", marginBottom: 12 }}>
+        <div style={{ fontSize: 13.5, fontWeight: 700, marginBottom: 10 }}>Appearance</div>
+        <Seg value={book.prefs.theme || "system"} onChange={(v) => up((b) => { b.prefs.theme = v; return b; })} options={[
+          { v: "system", label: "System" },
+          { v: "dark", label: "Dark" },
+          { v: "light", label: "Light" },
+        ]} />
+      </Card>
       <Card style={{ padding: "16px 18px", marginBottom: 12 }}>
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
           <div style={{ fontSize: 13.5, fontWeight: 700 }}>Security &amp; App Lock</div>
@@ -1185,25 +1248,12 @@ function initialFields(book) {
 
 /* ══════════════════════════ NEW TRANSACTION ══════════════════════════ */
 function NewTransactionSheet({ book, up, close, preset }) {
-  const editing = preset && preset.editId ? book.entries.find((e) => e.id === preset.editId) : null;
-  const initDir = editing ? (editing.type === "party" ? editing.dir : editing.type) : (preset && preset.presetDir) || "out";
-  const initSub = editing
-    ? (editing.type === "party" ? "party" : editing.type === "transfer" ? "transfer" : isRefund(book, editing) ? "refund" : "category")
-    : (preset && preset.presetSub) || "category";
-
-  const [amount, setAmount] = useState(editing ? String(editing.amount) : "");
-  const [dir, setDir] = useState(initDir);
-  const [subKind, setSubKind] = useState(initSub);
-  const [note, setNote] = useState(editing ? editing.note || "" : "");
-  const [date, setDate] = useState(editing ? editing.date : today());
-  const [f, setF] = useState(() => {
-    const base = initialFields(book);
-    if (!editing) return base;
-    if (editing.type === "party") return { ...base, partyId: editing.partyId, accountId: editing.accountId };
-    if (editing.type === "transfer") return { ...base, fromAccountId: editing.fromAccountId, toAccountId: editing.toAccountId };
-    if (isRefund(book, editing)) return { ...base, refundFor: editing.category, accountId: editing.accountId };
-    return { ...base, category: editing.category, accountId: editing.accountId };
-  });
+  const [amount, setAmount] = useState("");
+  const [dir, setDir] = useState((preset && preset.presetDir) || "out");
+  const [subKind, setSubKind] = useState((preset && preset.presetSub) || "category");
+  const [note, setNote] = useState("");
+  const [date, setDate] = useState(today());
+  const [f, setF] = useState(() => initialFields(book));
   const firstRun = useRef(true);
   useEffect(() => {
     if (firstRun.current) { firstRun.current = false; return; }
@@ -1216,8 +1266,7 @@ function NewTransactionSheet({ book, up, close, preset }) {
     if (!amt || amt <= 0) return;
     const tripId = preset && preset.presetTripId;
     up((b) => {
-      if (editing) b.entries = b.entries.filter((e) => e.id !== editing.id);
-      const keepId = editing ? editing.id : uid();
+      const keepId = uid();
       if (subKind === "category") {
         b.entries.push({ id: keepId, date, amount: amt, type: dir, category: f.category, accountId: f.accountId, note, ...(tripId ? { tripId } : {}) });
       } else if (subKind === "refund") {
@@ -1243,7 +1292,7 @@ function NewTransactionSheet({ book, up, close, preset }) {
   }
 
   return (
-    <Sheet open title={editing ? "Edit Transaction" : "New Transaction"} onClose={close}>
+    <Sheet open title="New Transaction" onClose={close}>
       <div style={st.label}>Amount</div>
       <input style={{ ...st.input, fontSize: 15, fontWeight: 800 }} placeholder="Amount — 500, 2k, 1.2L" value={amount} onChange={(e) => setAmount(e.target.value)} />
       <div style={st.label}>Direction</div>
@@ -1255,7 +1304,73 @@ function NewTransactionSheet({ book, up, close, preset }) {
       <input style={st.input} placeholder="Optional" value={note} onChange={(e) => setNote(e.target.value)} />
       <div style={st.label}>Date</div>
       <input style={st.input} type="date" value={date} onChange={(e) => setDate(e.target.value)} />
-      <PrimaryBtn style={{ marginTop: 16 }} onClick={save}>{editing ? "Save Changes" : "Save Transaction"}</PrimaryBtn>
+      <PrimaryBtn style={{ marginTop: 16 }} onClick={save}>Save Transaction</PrimaryBtn>
+    </Sheet>
+  );
+}
+
+// Explained transactions are locked once coded -- the only way to change
+// their category/party/type again is to explicitly Unexplain first, which
+// sends them back through the normal Code Transaction flow. Transfers and
+// party entries have no Suspense state at all (isExplained is unconditionally
+// true for them), so there's nothing to unexplain for those -- this is a
+// pure detail view for them.
+function ViewTransactionSheet({ book, up, close, entryId }) {
+  const entry = book.entries.find((e) => e.id === entryId);
+  if (!entry) return null;
+  const accountName = (id) => (book.accounts.find((a) => a.id === id) || {}).name || "—";
+  const partyName = (id) => (book.parties.find((p) => p.id === id) || {}).name || "Unknown";
+  const canUnexplain = entry.type === "in" || entry.type === "out";
+  const isBS = canUnexplain && book.bsCategories.includes(entry.category);
+  const refund = canUnexplain && isRefund(book, entry);
+
+  const rows = [["Amount", inr(entry.amount)]];
+  if (entry.type === "transfer") {
+    rows.push(["Type", "Transfer"]);
+    rows.push(["From Account", accountName(entry.fromAccountId)]);
+    rows.push(["To Account", accountName(entry.toAccountId)]);
+  } else if (entry.type === "party") {
+    rows.push(["Direction", entry.dir === "out" ? "Money Out" : "Money In"]);
+    rows.push(["Type", entry.dir === "out" ? "Party to Pay" : "Party to Receive"]);
+    rows.push(["Party", partyName(entry.partyId)]);
+    rows.push(["Account", accountName(entry.accountId)]);
+  } else {
+    rows.push(["Direction", entry.type === "in" ? "Money In" : "Money Out"]);
+    rows.push(["Type", refund ? "Refund" : entry.type === "in" ? "Income" : "Expense"]);
+    rows.push(["Category", entry.category]);
+    rows.push(["Account", accountName(entry.accountId)]);
+  }
+  rows.push(["Note", entry.note || "—"]);
+  rows.push(["Date", entry.date]);
+
+  return (
+    <Sheet open title="Transaction Details" onClose={close}>
+      <Card style={{ padding: "4px 16px" }}>
+        {rows.map(([label, value], i) => (
+          <div key={label} style={{ padding: "11px 0", borderTop: i === 0 ? "none" : `1px solid ${C.line}`, display: "flex", justifyContent: "space-between", gap: 10 }}>
+            <span style={{ fontSize: 11, color: C.muted, fontWeight: 700, flexShrink: 0 }}>{label}</span>
+            <span style={{ fontSize: 13, fontWeight: 700, textAlign: "right" }}>
+              {value}
+              {label === "Category" && isBS && <span style={{ fontSize: 9, fontWeight: 800, padding: "2px 7px", borderRadius: 999, background: "rgba(251,191,36,.18)", border: "1px solid rgba(251,191,36,.4)", color: C.amberText, marginLeft: 6 }}>BS</span>}
+            </span>
+          </div>
+        ))}
+      </Card>
+      <div style={{ fontSize: 10, color: C.faint, fontWeight: 600, marginTop: 10, lineHeight: 1.5 }}>
+        {canUnexplain
+          ? "This transaction is explained and locked. Unexplain it to change its category, party, or type again."
+          : "Transfers and party entries aren't coded through Unexplained — their accounts and direction were fixed when they were saved."}
+      </div>
+      {canUnexplain && (
+        <GhostBtn style={{ width: "100%", marginTop: 12 }} onClick={() => {
+          up((b) => {
+            const idx = b.entries.findIndex((e) => e.id === entryId);
+            if (idx >= 0) b.entries[idx] = { ...b.entries[idx], category: "Suspense" };
+            return b;
+          });
+          close();
+        }}>Unexplain This Transaction</GhostBtn>
+      )}
     </Sheet>
   );
 }
@@ -1648,15 +1763,20 @@ function LockScreen({ pin, onUnlock, onForgot }) {
   );
 }
 
-function useTheme() {
+// pref: "system" (follow the OS) | "dark" | "light" (forced regardless of OS).
+function useTheme(pref) {
   const [, force] = useState(0);
   useEffect(() => {
     const mq = window.matchMedia("(prefers-color-scheme: dark)");
-    const apply = () => { applyTheme(mq.matches ? "dark" : "light"); force((n) => n + 1); };
+    const apply = () => {
+      const mode = pref === "dark" || pref === "light" ? pref : (mq.matches ? "dark" : "light");
+      applyTheme(mode);
+      force((n) => n + 1);
+    };
     apply();
     mq.addEventListener("change", apply);
     return () => mq.removeEventListener("change", apply);
-  }, []);
+  }, [pref]);
 }
 
 const GLOBAL_CSS = `
@@ -1668,8 +1788,8 @@ input, select, textarea { -webkit-user-select: text; user-select: text; }
 `;
 
 export default function App() {
-  useTheme();
   const [book, setBook] = useState(null);
+  useTheme(book && book.prefs.theme);
   const [tab, setTab] = useState("home");
   const [sheet, setSheet] = useState(null); // { name, ctx }
   const [accountsPageOpen, setAccountsPageOpen] = useState(false);
@@ -1773,6 +1893,7 @@ export default function App() {
 
       {sheet && sheet.name === "newTx" && <NewTransactionSheet book={book} up={up} close={closeSheet} preset={sheet.ctx} />}
       {sheet && sheet.name === "codeTx" && <CodeTransactionSheet book={book} up={up} close={closeSheet} entryId={sheet.ctx.entryId} />}
+      {sheet && sheet.name === "viewTx" && <ViewTransactionSheet book={book} up={up} close={closeSheet} entryId={sheet.ctx.entryId} />}
       {sheet && sheet.name === "bulkCode" && <BulkCodeSheet book={book} up={up} close={closeSheet} entryIds={sheet.ctx.entryIds} onApplied={sheet.ctx.onApplied} />}
       {sheet && sheet.name === "recordPayment" && <RecordPaymentSheet book={book} up={up} close={closeSheet} presetPartyId={sheet.ctx.partyId} />}
       {sheet && sheet.name === "newTrip" && <NewTripSheet up={up} close={closeSheet} />}

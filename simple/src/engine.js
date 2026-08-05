@@ -263,10 +263,16 @@ export function tripSpendAsOf(db, asOf) {
 /* ────────────────────────── auto-coding ──────────────────────────
    Ported verbatim from CashBook.jsx:727-741. Still reads codingRules[].
    head -- the caller assigns the return value to entry.category. */
+// Whitespace is stripped from both sides before matching, not just
+// lowercased -- some bank statement PDFs extract a merchant's letters as
+// separate text runs that get rejoined with stray spaces (e.g. "Z EPTO
+// MARKETPLACE"), which would otherwise never contain a plain "zepto"
+// substring even though it's obviously the same merchant.
 export function suggestHead(db, note) {
-  const low = (note || "").toLowerCase();
+  const norm = (s) => (s || "").toLowerCase().replace(/\s+/g, "");
+  const low = norm(note);
   for (const r of db.codingRules || []) {
-    if (r.match && low.includes(r.match.toLowerCase())) return r.head;
+    if (r.match && low.includes(norm(r.match))) return r.head;
   }
   return "Suspense";
 }
