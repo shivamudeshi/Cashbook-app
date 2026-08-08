@@ -79,7 +79,7 @@ export const DEFAULT_CODING_RULES = [
 export function defaultBook() {
   return {
     v: 1,
-    prefs: { lock: { on: false, pin: "" } },
+    prefs: { lock: { on: false, pin: "" }, name: "" },
     accounts: [],
     categories: {
       expense: ["Rent", "Groceries", "Food out", "Transport", "Utilities", "Shopping", "Suspense"],
@@ -88,7 +88,6 @@ export function defaultBook() {
     bsCategories: ["Home Loan EMI"],
     parties: [],
     owedMemos: [],
-    trips: [],
     entries: [],
     codingRules: DEFAULT_CODING_RULES.map((r) => ({ ...r })),
   };

@@ -28,9 +28,10 @@ async function main() {
   await new Promise((r) => setTimeout(r, 400));
 
   const text = window.document.body.textContent;
-  for (const expected of ["Home", "Owed", "Travel", "Transactions", "Reports", "Setup"]) {
+  for (const expected of ["Home", "Owed", "Transactions", "Reports", "Setup"]) {
     assert.ok(text.includes(expected), `rendered app should contain "${expected}"`);
   }
+  assert.ok(!text.includes("Travel"), "Travel tab has been removed");
 
   /* ── engine: worked example ── */
   const E = window.__simpleEngine;
@@ -48,7 +49,6 @@ async function main() {
     bsCategories: ["Home Loan EMI"],
     parties: [{ id: "p1", name: "A" }],
     owedMemos: [],
-    trips: [{ id: "t1", name: "Test Trip", budget: 10000, startDate: null, endDate: null }],
     codingRules: [{ match: "zepto", head: "Groceries" }],
     entries: [
       { id: "e1", date, amount: 80000, type: "in", category: "Salary", accountId: "bank1" },
@@ -59,7 +59,7 @@ async function main() {
       { id: "e6", date, amount: 2000, type: "party", partyId: "p1", accountId: "bank1", dir: "in" }, // partial repay
       { id: "e7", date, amount: 3000, type: "transfer", fromAccountId: "bank1", toAccountId: "card1" },
       { id: "e8", date, amount: 500, type: "in", category: "Groceries", accountId: "bank1" }, // a refund (isRefund: "in" against an expense category)
-      { id: "e9", date, amount: 1000, type: "out", category: "Groceries", accountId: "bank1", tripId: "t1" },
+      { id: "e9", date, amount: 1000, type: "out", category: "Groceries", accountId: "bank1" },
       { id: "e10", date, amount: 999, type: "out", category: "Suspense", accountId: "bank1", merchant: "ZEPTO ONLINE" }, // unexplained/imported
     ],
   };
@@ -94,25 +94,27 @@ async function main() {
   assert.strictEqual(owed.debtors, 3000, "total debtors");
   assert.strictEqual(owed.creditors, 0, "total creditors");
 
-  // tripSpendAsOf: only the type:"out"/"in" entry tagged with tripId counts.
-  const trips = E.tripSpendAsOf(db, asOf);
-  const t1 = trips.find((t) => t.id === "t1");
-  assert.strictEqual(t1.spent, 1000, "trip spend");
-  assert.strictEqual(t1.count, 1, "trip entry count");
-
-  // computeCashFlow: bifurcates into P&L (== computePL's own net) and
-  // Balance Sheet (EMI + net party lending), summing to the combined net.
+  // computeCashFlow: a literal running ledger (Opening -> Money In -> Money
+  // Out -> Other Movement -> Net -> Closing), matching the approved design
+  // handoff exactly. Money In/Out reuse computePL's own bags (so refunds net
+  // the same way in both reports); Other Movement is BS categories + net
+  // party lending, same worked example as before.
   const cf = E.computeCashFlow(db, date, asOf);
-  assert.strictEqual(cf.pl.net, pl.net, "Cash Flow's P&L subtotal matches computePL exactly");
-  const emiRow = cf.bs.rows.find((r) => r.label === "Home Loan EMI");
-  assert.ok(emiRow, "Cash Flow Balance Sheet section includes the BS category");
+  assert.strictEqual(cf.opening, 100000, "Opening Balance: bank1 100000 + card1 0 opening, nothing dated before the period");
+  assert.strictEqual(cf.totalIn, pl.totalIncome, "Cash Flow's Money In total matches computePL's income exactly");
+  assert.strictEqual(cf.totalOut, pl.totalExpense, "Cash Flow's Money Out total matches computePL's expense exactly");
+  const rentRow = cf.moneyOut.find((r) => r.category === "Rent");
+  assert.ok(rentRow && rentRow.amount === 20000, "Money Out breaks down by category");
+  const emiRow = cf.other.find((r) => r.label === "Home Loan EMI");
+  assert.ok(emiRow, "Other Movement includes the BS category");
   assert.strictEqual(emiRow.amount, -14000, "EMI cash flow row is a cash outflow");
-  const lentRow = cf.bs.rows.find((r) => r.label.startsWith("Lent to"));
+  const lentRow = cf.other.find((r) => r.label.startsWith("Lent to"));
   assert.ok(lentRow && lentRow.label.includes("A"), "net lending party is grouped into a \"Lent to\" row");
   assert.strictEqual(lentRow.amount, -3000, "net lent amount (5000 lent - 2000 repaid)");
-  assert.strictEqual(cf.bs.net, -17000, "Balance Sheet subtotal");
-  assert.strictEqual(cf.net, cf.pl.net + cf.bs.net, "Net Cash Movement is exactly the two subtotals summed");
-  assert.strictEqual(cf.net, 39500, "Net Cash Movement value");
+  assert.strictEqual(cf.totalOther, -17000, "Other Movement subtotal");
+  assert.strictEqual(cf.net, cf.totalIn - cf.totalOut + cf.totalOther, "Net Cash Flow is Money In minus Money Out plus Other Movement");
+  assert.strictEqual(cf.net, 39500, "Net Cash Flow value");
+  assert.strictEqual(cf.closing, 139500, "Closing Balance: opening 100000 + net 39500 (transfers cancel out across the book)");
 
   // suggestHead / keywordOf
   assert.strictEqual(E.suggestHead(db, "ZEPTO ONLINE"), "Groceries", "auto-coding rule matches");

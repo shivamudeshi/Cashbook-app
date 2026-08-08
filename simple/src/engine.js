@@ -59,6 +59,29 @@ export function periodRange(span, fy, customFrom, customTo) {
   if (span === "year") return fyRange(fy);
   return [customFrom, customTo];
 }
+export function addDays(dateStr, n) {
+  const [y, m, d] = dateStr.split("-").map(Number);
+  const dt = new Date(y, m - 1, d + n);
+  return `${dt.getFullYear()}-${pad2(dt.getMonth() + 1)}-${pad2(dt.getDate())}`;
+}
+// The "vs previous period" range for Reports' Compare toggle: month spans
+// compare to the prior full calendar month, year compares to the prior FY,
+// and a custom range compares to the same number of days immediately
+// before it -- mirrors the approved mockup's own offset-based period
+// navigation (one whole period-type step back), not a day-for-day partial
+// slice.
+export function previousPeriodRange(span, fy, from, to) {
+  if (span === "year") return fyRange(fy - 1);
+  if (span === "thisMonth" || span === "lastMonth") {
+    const [y, m] = from.split("-").map(Number);
+    const py = m === 1 ? y - 1 : y, pm = m === 1 ? 12 : m - 1;
+    return monthBounds(`${py}-${pad2(pm)}-01`);
+  }
+  const days = Math.round((new Date(to) - new Date(from)) / 86400000) + 1;
+  const prevTo = addDays(from, -1);
+  const prevFrom = addDays(prevTo, -(days - 1));
+  return [prevFrom, prevTo];
+}
 export const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
 
 /* ────────────────────────── entry predicates ──────────────────────────
@@ -102,19 +125,29 @@ export function computePL(db, from, to) {
   return { income, expense, totalIncome, totalExpense, net: totalIncome - totalExpense };
 }
 
-/* ────────────────────────── Cash Flow (new — no equivalent in the main
-   app, which only has a flat 6-month chart) ──────────────────────────
-   Bifurcates every explained in/out/party entry in the period into "From
-   P&L Activities" (identical to computePL's own totals, so the two
-   reports always reconcile) and "From Balance Sheet Items" (BS-flagged
-   categories, netted per category, plus a period-scoped party net-flow
-   pass grouped into one "Lent to ..." row and one "Borrowed from ..."
-   row -- matching the approved mockup's own worked example exactly).
-   Transfers between the user's own accounts are excluded entirely, same
-   as the mockup's stated behaviour ("excludes transfers between your own
-   accounts"). */
+// The combined cash position across every account at a point in time --
+// bank balances are an asset (add), a card's balance is outstanding debt
+// (subtract) -- same convention the Home hero "Detailed breakdown" net
+// figure uses.
+function combinedCashPosition(accountsWithBal) {
+  return accountsWithBal.reduce((s, a) => s + (a.kind === "card" ? -a.balance : a.balance), 0);
+}
+
+/* ────────────────────────── Cash Flow (matches the approved design
+   handoff's own shape: a literal running ledger, not a P&L/Balance-Sheet
+   bifurcation) ──────────────────────────
+   Opening Balance -> Money In (by income category) -> Money Out (by
+   expense category, refunds netted in exactly like computePL does, so
+   the two reports always reconcile on the same numbers) -> Other
+   Movement (Balance Sheet categories + a period-scoped party net-flow
+   pass, grouped into one "Lent to ..." row and one "Borrowed from ..."
+   row) -> Net Cash Flow -> Closing Balance. Transfers between the
+   user's own accounts are excluded entirely -- they net to zero across
+   the book and aren't a category a user would look to categorize. */
 export function computeCashFlow(db, from, to) {
   const pl = computePL(db, from, to);
+  const moneyIn = Object.entries(pl.income).map(([category, amount]) => ({ category, amount }));
+  const moneyOut = Object.entries(pl.expense).map(([category, amount]) => ({ category, amount }));
 
   const bsBag = {};
   for (const e of db.entries) {
@@ -147,18 +180,17 @@ export function computeCashFlow(db, from, to) {
   // partyIds lets a UI drill into exactly which party entries made up a
   // grouped "Lent to X, Y"/"Borrowed from Z" row, without re-deriving the
   // net-lent/net-borrowed classification itself.
-  const partyRows = [];
-  if (lentNames.length) partyRows.push({ label: `Lent to ${lentNames.join(", ")}`, amount: lentTotal, partyIds: lentIds });
-  if (borrowedNames.length) partyRows.push({ label: `Borrowed from ${borrowedNames.join(", ")}`, amount: borrowedTotal, partyIds: borrowedIds });
+  const otherRows = [...bsRows];
+  if (lentNames.length) otherRows.push({ label: `Lent to ${lentNames.join(", ")}`, amount: lentTotal, partyIds: lentIds });
+  if (borrowedNames.length) otherRows.push({ label: `Borrowed from ${borrowedNames.join(", ")}`, amount: borrowedTotal, partyIds: borrowedIds });
 
-  const rows = [...bsRows, ...partyRows];
-  const bsNet = rows.reduce((s, r) => s + r.amount, 0);
+  const totalIn = pl.totalIncome, totalOut = pl.totalExpense;
+  const totalOther = otherRows.reduce((s, r) => s + r.amount, 0);
+  const net = totalIn - totalOut + totalOther;
+  const opening = combinedCashPosition(accountsWithBalances(db, addDays(from, -1)));
+  const closing = combinedCashPosition(accountsWithBalances(db, to));
 
-  return {
-    pl: { income: pl.totalIncome, expense: pl.totalExpense, net: pl.net },
-    bs: { rows, net: bsNet },
-    net: pl.net + bsNet,
-  };
+  return { opening, moneyIn, totalIn, moneyOut, totalOut, other: otherRows, totalOther, net, closing };
 }
 
 /* ────────────────────────── accounts ──────────────────────────
@@ -217,25 +249,6 @@ export function owedAsOf(db, asOf) {
   const debtors = perParty.reduce((s, p) => s + Math.max(p.balance, 0), 0);
   const creditors = perParty.reduce((s, p) => s + Math.max(-p.balance, 0), 0);
   return { perParty, debtors, creditors, memoNet };
-}
-
-/* ────────────────────────── Trips ──────────────────────────
-   Ported verbatim from CashBook.jsx:519-534. */
-export function tripSpendAsOf(db, asOf) {
-  return (db.trips || []).map((t) => {
-    let spent = 0, count = 0;
-    for (const e of db.entries) {
-      // A split expense's participant shares carry the same tripId as the
-      // "your share" entry, but those are type "party" -- pure
-      // owed-tracking, never real spend -- so they must never be summed
-      // here.
-      if (e.tripId === t.id && (e.type === "out" || e.type === "in") && e.date <= asOf && isExplained(e)) {
-        spent += e.type === "out" ? e.amount : -e.amount;
-        count++;
-      }
-    }
-    return { ...t, spent, count };
-  });
 }
 
 /* ────────────────────────── auto-coding ──────────────────────────

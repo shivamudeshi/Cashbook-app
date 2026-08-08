@@ -1,9 +1,9 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { loadBook, saveBook, defaultBook } from "./storage.js";
 import {
-  inr, parseAmount, today, fyOf, fyRange, periodRange,
+  inr, parseAmount, today, fyOf, fyRange, periodRange, previousPeriodRange,
   uid, isExplained, isRefund, computePL, computeCashFlow, accountsWithBalances,
-  owedAsOf, tripSpendAsOf, suggestHead, keywordOf,
+  owedAsOf, suggestHead, keywordOf,
 } from "./engine.js";
 import { extractPdfPages, parsePdfTable, parseStatementText, getOcrWorker } from "./pdf.js";
 
@@ -57,7 +57,6 @@ function Ic({ name, size = 16, color, style }) {
   const P = {
     home: "M3 11.5 12 4l9 7.5 M5.5 10v8.5a1 1 0 0 0 1 1H9v-6h6v6h2.5a1 1 0 0 0 1-1V10",
     people: "M8.5 8m-3 0a3 3 0 1 0 6 0a3 3 0 1 0 -6 0 M16.5 9.5m-2.4 0a2.4 2.4 0 1 0 4.8 0a2.4 2.4 0 1 0 -4.8 0 M2.5 20c0-3.3 2.7-6 6-6s6 2.7 6 6 M14.5 20c0-2.3 1-4.3 2.7-5.4",
-    plane: "M2.5 16.5 21 7.6a1.6 1.6 0 0 0-2.1-2.2L9.4 12H4l-2 2.2 5 1.3z M9.4 12l1.6 8 2.3-2 .3-4",
     swap: "M4 7h14M15 4l3 3-3 3 M20 17H6M9 20l-3-3 3-3",
     bars: "M4 20V11 M12 20V5 M20 20v-7",
     sliders: "M3 6h7 M17 6h4 M13 6m-2 0a2 2 0 1 0 4 0a2 2 0 1 0 -4 0 M3 12h2 M9 12h12 M6 12m-2 0a2 2 0 1 0 4 0a2 2 0 1 0 -4 0 M3 18h10 M19 18h2 M16 18m-2 0a2 2 0 1 0 4 0a2 2 0 1 0 -4 0",
@@ -69,6 +68,8 @@ function Ic({ name, size = 16, color, style }) {
     download: "M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4 M17 8l-5 5-5-5 M12 3v10",
     wand: "M15 4V2M15 16v-2M8 9h2M20 9h2M17.8 11.8 19 13M17.8 6.2 19 5M3 21l9-9M12.2 6.2 13 5",
     back: "M15 18l-6-6 6-6",
+    card: "M3 5h18v14H3Z M3 10h18",
+    check: "M20 6 9 17l-5-5",
   };
   return (
     <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color || "currentColor"} strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round" style={style}>
@@ -123,6 +124,22 @@ function Sheet({ open, onClose, title, children }) {
           <div style={{ flex: 1, textAlign: "center", fontSize: 16, fontWeight: 800 }}>{title}</div>
           <div style={{ width: 30, flexShrink: 0 }} />
         </div>
+        {children}
+      </div>
+    </div>
+  );
+}
+
+// A centered popup card, for short confirmations/lists the mockup shows as
+// a small dialog rather than a full-width bottom sheet (Notifications,
+// Import statement). Routed at the same app-level tier as Sheet so it can
+// never get trapped beneath the FAB/NavBar's stacking context.
+function Modal({ open, onClose, title, width, children }) {
+  if (!open) return null;
+  return (
+    <div onClick={onClose} style={{ position: "fixed", inset: 0, zIndex: 200, display: "flex", alignItems: "center", justifyContent: "center", background: C.dimBg, backdropFilter: "blur(10px) saturate(140%)", WebkitBackdropFilter: "blur(10px) saturate(140%)" }}>
+      <div onClick={(e) => e.stopPropagation()} style={{ width: width || 280, maxWidth: "calc(100vw - 40px)", boxSizing: "border-box", background: "#fff", borderRadius: 20, padding: 20, boxShadow: "0 12px 30px rgba(17,17,17,.2)", fontFamily: F.sans, color: C.ink }}>
+        {title && <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 14, textAlign: "center" }}>{title}</div>}
         {children}
       </div>
     </div>
@@ -236,17 +253,6 @@ function BellBtn({ onClick, notifCount }) {
 function Card({ children, style, onClick }) {
   return <div onClick={onClick} style={{ ...glass(18), padding: 16, ...style }}>{children}</div>;
 }
-function Section({ title, action, children }) {
-  return (
-    <div style={{ marginBottom: 16 }}>
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8, padding: "0 2px" }}>
-        <div style={{ fontSize: 13, fontWeight: 800 }}>{title}</div>
-        {action}
-      </div>
-      {children}
-    </div>
-  );
-}
 function RowLine({ children, onClick, last }) {
   return <div onClick={onClick} style={{ display: "flex", alignItems: "center", padding: "12px 0", borderTop: last ? "none" : `1px solid ${C.line}`, cursor: onClick ? "pointer" : "default" }}>{children}</div>;
 }
@@ -329,9 +335,8 @@ function HomeScreen({ book, go, openSheet, notifCount }) {
   const pl = computePL(book, monthStart, t);
   const accounts = accountsWithBalances(book, t);
   const owed = owedAsOf(book, t);
-  const trips = tripSpendAsOf(book, t);
-  const activeTrip = trips[0];
   const unexplainedCount = book.entries.filter((e) => (e.type === "in" || e.type === "out") && !isExplained(e)).length;
+  const approvalCount = book.entries.filter((e) => (e.type === "in" || e.type === "out") && e.pendingApproval).length;
 
   const maxInOut = Math.max(pl.totalIncome, pl.totalExpense, 1);
   const savedPct = pl.totalIncome > 0 ? Math.round((pl.net / pl.totalIncome) * 100) : 0;
@@ -343,7 +348,7 @@ function HomeScreen({ book, go, openSheet, notifCount }) {
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 18 }}>
         <div>
           <div style={{ fontSize: 11, fontWeight: 500, letterSpacing: ".05em", textTransform: "uppercase", color: C.muted }}>{greeting()}</div>
-          <div style={{ fontSize: 22, fontWeight: 700, marginTop: 2 }}>Cash Book</div>
+          <div style={{ fontSize: 22, fontWeight: 700, marginTop: 2 }}>{book.prefs.name || "there"}</div>
         </div>
         <BellBtn onClick={() => openSheet("notifications")} notifCount={notifCount} />
       </div>
@@ -411,36 +416,32 @@ function HomeScreen({ book, go, openSheet, notifCount }) {
         </>
       )}
 
-      {unexplainedCount > 0 && (
+      {(unexplainedCount > 0 || approvalCount > 0) && (
         <>
           <div style={{ fontSize: 14.5, fontWeight: 700, marginBottom: 8, padding: "0 2px" }}>Needs attention</div>
-          <div onClick={() => go("tx")} style={{ ...glass(16), padding: "14px 16px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, cursor: "pointer", marginBottom: 18 }}>
-            <div style={{ flex: 1, minWidth: 0 }}>
-              <div style={{ fontSize: 13.5, fontWeight: 700, marginBottom: 3, whiteSpace: "nowrap" }}>{unexplainedCount} unexplained transaction{unexplainedCount === 1 ? "" : "s"}</div>
-              <div style={{ fontSize: 11, color: C.soft }}>Missing a category</div>
-            </div>
-            <div style={{ display: "inline-flex", alignItems: "center", fontSize: 10.5, fontWeight: 600, padding: "5px 12px", borderRadius: 999, background: C.accent, color: "#fff", flexShrink: 0 }}>Categorize</div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 10, marginBottom: 18 }}>
+            {unexplainedCount > 0 && (
+              <div onClick={() => go("tx")} style={{ ...glass(16), padding: "14px 16px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, cursor: "pointer" }}>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: 13.5, fontWeight: 700, marginBottom: 3, whiteSpace: "nowrap" }}>{unexplainedCount} unexplained transaction{unexplainedCount === 1 ? "" : "s"}</div>
+                  <div style={{ fontSize: 11, color: C.soft }}>Missing a category</div>
+                </div>
+                <div style={{ display: "inline-flex", alignItems: "center", fontSize: 10.5, fontWeight: 600, padding: "5px 12px", borderRadius: 999, background: C.accent, color: "#fff", flexShrink: 0 }}>Categorize</div>
+              </div>
+            )}
+            {approvalCount > 0 && (
+              <div onClick={() => go("tx")} style={{ ...glass(16), padding: "14px 16px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, cursor: "pointer" }}>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: 13.5, fontWeight: 700, marginBottom: 3, whiteSpace: "nowrap" }}>{approvalCount} transaction{approvalCount === 1 ? "" : "s"} auto-matched</div>
+                  <div style={{ fontSize: 11, color: C.soft }}>Confirm the suggested category</div>
+                </div>
+                <div style={{ display: "inline-flex", alignItems: "center", fontSize: 10.5, fontWeight: 600, padding: "5px 12px", borderRadius: 999, background: C.overlayWash, color: C.ink, flexShrink: 0 }}>Approve</div>
+              </div>
+            )}
           </div>
         </>
       )}
 
-      <Section title="Travel" action={<div onClick={() => go("travel")} style={{ fontSize: 11, fontWeight: 700, color: C.accentText, cursor: "pointer" }}>View all ›</div>}>
-        {activeTrip ? (
-          <Card onClick={() => openSheet("tripDetail", { tripId: activeTrip.id })} style={{ cursor: "pointer" }}>
-            <div style={{ fontSize: 13.5, fontWeight: 700 }}>{activeTrip.name}</div>
-            <div style={{ fontSize: 10.5, color: C.muted, fontWeight: 600, marginTop: 2 }}>
-              {activeTrip.startDate ? `${activeTrip.startDate} – ${activeTrip.endDate || ""}` : "No dates set"} · {inr(activeTrip.spent)}{activeTrip.budget ? ` of ${inr(activeTrip.budget)} budget` : ""}
-            </div>
-            {activeTrip.budget > 0 && (
-              <div style={{ height: 6, borderRadius: 3, background: C.overlayWash, overflow: "hidden", marginTop: 8 }}>
-                <div style={{ height: "100%", width: `${Math.min(100, Math.round((activeTrip.spent / activeTrip.budget) * 100))}%`, borderRadius: 3, background: C.accent }} />
-              </div>
-            )}
-          </Card>
-        ) : (
-          <div style={{ ...glass(16), padding: 16, fontSize: 12.5, color: C.muted }}>No trips yet — add one in Travel.</div>
-        )}
-      </Section>
     </div>
   );
 }
@@ -460,10 +461,9 @@ function nextDueDate(dueDay, todayStr) {
   return dd;
 }
 
-// What the notification bell surfaces: unexplained transactions, credit
-// card payments due within a week, and trips that have gone over budget --
-// the three things in this app that actually need the user's attention,
-// as opposed to routine day-to-day activity.
+// What the notification bell surfaces: unexplained transactions and credit
+// card payments due within a week -- the things in this app that actually
+// need the user's attention, as opposed to routine day-to-day activity.
 function notificationsFor(book) {
   const t = today();
   const list = [];
@@ -479,31 +479,27 @@ function notificationsFor(book) {
       list.push({ id: "due-" + a.id, title: `${a.name} payment due ${days === 0 ? "today" : days === 1 ? "tomorrow" : `in ${days} days`}`, sub: `Due on the ${a.dueDay}${dueOrdinal(a.dueDay)}`, tab: "home" });
     }
   }
-  for (const tr of tripSpendAsOf(book, t)) {
-    if (tr.budget > 0 && tr.spent > tr.budget) {
-      list.push({ id: "trip-" + tr.id, title: `${tr.name} is over budget`, sub: `${inr(tr.spent)} spent of ${inr(tr.budget)}`, tab: "travel" });
-    }
-  }
   return list;
 }
 
 function NotificationsSheet({ book, go, close }) {
   const items = notificationsFor(book);
   return (
-    <Sheet open title="Notifications" onClose={close}>
-      <Card style={{ padding: "2px 16px" }}>
-        {items.length === 0 && <div style={{ padding: "14px 0", fontSize: 12.5, color: C.muted }}>You're all caught up — nothing needs your attention.</div>}
-        {items.map((n, i) => (
-          <RowLine key={n.id} last={i === items.length - 1} onClick={() => { go(n.tab); close(); }}>
-            <div style={{ flex: 1, minWidth: 0 }}>
-              <div style={{ fontSize: 13, fontWeight: 700 }}>{n.title}</div>
-              <div style={{ fontSize: 10.5, color: C.muted, fontWeight: 600, marginTop: 1 }}>{n.sub}</div>
-            </div>
-            <Ic name="back" size={12} color={C.faint} style={{ transform: "rotate(180deg)", flexShrink: 0 }} />
-          </RowLine>
-        ))}
-      </Card>
-    </Sheet>
+    <Modal open title="Notifications" onClose={close}>
+      {items.length === 0 && <div style={{ padding: "10px 0 16px", fontSize: 12.5, color: C.muted, textAlign: "center" }}>You're all caught up — nothing needs your attention.</div>}
+      {items.map((n, i) => (
+        <div key={n.id} onClick={() => { go(n.tab); close(); }} style={{ display: "flex", gap: 10, alignItems: "center", padding: "10px 0", borderBottom: i === items.length - 1 ? "none" : `1px solid ${C.line}`, cursor: "pointer" }}>
+          <div style={{ width: 32, height: 32, borderRadius: 9, background: n.id.startsWith("due-") ? C.overlayWash : C.accentSoft, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+            <Ic name={n.id.startsWith("due-") ? "card" : "swap"} size={15} color={n.id.startsWith("due-") ? C.ink : C.accent} />
+          </div>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ fontSize: 12.5, fontWeight: 500 }}>{n.title}</div>
+            <div style={{ fontSize: 10, color: C.muted, marginTop: 2 }}>{n.sub}</div>
+          </div>
+        </div>
+      ))}
+      <PrimaryBtn style={{ marginTop: 10, padding: "10px 0", fontSize: 12.5 }} onClick={close}>Close</PrimaryBtn>
+    </Modal>
   );
 }
 
@@ -552,7 +548,7 @@ function OwedScreen({ book, openSheet }) {
       </Card>
 
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
-        <PrimaryBtn onClick={() => openSheet("newTx", { presetDir: "in", presetSub: "party" })}>+ Add Receivable</PrimaryBtn>
+        <PrimaryBtn onClick={() => openSheet("newTx", { tab: "owed", owedMode: "receive" })}>+ Add Receivable</PrimaryBtn>
         <GhostBtn onClick={() => openSheet("recordPayment")}>Record Payment</GhostBtn>
       </div>
     </div>
@@ -604,108 +600,6 @@ function PartyDetailSheet({ book, partyId, openSheet, close }) {
       </Card>
 
       {balance !== 0 && <PrimaryBtn style={{ width: "100%" }} onClick={() => openSheet("recordPayment", { partyId })}>Record Payment</PrimaryBtn>}
-    </Sheet>
-  );
-}
-
-/* ══════════════════════════ TRAVEL ══════════════════════════ */
-function TravelScreen({ book, openSheet }) {
-  const t = today();
-  const trips = tripSpendAsOf(book, t);
-  const totalSpend = trips.reduce((s, tr) => s + tr.spent, 0);
-  return (
-    <div style={{ padding: "4px 16px 90px" }}>
-      <Card style={{ marginBottom: 14 }}>
-        <div style={{ fontSize: 10.5, color: C.muted, textTransform: "uppercase", letterSpacing: ".06em", fontWeight: 700 }}>Total Trip Spend</div>
-        <div style={{ fontSize: 22, fontWeight: 800, marginTop: 6, fontVariantNumeric: "tabular-nums" }}>{inr(totalSpend)}</div>
-        <div style={{ fontSize: 10.5, color: C.faint, fontWeight: 600, marginTop: 2 }}>across {trips.length} trip{trips.length === 1 ? "" : "s"}</div>
-      </Card>
-
-      <div style={{ fontSize: 13, fontWeight: 800, marginBottom: 8, padding: "0 2px" }}>Trips</div>
-      {trips.length === 0 && <div style={{ ...glass(16), padding: 16, marginBottom: 14, fontSize: 12.5, color: C.muted }}>No trips tracked yet.</div>}
-      {trips.map((tr) => {
-        const pct = tr.budget ? Math.min(100, Math.round((tr.spent / tr.budget) * 100)) : null;
-        return (
-          <Card key={tr.id} onClick={() => openSheet("tripDetail", { tripId: tr.id })} style={{ marginBottom: 14, cursor: "pointer" }}>
-            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-              <div style={{ fontSize: 14, fontWeight: 700 }}>{tr.name}</div>
-              <div style={{ color: C.muted, fontSize: 15 }}>›</div>
-            </div>
-            <div style={{ fontSize: 10.5, color: C.muted, fontWeight: 600, marginTop: 2 }}>{tr.startDate ? `${tr.startDate} – ${tr.endDate || ""}` : "No dates set"}</div>
-            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginTop: 10 }}>
-              <div style={{ fontSize: 13, fontWeight: 800, fontVariantNumeric: "tabular-nums" }}>{inr(tr.spent)} {tr.budget > 0 && <span style={{ color: C.faint, fontWeight: 600, fontSize: 11 }}>of {inr(tr.budget)}</span>}</div>
-              {pct != null && <div style={{ fontSize: 11, fontWeight: 700, color: pct > 100 ? C.red : C.green }}>{pct}%</div>}
-            </div>
-            {pct != null && (
-              <div style={{ height: 6, borderRadius: 3, background: C.overlayWash, overflow: "hidden", marginTop: 8 }}>
-                <div style={{ height: "100%", width: `${pct}%`, borderRadius: 3, background: pct > 100 ? C.red : C.accent }} />
-              </div>
-            )}
-          </Card>
-        );
-      })}
-      <GhostBtn style={{ width: "100%" }} onClick={() => openSheet("newTrip")}>+ New Trip</GhostBtn>
-    </div>
-  );
-}
-
-function TripDetailSheet({ book, up, tripId, openSheet, close }) {
-  const t = today();
-  const trip = book.trips.find((x) => x.id === tripId);
-  if (!trip) return null;
-  const entries = book.entries
-    .filter((e) => e.tripId === tripId && (e.type === "out" || e.type === "in") && isExplained(e))
-    .sort((a, b) => b.date.localeCompare(a.date));
-  const spend = tripSpendAsOf(book, t).find((x) => x.id === tripId);
-  const byCategory = {};
-  for (const e of entries) {
-    if (e.type !== "out") continue;
-    byCategory[e.category] = (byCategory[e.category] || 0) + e.amount;
-  }
-  const catRows = Object.entries(byCategory).sort((a, b) => b[1] - a[1]);
-  const max = catRows.length ? catRows[0][1] : 0;
-
-  return (
-    <Sheet open title={trip.name} onClose={close}>
-      <Card style={{ marginBottom: 14 }}>
-        <div style={{ fontSize: 10.5, color: C.muted, textTransform: "uppercase", fontWeight: 700 }}>Total Spend</div>
-        <div style={{ fontSize: 22, fontWeight: 800, marginTop: 4 }}>{inr(spend ? spend.spent : 0)}</div>
-        {trip.budget > 0 && <div style={{ fontSize: 11, color: C.muted, marginTop: 4 }}>of {inr(trip.budget)} budget</div>}
-      </Card>
-
-      {catRows.length > 0 && (
-        <div style={{ marginBottom: 14 }}>
-          <div style={{ fontSize: 12, fontWeight: 800, marginBottom: 6 }}>By Category</div>
-          <Card style={{ padding: "10px 16px" }}>
-            {catRows.map(([c, a]) => (
-              <div key={c} style={{ marginBottom: 9 }}>
-                <div style={{ display: "flex", fontSize: 12, marginBottom: 3 }}><span style={{ flex: 1 }}>{c}</span><span style={{ fontWeight: 700 }}>{inr(a)}</span></div>
-                <div style={{ height: 6, borderRadius: 3, background: C.overlayWash, overflow: "hidden" }}><div style={{ height: "100%", width: `${Math.round((a / max) * 100)}%`, borderRadius: 3, background: C.accent }} /></div>
-              </div>
-            ))}
-          </Card>
-        </div>
-      )}
-
-      <PrimaryBtn style={{ marginBottom: 14 }} onClick={() => openSheet("newTx", { presetTripId: tripId })}>+ Add Expense</PrimaryBtn>
-
-      <div style={{ fontSize: 12, fontWeight: 800, marginBottom: 6 }}>Activity</div>
-      <Card style={{ padding: "2px 16px", marginBottom: 14 }}>
-        {entries.length === 0 && <div style={{ padding: "14px 0", fontSize: 12.5, color: C.muted }}>No expenses tagged to this trip yet.</div>}
-        {entries.map((e, i) => (
-          <RowLine key={e.id} last={i === entries.length - 1}>
-            <div style={{ flex: 1 }}><div style={{ fontSize: 13, fontWeight: 700 }}>{e.category}</div><div style={{ fontSize: 10, color: C.muted }}>{e.date}</div></div>
-            <div style={{ fontSize: 13, fontWeight: 800, color: e.type === "in" ? C.green : C.red }}>{e.type === "in" ? "+" : "−"}{inr(e.amount)}</div>
-          </RowLine>
-        ))}
-      </Card>
-
-      <GhostBtn style={{ width: "100%", color: C.red }} onClick={() => {
-        const extra = entries.length > 0 ? `Its ${entries.length} tagged expense${entries.length === 1 ? "" : "s"} will stay in your records, just no longer grouped under this trip. ` : "";
-        if (!window.confirm(`Delete "${trip.name}"? ${extra}This can't be undone.`)) return;
-        up((b) => { b.trips = b.trips.filter((x) => x.id !== tripId); return b; });
-        close();
-      }}>Delete Trip</GhostBtn>
     </Sheet>
   );
 }
@@ -780,7 +674,7 @@ function TxFilterSheet({ book, usedCategories, acctFilter, setAcctFilter, dirFil
   );
 }
 
-function TransactionsScreen({ book, openSheet, openCodeTx, selectMode, setSelectMode }) {
+function TransactionsScreen({ book, up, openSheet, openCodeTx, selectMode, setSelectMode }) {
   const [seg, setSeg] = useState("explained");
   const [q, setQ] = useState("");
   const [acctFilter, setAcctFilter] = useState("all");
@@ -790,11 +684,12 @@ function TransactionsScreen({ book, openSheet, openCodeTx, selectMode, setSelect
   const accountName = (id) => (book.accounts.find((a) => a.id === id) || {}).name || "—";
 
   const codable = book.entries.filter((e) => e.type === "in" || e.type === "out");
+  const approval = codable.filter((e) => e.pendingApproval).sort((a, b) => b.date.localeCompare(a.date));
   const explained = book.entries
-    .filter((e) => (e.type === "in" || e.type === "out" || e.type === "transfer" || e.type === "party") && isExplained(e))
+    .filter((e) => (e.type === "in" || e.type === "out" || e.type === "transfer" || e.type === "party") && isExplained(e) && !e.pendingApproval)
     .sort((a, b) => b.date.localeCompare(a.date));
-  const unexplained = codable.filter((e) => !isExplained(e)).sort((a, b) => b.date.localeCompare(a.date));
-  const usedCategories = [...new Set(codable.filter(isExplained).map((e) => e.category))].sort();
+  const unexplained = codable.filter((e) => !e.pendingApproval && !isExplained(e)).sort((a, b) => b.date.localeCompare(a.date));
+  const usedCategories = [...new Set(codable.filter((e) => isExplained(e) && !e.pendingApproval).map((e) => e.category))].sort();
 
   const filterAcct = (list) => (acctFilter === "all" ? list : list.filter((e) => e.accountId === acctFilter || e.fromAccountId === acctFilter || e.toAccountId === acctFilter));
   const filterDir = (list) => (dirFilter === "all" ? list : list.filter((e) => e.type === dirFilter || (e.type === "party" && e.dir === dirFilter)));
@@ -809,26 +704,61 @@ function TransactionsScreen({ book, openSheet, openCodeTx, selectMode, setSelect
   };
   const explainedRows = search(filterCat(filterDir(filterAcct(explained))));
   const unexplainedRows = search(filterDir(filterAcct(unexplained)));
+  const approvalRows = search(filterDir(filterAcct(approval)));
+  const activeRows = seg === "unexplained" ? unexplainedRows : seg === "approval" ? approvalRows : [];
   const activeFilterCount = (acctFilter !== "all" ? 1 : 0) + (dirFilter !== "all" ? 1 : 0) + (catFilter !== "all" ? 1 : 0);
 
-  useEffect(() => { setSelectMode(false); setSelected(new Set()); }, [seg]);
+  useEffect(() => { setSelectMode(false); setSelected(new Set()); }, [seg]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const toggleSelected = (id) => setSelected((s) => { const n = new Set(s); if (n.has(id)) n.delete(id); else n.add(id); return n; });
-  const selectedEntries = unexplainedRows.filter((e) => selected.has(e.id));
+  const selectedEntries = activeRows.filter((e) => selected.has(e.id));
   const mixedTypes = new Set(selectedEntries.map((e) => e.type)).size > 1;
 
   // Select all always resolves to ONE direction, so the result is always
   // codeable in one action without hitting the mixed-direction guard: it
   // respects the direction filter when one is set, otherwise it follows
-  // whichever direction the most recent unexplained row is.
-  const selectAllType = dirFilter !== "all" ? dirFilter : (unexplainedRows[0] ? unexplainedRows[0].type : "out");
-  const selectAllRows = unexplainedRows.filter((e) => e.type === selectAllType);
+  // whichever direction the most recent row is.
+  const selectAllType = dirFilter !== "all" ? dirFilter : (activeRows[0] ? activeRows[0].type : "out");
+  const selectAllRows = activeRows.filter((e) => e.type === selectAllType);
   const allSelectAllSelected = selectAllRows.length > 0 && selectAllRows.every((e) => selected.has(e.id));
   const toggleSelectAll = () => setSelected(allSelectAllSelected ? new Set() : new Set(selectAllRows.map((e) => e.id)));
 
   const openBulkCode = () => {
     if (selected.size === 0 || mixedTypes) return;
     openSheet("bulkCode", { entryIds: [...selected], onApplied: () => { setSelected(new Set()); setSelectMode(false); } });
+  };
+
+  const approveEntry = (id) => up((b) => {
+    const idx = b.entries.findIndex((e) => e.id === id);
+    if (idx >= 0) b.entries[idx] = { ...b.entries[idx], pendingApproval: false };
+    return b;
+  });
+  const rejectEntry = (id) => up((b) => {
+    const idx = b.entries.findIndex((e) => e.id === id);
+    if (idx >= 0) b.entries[idx] = { ...b.entries[idx], category: "Suspense", pendingApproval: false };
+    return b;
+  });
+  const bulkApprove = () => {
+    up((b) => {
+      for (const id of selected) {
+        const idx = b.entries.findIndex((e) => e.id === id);
+        if (idx >= 0) b.entries[idx] = { ...b.entries[idx], pendingApproval: false };
+      }
+      return b;
+    });
+    setSelected(new Set());
+    setSelectMode(false);
+  };
+  const bulkReject = () => {
+    up((b) => {
+      for (const id of selected) {
+        const idx = b.entries.findIndex((e) => e.id === id);
+        if (idx >= 0) b.entries[idx] = { ...b.entries[idx], category: "Suspense", pendingApproval: false };
+      }
+      return b;
+    });
+    setSelected(new Set());
+    setSelectMode(false);
   };
 
   return (
@@ -839,6 +769,7 @@ function TransactionsScreen({ book, openSheet, openCodeTx, selectMode, setSelect
       </div>
       <Seg value={seg} onChange={setSeg} style={{ marginBottom: 10 }} options={[
         { v: "explained", label: "Explained" },
+        { v: "approval", label: "Approval", badge: approval.length || undefined },
         { v: "unexplained", label: "Unexplained", badge: unexplained.length || undefined },
       ]} />
       <button
@@ -869,6 +800,55 @@ function TransactionsScreen({ book, openSheet, openCodeTx, selectMode, setSelect
             );
           })}
         </Card>
+      ) : seg === "approval" ? (
+        <>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8, padding: "0 2px", gap: 8 }}>
+            <div style={{ fontSize: 10, color: C.muted, fontWeight: 600, flex: 1 }}>
+              {selectMode ? "Tap to select, then approve or reject them all at once." : "Auto-matched by your coding rules — confirm or reject each one."}
+            </div>
+            {approvalRows.length > 0 && (
+              selectMode ? (
+                <button onClick={() => { setSelectMode(false); setSelected(new Set()); }} style={{ fontSize: 10.5, fontWeight: 700, color: C.muted, background: "none", border: "none", cursor: "pointer", flexShrink: 0, fontFamily: F.sans }}>Cancel</button>
+              ) : (
+                <button onClick={() => setSelectMode(true)} style={{ fontSize: 10.5, fontWeight: 700, color: C.accentText, background: "none", border: "none", cursor: "pointer", flexShrink: 0, fontFamily: F.sans }}>Select</button>
+              )
+            )}
+          </div>
+          {selectMode && approvalRows.length > 0 && (
+            <button onClick={toggleSelectAll} style={{ fontSize: 10.5, fontWeight: 700, color: C.accentText, background: "none", border: "none", cursor: "pointer", padding: "0 2px 8px", display: "block", fontFamily: F.sans }}>
+              {allSelectAllSelected ? "Deselect all" : `Select all — Money ${selectAllType === "out" ? "Out" : "In"}`}
+            </button>
+          )}
+          <Card style={{ padding: "2px 16px" }}>
+            {approvalRows.length === 0 && <div style={{ padding: "14px 0", fontSize: 12.5, color: C.muted }}>Nothing waiting for approval.</div>}
+            {approvalRows.map((e, i) => {
+              const checked = selected.has(e.id);
+              return (
+                <RowLine key={e.id} last={i === approvalRows.length - 1} onClick={() => (selectMode ? toggleSelected(e.id) : openCodeTx(e.id))}>
+                  {selectMode && (
+                    <div style={{ width: 20, height: 20, borderRadius: "50%", flexShrink: 0, marginRight: 10, display: "flex", alignItems: "center", justifyContent: "center", background: checked ? C.grad : "transparent", border: checked ? "none" : `1px solid ${C.overlayBorder}`, color: "#fff", fontSize: 11, fontWeight: 800 }}>
+                      {checked ? "✓" : ""}
+                    </div>
+                  )}
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontSize: 13.5, fontWeight: 700, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{e.merchant || "Unrecognized transaction"}</div>
+                    <div style={{ fontSize: 10.5, color: C.muted, fontWeight: 600, marginTop: 1 }}>Suggested: {e.category} · {accountName(e.accountId)}</div>
+                  </div>
+                  {!selectMode && (
+                    <div style={{ display: "flex", gap: 6, marginRight: 8, flexShrink: 0 }}>
+                      <div onClick={(ev) => { ev.stopPropagation(); rejectEntry(e.id); }} style={{ width: 24, height: 24, borderRadius: "50%", background: C.overlayWash, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer" }}><Ic name="close" size={11} color={C.red} /></div>
+                      <div onClick={(ev) => { ev.stopPropagation(); approveEntry(e.id); }} style={{ width: 24, height: 24, borderRadius: "50%", background: "rgba(15,106,92,.12)", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer" }}><Ic name="check" size={12} color={C.green} /></div>
+                    </div>
+                  )}
+                  <div style={{ textAlign: "right", flexShrink: 0 }}>
+                    <div style={{ fontSize: 13.5, fontWeight: 800, color: e.type === "in" ? C.green : C.red, fontVariantNumeric: "tabular-nums" }}>{e.type === "in" ? "+" : "−"}{inr(e.amount)}</div>
+                    <div style={{ fontSize: 9.5, color: C.faint, fontWeight: 600, marginTop: 1 }}>{e.date}</div>
+                  </div>
+                </RowLine>
+              );
+            })}
+          </Card>
+        </>
       ) : (
         <>
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8, padding: "0 2px", gap: 8 }}>
@@ -918,7 +898,14 @@ function TransactionsScreen({ book, openSheet, openCodeTx, selectMode, setSelect
         </>
       )}
 
-      {selectMode && selected.size > 0 && (
+      {selectMode && selected.size > 0 && seg === "approval" && (
+        <div style={{ position: "fixed", left: 16, right: 16, bottom: 82, zIndex: 26, ...glass(16), padding: "10px 14px", display: "flex", alignItems: "center", gap: 10 }}>
+          <div style={{ flex: 1, minWidth: 0, fontSize: 12.5, fontWeight: 700 }}>{selected.size} selected</div>
+          <GhostBtn style={{ width: "auto", padding: "9px 16px" }} onClick={bulkReject}>Reject</GhostBtn>
+          <PrimaryBtn style={{ width: "auto", padding: "9px 18px" }} onClick={bulkApprove}>Approve</PrimaryBtn>
+        </div>
+      )}
+      {selectMode && selected.size > 0 && seg === "unexplained" && (
         <div style={{ position: "fixed", left: 16, right: 16, bottom: 82, zIndex: 26, ...glass(16), padding: "10px 14px", display: "flex", alignItems: "center", gap: 10 }}>
           <div style={{ flex: 1, minWidth: 0 }}>
             <div style={{ fontSize: 12.5, fontWeight: 700 }}>{selected.size} selected</div>
@@ -953,8 +940,10 @@ function usePeriodPicker(book) {
   const [span, setSpan] = useState(latestEntryDate.slice(0, 7) === t.slice(0, 7) ? "thisMonth" : "year");
   const [customFrom, setCustomFrom] = useState(t.slice(0, 8) + "01");
   const [customTo, setCustomTo] = useState(t);
+  const [compare, setCompare] = useState(false);
   const [from, to] = periodRange(span, fy, customFrom, customTo);
-  return { fys, fy, setFy, span, setSpan, customFrom, setCustomFrom, customTo, setCustomTo, from, to };
+  const [prevFrom, prevTo] = previousPeriodRange(span, fy, from, to);
+  return { fys, fy, setFy, span, setSpan, customFrom, setCustomFrom, customTo, setCustomTo, compare, setCompare, from, to, prevFrom, prevTo };
 }
 
 function PeriodPicker(p) {
@@ -977,8 +966,20 @@ function PeriodPicker(p) {
           <input style={st.input} type="date" value={p.customTo} onChange={(e) => p.setCustomTo(e.target.value)} />
         </div>
       )}
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginTop: 10 }}>
+        <span style={{ fontSize: 12, fontWeight: 600, color: C.soft }}>Compare to previous period</span>
+        <Toggle value={p.compare} onChange={p.setCompare} />
+      </div>
     </div>
   );
+}
+
+// Prev-period delta as a "+12%"/"−8%" label; null when there's nothing
+// meaningful to compare against (previous period had zero).
+function pctDelta(cur, prev) {
+  if (!prev) return null;
+  const pct = Math.round(((cur - prev) / Math.abs(prev)) * 100);
+  return `${pct >= 0 ? "+" : ""}${pct}%`;
 }
 
 // Shared read-only row used by the report drill-down sheet -- description
@@ -1029,11 +1030,9 @@ function CategoryDetailSheet({ book, title, entries, close }) {
 }
 
 // A category/expense/income row is a plain flex row (not a Card) so drill-
-// down rows read as one continuous list per section rather than a stack of
-// separate boxes -- the single biggest contributor to the "clustered"
-// feedback was every row also carrying its own vs-previous-period line;
-// dropping Compare entirely (below) already halves the visual noise here.
-function ReportRow({ label, amount, onClick, badge, bar, last }) {
+// down rows read as one continuous list per section. When Compare is on,
+// prevLabel adds a small right-aligned "vs ₹X (+N%)" line underneath.
+function ReportRow({ label, amount, prevLabel, onClick, badge, bar, last }) {
   return (
     <div onClick={onClick} style={{ padding: "12px 0", borderTop: last ? "none" : `1px solid ${C.line}`, cursor: onClick ? "pointer" : "default" }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
@@ -1044,13 +1043,20 @@ function ReportRow({ label, amount, onClick, badge, bar, last }) {
         <span style={{ fontWeight: 700, fontVariantNumeric: "tabular-nums", flexShrink: 0 }}>{amount}</span>
         {onClick && <Ic name="back" size={11} color={C.faint} style={{ transform: "rotate(180deg)", flexShrink: 0 }} />}
       </div>
+      {prevLabel && <div style={{ fontSize: 10, color: C.faint, fontWeight: 600, marginTop: 2, textAlign: "right" }}>{prevLabel}</div>}
       {bar}
     </div>
   );
 }
+function prevRowLabel(cur, prev) {
+  if (prev == null) return null;
+  const d = pctDelta(cur, prev);
+  return `vs ${inr(prev)}${d ? ` (${d})` : ""}`;
+}
 
 function PLReport({ book, p, openSheet }) {
   const pl = computePL(book, p.from, p.to);
+  const prevPl = p.compare ? computePL(book, p.prevFrom, p.prevTo) : null;
   const income = Object.entries(pl.income);
   const expense = Object.entries(pl.expense).sort((a, b) => b[1] - a[1]);
   const maxExp = expense.length ? expense[0][1] : 0;
@@ -1080,18 +1086,21 @@ function PLReport({ book, p, openSheet }) {
       <Card style={{ marginBottom: 14 }}>
         <div style={{ fontSize: 10.5, color: C.muted, textTransform: "uppercase", letterSpacing: ".06em", fontWeight: 700 }}>Net This Period</div>
         <div style={{ fontSize: 24, fontWeight: 800, margin: "6px 0 2px", fontVariantNumeric: "tabular-nums" }}>{inr(pl.net)}</div>
+        {prevPl && <div style={{ fontSize: 11, color: C.accentText, fontWeight: 600 }}>{prevRowLabel(pl.net, prevPl.net)}</div>}
         <div style={{ fontSize: 10, color: C.faint, fontWeight: 600, marginTop: 8 }}>Cash basis · Balance Sheet categories are excluded here — see Cash Flow below</div>
       </Card>
 
       <div style={{ fontSize: 13, fontWeight: 800, marginBottom: 6, padding: "0 2px" }}>Income</div>
       <Card style={{ padding: "2px 16px", marginBottom: 14 }}>
         {income.length === 0 && <div style={{ padding: "10px 0", fontSize: 12.5, color: C.muted }}>Nothing in this period.</div>}
-        {income.map(([c, a], i) => (
+        {income.map(([c, a]) => (
           <ReportRow key={c} last={false} label={c} amount={inr(a)}
+            prevLabel={prevPl ? prevRowLabel(a, prevPl.income[c] || 0) : null}
             onClick={() => openCategory(c, book.entries.filter((e) => inRange(e) && e.type === "in" && e.category === c && !isRefund(book, e)))} />
         ))}
         <div style={{ borderTop: `1px solid ${C.line}`, marginTop: 2, paddingTop: 10 }}>
           <div style={{ display: "flex", fontSize: 14, fontWeight: 800 }}><span style={{ flex: 1 }}>Total income</span><span style={{ color: C.green }}>{inr(pl.totalIncome)}</span></div>
+          {prevPl && <div style={{ fontSize: 10, color: C.faint, fontWeight: 600, marginTop: 2, textAlign: "right" }}>{prevRowLabel(pl.totalIncome, prevPl.totalIncome)}</div>}
         </div>
       </Card>
 
@@ -1100,11 +1109,13 @@ function PLReport({ book, p, openSheet }) {
         {expense.length === 0 && <div style={{ padding: "10px 0", fontSize: 12.5, color: C.muted }}>Nothing in this period.</div>}
         {expense.map(([c, a]) => (
           <ReportRow key={c} last={false} label={c} amount={inr(a)}
+            prevLabel={prevPl ? prevRowLabel(a, prevPl.expense[c] || 0) : null}
             onClick={() => openCategory(c, book.entries.filter((e) => inRange(e) && e.category === c && (e.type === "out" || isRefund(book, e))))}
             bar={<div style={{ height: 5, borderRadius: 3, background: C.overlayWash, overflow: "hidden", marginTop: 7 }}><div style={{ height: "100%", width: `${maxExp ? Math.max(2, Math.round((a / maxExp) * 100)) : 0}%`, borderRadius: 3, background: C.accent }} /></div>} />
         ))}
         <div style={{ borderTop: `1px solid ${C.line}`, marginTop: 2, paddingTop: 10 }}>
           <div style={{ display: "flex", fontSize: 14, fontWeight: 800 }}><span style={{ flex: 1 }}>Total expenses</span><span style={{ color: C.red }}>{inr(pl.totalExpense)}</span></div>
+          {prevPl && <div style={{ fontSize: 10, color: C.faint, fontWeight: 600, marginTop: 2, textAlign: "right" }}>{prevRowLabel(pl.totalExpense, prevPl.totalExpense)}</div>}
         </div>
       </Card>
 
@@ -1116,20 +1127,30 @@ function PLReport({ book, p, openSheet }) {
   );
 }
 
+// Matches the approved design handoff exactly: a literal running ledger
+// (Opening -> Money In -> Money Out -> Other Movement -> Net -> Closing)
+// instead of a P&L/Balance-Sheet bifurcation.
 function CashFlowReport({ book, p, openSheet }) {
   const cf = computeCashFlow(book, p.from, p.to);
+  const prevCf = p.compare ? computeCashFlow(book, p.prevFrom, p.prevTo) : null;
+  const prevIn = prevCf ? Object.fromEntries(prevCf.moneyIn.map((r) => [r.category, r.amount])) : null;
+  const prevOut = prevCf ? Object.fromEntries(prevCf.moneyOut.map((r) => [r.category, r.amount])) : null;
+  const prevOther = prevCf ? Object.fromEntries(prevCf.other.map((r) => [r.label, r.amount])) : null;
   const inRange = (e) => e.date >= p.from && e.date <= p.to && isExplained(e);
   const openCategory = (title, entries) => openSheet("categoryDetail", { title, entries });
 
   const downloadCsv = () => {
     const esc = (s) => `"${String(s).replace(/"/g, '""')}"`;
     const lines = [["Section", "Line", "Amount"].map(esc).join(",")];
-    lines.push(["P&L", "Income", cf.pl.income].map(esc).join(","));
-    lines.push(["P&L", "Expenses", -cf.pl.expense].map(esc).join(","));
-    lines.push(["P&L", "Net from P&L Activities", cf.pl.net].map(esc).join(","));
-    for (const r of cf.bs.rows) lines.push(["Balance Sheet", r.label, r.amount].map(esc).join(","));
-    lines.push(["Balance Sheet", "Net from Balance Sheet Items", cf.bs.net].map(esc).join(","));
-    lines.push(["Total", "Net Cash Movement", cf.net].map(esc).join(","));
+    lines.push(["", "Opening Balance", cf.opening].map(esc).join(","));
+    for (const r of cf.moneyIn) lines.push(["Money In", r.category, r.amount].map(esc).join(","));
+    lines.push(["Money In", "Total", cf.totalIn].map(esc).join(","));
+    for (const r of cf.moneyOut) lines.push(["Money Out", r.category, -r.amount].map(esc).join(","));
+    lines.push(["Money Out", "Total", -cf.totalOut].map(esc).join(","));
+    for (const r of cf.other) lines.push(["Other Movement", r.label, r.amount].map(esc).join(","));
+    lines.push(["Other Movement", "Total", cf.totalOther].map(esc).join(","));
+    lines.push(["", "Net Cash Flow", cf.net].map(esc).join(","));
+    lines.push(["", "Closing Balance", cf.closing].map(esc).join(","));
     const blob = new Blob([lines.join("\n")], { type: "text/csv" });
     const a = document.createElement("a");
     a.href = URL.createObjectURL(blob);
@@ -1141,37 +1162,64 @@ function CashFlowReport({ book, p, openSheet }) {
   return (
     <div>
       <PeriodPicker {...p} />
-      <Card style={{ marginBottom: 14 }}>
-        <div style={{ fontSize: 10.5, color: C.muted, textTransform: "uppercase", letterSpacing: ".06em", fontWeight: 700 }}>Net Cash Movement</div>
-        <div style={{ fontSize: 24, fontWeight: 800, color: cf.net >= 0 ? C.green : C.red, margin: "6px 0 2px", fontVariantNumeric: "tabular-nums" }}>{cf.net >= 0 ? "+" : "−"}{inr(Math.abs(cf.net))}</div>
-        <div style={{ fontSize: 10, color: C.faint, fontWeight: 600, marginTop: 8 }}>Every rupee that actually moved through your accounts — bifurcated below into P&amp;L versus Balance Sheet activity. Excludes transfers between your own accounts.</div>
+
+      <Card style={{ padding: "2px 16px", marginBottom: 14 }}>
+        <ReportRow last label="Opening Balance" amount={inr(cf.opening)} prevLabel={prevCf ? prevRowLabel(cf.opening, prevCf.opening) : null} />
       </Card>
 
-      <div style={{ fontSize: 13, fontWeight: 800, marginBottom: 6, padding: "0 2px" }}>From P&amp;L Activities</div>
+      <div style={{ fontSize: 13, fontWeight: 800, marginBottom: 6, padding: "0 2px" }}>Money In</div>
       <Card style={{ padding: "2px 16px", marginBottom: 14 }}>
-        <ReportRow last={false} label="Income" amount={<span style={{ color: C.green }}>+{inr(cf.pl.income)}</span>}
-          onClick={() => openCategory("Income", book.entries.filter((e) => inRange(e) && e.type === "in" && !isRefund(book, e)))} />
-        <ReportRow last={false} label="Expenses" amount={<span style={{ color: C.red }}>−{inr(cf.pl.expense)}</span>}
-          onClick={() => openCategory("Expenses", book.entries.filter((e) => inRange(e) && (e.type === "out" || isRefund(book, e))))} />
-        <div style={{ borderTop: `1px solid ${C.line}`, marginTop: 2, paddingTop: 10 }}>
-          <div style={{ display: "flex", fontSize: 14, fontWeight: 800 }}><span style={{ flex: 1 }}>Net from P&amp;L Activities</span><span>{cf.pl.net >= 0 ? "+" : "−"}{inr(Math.abs(cf.pl.net))}</span></div>
-        </div>
-      </Card>
-
-      <div style={{ fontSize: 13, fontWeight: 800, marginBottom: 6, padding: "0 2px" }}>From Balance Sheet Items</div>
-      <Card style={{ padding: "2px 16px", marginBottom: 14 }}>
-        {cf.bs.rows.length === 0 && <div style={{ padding: "10px 0", fontSize: 12.5, color: C.muted }}>Nothing in this period.</div>}
-        {cf.bs.rows.map((r) => (
-          <ReportRow key={r.label} last={false}
-            label={<>{r.label}{r.bs && <span style={{ fontSize: 9, fontWeight: 800, padding: "2px 7px", borderRadius: 999, background: "rgba(251,191,36,.18)", border: "1px solid rgba(251,191,36,.4)", color: C.amberText, marginLeft: 6 }}>BS</span>}</>}
-            amount={<span style={{ color: r.amount >= 0 ? C.green : C.red }}>{r.amount >= 0 ? "+" : "−"}{inr(Math.abs(r.amount))}</span>}
-            onClick={() => openCategory(r.label, book.entries.filter((e) => r.partyIds
-              ? (inRange(e) && e.type === "party" && r.partyIds.includes(e.partyId))
-              : (inRange(e) && e.category === r.label && (e.type === "out" || e.type === "in"))))} />
+        {cf.moneyIn.length === 0 && <div style={{ padding: "10px 0", fontSize: 12.5, color: C.muted }}>Nothing in this period.</div>}
+        {cf.moneyIn.map((r) => (
+          <ReportRow key={r.category} last={false} label={r.category} amount={<span style={{ color: C.green }}>+{inr(r.amount)}</span>}
+            prevLabel={prevIn ? prevRowLabel(r.amount, prevIn[r.category] || 0) : null}
+            onClick={() => openCategory(r.category, book.entries.filter((e) => inRange(e) && e.type === "in" && e.category === r.category && !isRefund(book, e)))} />
         ))}
         <div style={{ borderTop: `1px solid ${C.line}`, marginTop: 2, paddingTop: 10 }}>
-          <div style={{ display: "flex", fontSize: 14, fontWeight: 800 }}><span style={{ flex: 1 }}>Net from Balance Sheet Items</span><span>{cf.bs.net >= 0 ? "+" : "−"}{inr(Math.abs(cf.bs.net))}</span></div>
+          <div style={{ display: "flex", fontSize: 14, fontWeight: 800 }}><span style={{ flex: 1 }}>Total Money In</span><span style={{ color: C.green }}>+{inr(cf.totalIn)}</span></div>
+          {prevCf && <div style={{ fontSize: 10, color: C.faint, fontWeight: 600, marginTop: 2, textAlign: "right" }}>{prevRowLabel(cf.totalIn, prevCf.totalIn)}</div>}
         </div>
+      </Card>
+
+      <div style={{ fontSize: 13, fontWeight: 800, marginBottom: 6, padding: "0 2px" }}>Money Out</div>
+      <Card style={{ padding: "2px 16px", marginBottom: 14 }}>
+        {cf.moneyOut.length === 0 && <div style={{ padding: "10px 0", fontSize: 12.5, color: C.muted }}>Nothing in this period.</div>}
+        {cf.moneyOut.map((r) => (
+          <ReportRow key={r.category} last={false} label={r.category} amount={<span style={{ color: C.red }}>−{inr(r.amount)}</span>}
+            prevLabel={prevOut ? prevRowLabel(r.amount, prevOut[r.category] || 0) : null}
+            onClick={() => openCategory(r.category, book.entries.filter((e) => inRange(e) && e.category === r.category && (e.type === "out" || isRefund(book, e))))} />
+        ))}
+        <div style={{ borderTop: `1px solid ${C.line}`, marginTop: 2, paddingTop: 10 }}>
+          <div style={{ display: "flex", fontSize: 14, fontWeight: 800 }}><span style={{ flex: 1 }}>Total Money Out</span><span style={{ color: C.red }}>−{inr(cf.totalOut)}</span></div>
+          {prevCf && <div style={{ fontSize: 10, color: C.faint, fontWeight: 600, marginTop: 2, textAlign: "right" }}>{prevRowLabel(cf.totalOut, prevCf.totalOut)}</div>}
+        </div>
+      </Card>
+
+      {cf.other.length > 0 && (
+        <>
+          <div style={{ fontSize: 13, fontWeight: 800, marginBottom: 6, padding: "0 2px" }}>Other Movement</div>
+          <Card style={{ padding: "2px 16px", marginBottom: 14 }}>
+            {cf.other.map((r) => (
+              <ReportRow key={r.label} last={false}
+                label={<>{r.label}{r.bs && <span style={{ fontSize: 9, fontWeight: 800, padding: "2px 7px", borderRadius: 999, background: "rgba(251,191,36,.18)", border: "1px solid rgba(251,191,36,.4)", color: C.amberText, marginLeft: 6 }}>BS</span>}</>}
+                amount={<span style={{ color: r.amount >= 0 ? C.green : C.red }}>{r.amount >= 0 ? "+" : "−"}{inr(Math.abs(r.amount))}</span>}
+                prevLabel={prevOther ? prevRowLabel(r.amount, prevOther[r.label] || 0) : null}
+                onClick={() => openCategory(r.label, book.entries.filter((e) => r.partyIds
+                  ? (inRange(e) && e.type === "party" && r.partyIds.includes(e.partyId))
+                  : (inRange(e) && e.category === r.label && (e.type === "out" || e.type === "in"))))} />
+            ))}
+            <div style={{ borderTop: `1px solid ${C.line}`, marginTop: 2, paddingTop: 10 }}>
+              <div style={{ display: "flex", fontSize: 14, fontWeight: 800 }}><span style={{ flex: 1 }}>Total Other Movement</span><span>{cf.totalOther >= 0 ? "+" : "−"}{inr(Math.abs(cf.totalOther))}</span></div>
+              {prevCf && <div style={{ fontSize: 10, color: C.faint, fontWeight: 600, marginTop: 2, textAlign: "right" }}>{prevRowLabel(cf.totalOther, prevCf.totalOther)}</div>}
+            </div>
+          </Card>
+        </>
+      )}
+
+      <Card style={{ padding: "2px 16px", marginBottom: 14 }}>
+        <ReportRow last={false} label="Net Cash Flow" amount={<span style={{ color: cf.net >= 0 ? C.green : C.red }}>{cf.net >= 0 ? "+" : "−"}{inr(Math.abs(cf.net))}</span>}
+          prevLabel={prevCf ? prevRowLabel(cf.net, prevCf.net) : null} />
+        <ReportRow last label="Closing Balance" amount={inr(cf.closing)} prevLabel={prevCf ? prevRowLabel(cf.closing, prevCf.closing) : null} />
       </Card>
 
       <div style={{ display: "flex", gap: 8 }}>
@@ -1222,6 +1270,9 @@ function AddInline({ placeholder, onAdd }) {
 function SetupScreen({ book, openSheet, openAccountsPage }) {
   return (
     <div style={{ padding: "4px 16px 90px" }}>
+      <Card style={{ padding: "2px 16px", marginBottom: 14 }}>
+        <SetupRow title="Profile" sub={book.prefs.name || "Add your name"} onClick={() => openSheet("setupProfile")} last />
+      </Card>
       <Card style={{ padding: "2px 16px" }}>
         <SetupRow title="Accounts" sub={`${book.accounts.length} account${book.accounts.length === 1 ? "" : "s"}`} onClick={openAccountsPage} />
         <SetupRow title="Categories" sub={`${book.categories.expense.filter((c) => c !== "Suspense").length} categories`} onClick={() => openSheet("setupCategories")} />
@@ -1348,6 +1399,18 @@ function RuleAdd({ book, up }) {
       </div>
       <PrimaryBtn style={{ marginTop: 8 }} onClick={() => { if (match.trim()) { up((b) => { b.codingRules.push({ match: match.trim(), head }); return b; }); setMatch(""); } }}>Add Rule</PrimaryBtn>
     </div>
+  );
+}
+
+function ProfileSheet({ book, up, close }) {
+  const [name, setName] = useState(book.prefs.name || "");
+  return (
+    <Sheet open title="Profile" onClose={close}>
+      <div style={st.label}>Your name</div>
+      <input style={st.input} placeholder="e.g. Asha" value={name} onChange={(e) => setName(e.target.value)} autoFocus />
+      <div style={{ fontSize: 10, color: C.muted, fontWeight: 600, marginTop: 8 }}>Shown on Home. Never leaves this device.</div>
+      <PrimaryBtn style={{ marginTop: 16 }} onClick={() => { up((b) => { b.prefs.name = name.trim(); return b; }); close(); }}>Save</PrimaryBtn>
+    </Sheet>
   );
 }
 
@@ -1536,40 +1599,102 @@ function initialFields(book) {
 }
 
 /* ══════════════════════════ NEW TRANSACTION ══════════════════════════ */
+// A searchable, tappable category list -- replaces the plain <select> for
+// Add Transaction's Expense/Income/Refund pickers, matching the mockup.
+function CategoryPickList({ items, value, onChange, maxHeight }) {
+  const [q, setQ] = useState("");
+  const needle = q.trim().toLowerCase();
+  const filtered = needle ? items.filter((it) => it.label.toLowerCase().includes(needle)) : items;
+  return (
+    <div>
+      <div style={{ display: "flex", alignItems: "center", gap: 7, padding: "9px 11px", border: `1px solid ${C.overlayBorder}`, borderRadius: 10, marginBottom: 8 }}>
+        <Ic name="search" size={13} color={C.faint} />
+        <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search categories" style={{ flex: 1, minWidth: 0, border: "none", outline: "none", fontFamily: F.sans, fontSize: 12, background: "none", color: C.ink }} />
+      </div>
+      <div style={{ maxHeight: maxHeight || 150, overflowY: "auto", marginBottom: 8 }}>
+        {filtered.map((it) => (
+          <div key={it.value} onClick={() => onChange(it.value)} style={{ display: "flex", alignItems: "center", gap: 6, padding: "9px 10px", borderRadius: 10, cursor: "pointer", background: value === it.value ? C.accentSoft : "transparent" }}>
+            <span style={{ flex: 1, minWidth: 0, fontSize: 12.5, fontWeight: value === it.value ? 700 : 500, color: value === it.value ? C.accent : C.ink }}>{it.label}</span>
+            {it.isBS && <span style={{ fontSize: 8.5, fontWeight: 800, padding: "2px 6px", borderRadius: 999, background: "rgba(166,116,28,.14)", color: C.amberText, flexShrink: 0 }}>BS</span>}
+            {value === it.value && <Ic name="check" size={13} color={C.accent} style={{ flexShrink: 0 }} />}
+          </div>
+        ))}
+        {filtered.length === 0 && <div style={{ padding: "10px 4px", fontSize: 11.5, color: C.muted }}>No matches.</div>}
+      </div>
+    </div>
+  );
+}
+
+// A flat "label / value" row, for the compact Account & Date summary rows
+// the mockup shows beneath each picker instead of full form fields.
+function SummaryRow({ label, children, last }) {
+  return (
+    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, padding: "10px 0", borderBottom: last ? "none" : `1px solid ${C.line}` }}>
+      <span style={{ fontSize: 12, color: C.muted, flexShrink: 0 }}>{label}</span>
+      {children}
+    </div>
+  );
+}
+const rowSelectStyle = { border: "none", outline: "none", background: "none", fontFamily: F.sans, fontSize: 12.5, fontWeight: 600, color: C.ink, textAlign: "right", cursor: "pointer" };
+
+// Add Transaction: rebuilt around the mockup's 4-tab shape (Expense / Income
+// / Transfer / Settle owed) instead of the old Direction+Type grid. Splitting
+// a payment into a Balance Sheet category is intentionally not offered here
+// (the mockup only supports splitting with a person) -- Code Transaction
+// still has that power-user option for imported rows.
 function NewTransactionSheet({ book, up, close, preset }) {
+  const [tab, setTab] = useState((preset && preset.tab) || "expense");
   const [amount, setAmount] = useState("");
-  const [dir, setDir] = useState((preset && preset.presetDir) || "out");
-  const [subKind, setSubKind] = useState((preset && preset.presetSub) || "category");
   const [note, setNote] = useState("");
   const [date, setDate] = useState(today());
-  const [f, setF] = useState(() => initialFields(book));
-  const firstRun = useRef(true);
-  useEffect(() => {
-    if (firstRun.current) { firstRun.current = false; return; }
-    setSubKind("category");
-    setF((old) => ({ ...old, category: dir === "in" ? (book.categories.income[0] || "") : (book.categories.expense.find((c) => c !== "Suspense") || "") }));
-  }, [dir]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const firstAccountId = (book.accounts[0] || {}).id || "";
+  const secondAccountId = (book.accounts[1] || book.accounts[0] || {}).id || "";
+
+  const [expCategory, setExpCategory] = useState(() => book.categories.expense.find((c) => c !== "Suspense") || book.bsCategories[0] || "");
+  const [expAccountId, setExpAccountId] = useState(firstAccountId);
+  const [splitOn, setSplitOn] = useState(false);
+  const [splitPartyId, setSplitPartyId] = useState(book.parties[0] ? book.parties[0].id : "");
+
+  const [incomeMode, setIncomeMode] = useState("income"); // income | refund
+  const [incCategory, setIncCategory] = useState(book.categories.income[0] || "");
+  const [refundFor, setRefundFor] = useState(book.categories.expense.find((c) => c !== "Suspense") || "");
+  const [incAccountId, setIncAccountId] = useState(firstAccountId);
+
+  const [fromAccountId, setFromAccountId] = useState(firstAccountId);
+  const [toAccountId, setToAccountId] = useState(secondAccountId);
+
+  const [owedMode, setOwedMode] = useState((preset && preset.owedMode) || "receive"); // receive | pay
+  const [owedPartyId, setOwedPartyId] = useState(book.parties[0] ? book.parties[0].id : "");
+  const [owedAccountId, setOwedAccountId] = useState(firstAccountId);
+
+  const expenseCatItems = [
+    ...book.categories.expense.filter((c) => c !== "Suspense").map((c) => ({ value: c, label: c })),
+    ...book.bsCategories.map((c) => ({ value: c, label: c, isBS: true })),
+  ];
+  const incomeCatItems = book.categories.income.map((c) => ({ value: c, label: c }));
+  const refundCatItems = book.categories.expense.filter((c) => c !== "Suspense").map((c) => ({ value: c, label: c }));
+
+  const amt = parseAmount(amount) || 0;
+  const transferInvalid = tab === "transfer" && fromAccountId === toAccountId;
 
   const save = () => {
-    const amt = parseAmount(amount);
-    if (!amt || amt <= 0) return;
-    const tripId = preset && preset.presetTripId;
+    if (!amt || amt <= 0 || transferInvalid) return;
     up((b) => {
-      const keepId = uid();
-      if (subKind === "category") {
-        b.entries.push({ id: keepId, date, amount: amt, type: dir, category: f.category, accountId: f.accountId, note, ...(tripId ? { tripId } : {}) });
-      } else if (subKind === "refund") {
-        b.entries.push({ id: keepId, date, amount: amt, type: "in", category: f.refundFor, accountId: f.accountId, note });
-      } else if (subKind === "party") {
-        b.entries.push({ id: keepId, date, amount: amt, type: "party", partyId: f.partyId, accountId: f.accountId, dir, note, ...(tripId ? { tripId } : {}) });
-      } else if (subKind === "transfer") {
-        b.entries.push({ id: keepId, date, amount: amt, type: "transfer", fromAccountId: f.fromAccountId, toAccountId: f.toAccountId, note });
-      } else if (subKind === "split") {
-        const p1 = parseAmount(f.splitAmt1) || 0;
-        const p2 = Math.max(0, amt - p1);
-        b.entries.push({ id: keepId, date, amount: p1, type: "out", category: f.splitCat1, accountId: f.splitAccountId, note, ...(tripId ? { tripId } : {}) });
-        if (f.splitKind2 === "bs") b.entries.push({ id: uid(), date, amount: p2, type: "out", category: f.splitBsCat2, accountId: f.splitAccountId, note });
-        else b.entries.push({ id: uid(), date, amount: p2, type: "party", partyId: f.splitPartyId2, accountId: f.splitAccountId, dir: "out", note, ...(tripId ? { tripId } : {}) });
+      if (tab === "expense") {
+        b.entries.push({ id: uid(), date, amount: amt, type: "out", category: expCategory, accountId: expAccountId, note });
+        // Full amount is your own expense; the other half is a receivable
+        // (dir "out" -- see owedAsOf: money conceptually went to them, so
+        // their balance rises and they now owe you back).
+        if (splitOn && splitPartyId) {
+          b.entries.push({ id: uid(), date, amount: Math.round(amt / 2), type: "party", partyId: splitPartyId, accountId: expAccountId, dir: "out", note: note || "Split expense" });
+        }
+      } else if (tab === "income") {
+        b.entries.push({ id: uid(), date, amount: amt, type: "in", category: incomeMode === "refund" ? refundFor : incCategory, accountId: incAccountId, note });
+      } else if (tab === "transfer") {
+        b.entries.push({ id: uid(), date, amount: amt, type: "transfer", fromAccountId, toAccountId, note });
+      } else if (tab === "owed") {
+        b.entries.push({ id: uid(), date, amount: amt, type: "party", partyId: owedPartyId, accountId: owedAccountId, dir: owedMode === "receive" ? "out" : "in", note });
       }
       return b;
     });
@@ -1577,22 +1702,121 @@ function NewTransactionSheet({ book, up, close, preset }) {
   };
 
   if (book.accounts.length === 0) {
-    return <Sheet open title="New Transaction" onClose={close}><div style={{ fontSize: 13, color: C.muted }}>Add an account first, in Setup ▸ Accounts.</div></Sheet>;
+    return <Sheet open title="Add transaction" onClose={close}><div style={{ fontSize: 13, color: C.muted }}>Add an account first, in Setup ▸ Accounts.</div></Sheet>;
   }
 
+  const AccountDateCard = ({ accountId, setAccountId, accountLabel }) => (
+    <Card style={{ padding: "2px 14px", marginBottom: 12 }}>
+      <SummaryRow label={accountLabel || "Account"}>
+        <select style={rowSelectStyle} value={accountId} onChange={(e) => setAccountId(e.target.value)}>
+          {book.accounts.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
+        </select>
+      </SummaryRow>
+      <SummaryRow label="Date" last>
+        <input type="date" style={rowSelectStyle} value={date} onChange={(e) => setDate(e.target.value)} />
+      </SummaryRow>
+    </Card>
+  );
+
   return (
-    <Sheet open title="New Transaction" onClose={close}>
-      <div style={st.label}>Amount</div>
-      <input style={{ ...st.input, fontSize: 15, fontWeight: 800 }} placeholder="Amount — 500, 2k, 1.2L" value={amount} onChange={(e) => setAmount(e.target.value)} />
-      <div style={st.label}>Direction</div>
-      <Seg value={dir} onChange={setDir} options={[{ v: "out", label: "Money Out" }, { v: "in", label: "Money In" }]} />
-      <div style={st.label}>Type</div>
-      <Seg value={subKind} onChange={setSubKind} wrap4 options={subkindsFor(dir).map(([v, label]) => ({ v, label }))} />
-      <TypeFields book={book} up={up} mode="new" direction={dir} subKind={subKind} f={f} setF={setF} totalAmount={parseAmount(amount) || 0} />
-      <div style={st.label}>Note (optional)</div>
-      <input style={st.input} placeholder="Optional" value={note} onChange={(e) => setNote(e.target.value)} />
-      <div style={st.label}>Date</div>
-      <input style={st.input} type="date" value={date} onChange={(e) => setDate(e.target.value)} />
+    <Sheet open title="Add transaction" onClose={close}>
+      <Seg value={tab} onChange={setTab} style={{ marginBottom: 14 }} wrap4 options={[
+        { v: "expense", label: "Expense" }, { v: "income", label: "Income" },
+        { v: "transfer", label: "Transfer" }, { v: "owed", label: "Settle owed" },
+      ]} />
+
+      {tab !== "owed" && (
+        <div style={{ textAlign: "center", marginBottom: 16 }}>
+          <span style={{ fontSize: 28, fontWeight: 700 }}>₹<input value={amount} onChange={(e) => setAmount(e.target.value)} placeholder="0" style={{ border: "none", outline: "none", fontFamily: F.sans, fontSize: 28, fontWeight: 700, width: 150, textAlign: "center", background: "none", color: C.ink }} /></span>
+        </div>
+      )}
+
+      {tab === "expense" && (
+        <div>
+          <div style={st.label}>Category</div>
+          <CategoryPickList items={expenseCatItems} value={expCategory} onChange={setExpCategory} />
+          <AccountDateCard accountId={expAccountId} setAccountId={setExpAccountId} />
+          <input style={st.input} placeholder="Add a note" value={note} onChange={(e) => setNote(e.target.value)} />
+          <Card style={{ marginTop: 12, padding: "12px 14px" }}>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+              <span style={{ fontSize: 12.5, fontWeight: 600 }}>Split with someone</span>
+              <Toggle value={splitOn} onChange={setSplitOn} />
+            </div>
+            {splitOn && (
+              <div style={{ marginTop: 12, paddingTop: 12, borderTop: `1px solid ${C.line}` }}>
+                <PartySelect book={book} up={up} value={splitPartyId} onChange={setSplitPartyId} />
+                {splitPartyId && amt > 0 && (
+                  <div style={{ fontSize: 11.5, color: C.accent, fontWeight: 600, marginTop: 8 }}>
+                    {(book.parties.find((p) => p.id === splitPartyId) || {}).name} owes you {inr(Math.round(amt / 2))}
+                  </div>
+                )}
+              </div>
+            )}
+          </Card>
+        </div>
+      )}
+
+      {tab === "income" && (
+        <div>
+          <Seg value={incomeMode} onChange={setIncomeMode} style={{ marginBottom: 14 }} options={[{ v: "income", label: "Income" }, { v: "refund", label: "Refund" }]} />
+          {incomeMode === "refund" ? (
+            <>
+              <div style={st.label}>Which expense is this refunding?</div>
+              <CategoryPickList items={refundCatItems} value={refundFor} onChange={setRefundFor} />
+            </>
+          ) : (
+            <>
+              <div style={st.label}>Category</div>
+              <CategoryPickList items={incomeCatItems} value={incCategory} onChange={setIncCategory} />
+            </>
+          )}
+          <AccountDateCard accountId={incAccountId} setAccountId={setIncAccountId} />
+          <input style={st.input} placeholder="Add a note" value={note} onChange={(e) => setNote(e.target.value)} />
+        </div>
+      )}
+
+      {tab === "transfer" && (
+        <div>
+          <Card style={{ padding: "2px 14px", marginBottom: 12 }}>
+            <SummaryRow label="From account">
+              <select style={rowSelectStyle} value={fromAccountId} onChange={(e) => setFromAccountId(e.target.value)}>
+                {book.accounts.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
+              </select>
+            </SummaryRow>
+            <SummaryRow label="To account">
+              <select style={rowSelectStyle} value={toAccountId} onChange={(e) => setToAccountId(e.target.value)}>
+                {book.accounts.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
+              </select>
+            </SummaryRow>
+            <SummaryRow label="Date" last>
+              <input type="date" style={rowSelectStyle} value={date} onChange={(e) => setDate(e.target.value)} />
+            </SummaryRow>
+          </Card>
+          {transferInvalid && <div style={{ fontSize: 11, color: C.red, fontWeight: 600, marginBottom: 8 }}>From and To accounts must be different.</div>}
+          <input style={st.input} placeholder="Add a note" value={note} onChange={(e) => setNote(e.target.value)} />
+        </div>
+      )}
+
+      {tab === "owed" && (
+        <div>
+          <Seg value={owedMode} onChange={setOwedMode} style={{ marginBottom: 14 }} options={[{ v: "receive", label: "You'll receive" }, { v: "pay", label: "You'll pay" }]} />
+          <div style={st.label}>Person</div>
+          <PartySelect book={book} up={up} value={owedPartyId} onChange={setOwedPartyId} />
+          <div style={{ textAlign: "center", margin: "16px 0" }}>
+            <div style={{ fontSize: 10, color: C.muted, textTransform: "uppercase", marginBottom: 4 }}>{owedMode === "receive" ? "They'll owe you" : "You'll owe them"}</div>
+            <span style={{ fontSize: 24, fontWeight: 700 }}>₹<input value={amount} onChange={(e) => setAmount(e.target.value)} placeholder="0" style={{ border: "none", outline: "none", fontFamily: F.sans, fontSize: 24, fontWeight: 700, width: 110, textAlign: "center", background: "none", color: C.ink }} /></span>
+          </div>
+          <Card style={{ padding: "2px 14px", marginBottom: 12 }}>
+            <SummaryRow label="Account" last>
+              <select style={rowSelectStyle} value={owedAccountId} onChange={(e) => setOwedAccountId(e.target.value)}>
+                {book.accounts.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
+              </select>
+            </SummaryRow>
+          </Card>
+          <input style={st.input} placeholder="Add a note" value={note} onChange={(e) => setNote(e.target.value)} />
+        </div>
+      )}
+
       <PrimaryBtn style={{ marginTop: 16 }} onClick={save}>Save Transaction</PrimaryBtn>
     </Sheet>
   );
@@ -1696,9 +1920,9 @@ function CodeTransactionSheet({ book, up, close, entryId }) {
       if (idx < 0) return b;
       const base = b.entries[idx];
       if (subKind === "category") {
-        b.entries[idx] = { ...base, category: f.category };
+        b.entries[idx] = { ...base, category: f.category, pendingApproval: false };
       } else if (subKind === "refund") {
-        b.entries[idx] = { ...base, category: f.refundFor };
+        b.entries[idx] = { ...base, category: f.refundFor, pendingApproval: false };
       } else if (subKind === "party") {
         b.entries.splice(idx, 1);
         b.entries.push({ id: base.id, date: base.date, amount: base.amount, type: "party", partyId: f.partyId, accountId: base.accountId, dir: debit ? "out" : "in", note: base.note || "" });
@@ -1773,9 +1997,9 @@ function BulkCodeSheet({ book, up, close, entryIds, onApplied }) {
         if (base.type !== "out" && base.type !== "in") continue;
         const isDebit = base.type === "out";
         if (subKind === "category") {
-          b.entries[idx] = { ...base, category };
+          b.entries[idx] = { ...base, category, pendingApproval: false };
         } else if (subKind === "refund") {
-          b.entries[idx] = { ...base, category: refundFor };
+          b.entries[idx] = { ...base, category: refundFor, pendingApproval: false };
         } else if (subKind === "party") {
           b.entries.splice(idx, 1);
           b.entries.push({ id: base.id, date: base.date, amount: base.amount, type: "party", partyId, accountId: base.accountId, dir: isDebit ? "out" : "in", note: base.note || "" });
@@ -1848,7 +2072,7 @@ function BulkCodeSheet({ book, up, close, entryIds, onApplied }) {
   );
 }
 
-/* ══════════════════════════ RECORD PAYMENT / NEW TRIP / IMPORT ══════════════════════════ */
+/* ══════════════════════════ RECORD PAYMENT / IMPORT ══════════════════════════ */
 function RecordPaymentSheet({ book, up, close, presetPartyId }) {
   const owed = owedAsOf(book, today());
   const [partyId, setPartyId] = useState(presetPartyId || (book.parties[0] ? book.parties[0].id : ""));
@@ -1908,41 +2132,37 @@ function RecordPaymentSheet({ book, up, close, presetPartyId }) {
   );
 }
 
-function NewTripSheet({ up, close }) {
-  const [name, setName] = useState("");
-  const [budget, setBudget] = useState("");
-  const [startDate, setStartDate] = useState("");
-  const [endDate, setEndDate] = useState("");
-  const save = () => {
-    if (!name.trim()) return;
-    up((b) => { b.trips.push({ id: uid(), name: name.trim(), budget: parseAmount(budget) || 0, startDate: startDate || null, endDate: endDate || null }); return b; });
-    close();
-  };
-  return (
-    <Sheet open title="New Trip" onClose={close}>
-      <div style={st.label}>Name</div>
-      <input style={st.input} placeholder="e.g. Goa Trip" value={name} onChange={(e) => setName(e.target.value)} />
-      <div style={st.label}>Budget (optional)</div>
-      <input style={st.input} placeholder="Amount — 15k" value={budget} onChange={(e) => setBudget(e.target.value)} />
-      <div style={{ display: "flex", gap: 8 }}>
-        <div style={{ flex: 1 }}><div style={st.label}>Start Date</div><input style={st.input} type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} /></div>
-        <div style={{ flex: 1 }}><div style={st.label}>End Date</div><input style={st.input} type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} /></div>
-      </div>
-      <PrimaryBtn style={{ marginTop: 16 }} onClick={save}>Save Trip</PrimaryBtn>
-    </Sheet>
-  );
-}
-
 function ImportSheet({ book, up, close }) {
-  const [accountId, setAccountId] = useState((book.accounts[0] || {}).id || "");
+  const bankAccounts = book.accounts.filter((a) => a.kind === "bank");
+  const cardAccounts = book.accounts.filter((a) => a.kind === "card");
+  const [kind, setKind] = useState(bankAccounts.length > 0 || cardAccounts.length === 0 ? "bank" : "card");
+  const list = kind === "bank" ? bankAccounts : cardAccounts;
+  const [accountId, setAccountId] = useState((list[0] || {}).id || "");
   const [status, setStatus] = useState("");
+  const [error, setError] = useState(false);
   const fileRef = useRef(null);
 
+  const selectKind = (k) => {
+    setKind(k);
+    const l = k === "bank" ? bankAccounts : cardAccounts;
+    setAccountId((l[0] || {}).id || "");
+  };
+
+  // A row whose merchant matches an auto-coding rule is provisionally
+  // tagged with that category and routed to Approval instead of
+  // Unexplained -- it still needs a one-tap confirm (or reject back to
+  // Suspense) before it counts as actually coded.
   const importRows = (rows) => {
     up((b) => {
       for (const r of rows) {
         if (!r.amount || !r.date) continue;
-        b.entries.push({ id: uid(), date: r.date, amount: r.amount, type: r.type, category: "Suspense", accountId, merchant: r.note || "", note: "" });
+        const merchant = r.note || "";
+        const matched = suggestHead(b, merchant);
+        if (matched !== "Suspense") {
+          b.entries.push({ id: uid(), date: r.date, amount: r.amount, type: r.type, category: matched, accountId, merchant, note: "", pendingApproval: true });
+        } else {
+          b.entries.push({ id: uid(), date: r.date, amount: r.amount, type: r.type, category: "Suspense", accountId, merchant, note: "" });
+        }
       }
       return b;
     });
@@ -1950,6 +2170,7 @@ function ImportSheet({ book, up, close }) {
 
   const handleFile = async (file) => {
     if (!accountId) { setStatus("Add an account first."); return; }
+    setError(false);
     setStatus("Reading…");
     try {
       if (file.type === "application/pdf" || file.name.toLowerCase().endsWith(".pdf")) {
@@ -1971,27 +2192,51 @@ function ImportSheet({ book, up, close }) {
         setStatus(`Imported ${rows.length} transaction${rows.length === 1 ? "" : "s"}.`);
       }
     } catch (err) {
-      setStatus("Couldn't read that file — " + (err && err.message ? err.message : "try a clearer photo or a text-based PDF."));
+      setError(true);
+      setStatus(err && err.message ? err.message : "Make sure it's a CSV, PDF, or clear photo of a statement.");
     }
   };
 
   if (book.accounts.length === 0) {
-    return <Sheet open title="Import" onClose={close}><div style={{ fontSize: 13, color: C.muted }}>Add an account first, in Setup ▸ Accounts.</div></Sheet>;
+    return <Modal open title="Import statement" onClose={close}><div style={{ fontSize: 13, color: C.muted, textAlign: "center" }}>Add an account first, in Setup ▸ Accounts.</div></Modal>;
   }
 
   return (
-    <Sheet open title="Import" onClose={close}>
-      <div style={st.label}>Account</div>
-      <AccountSelect book={book} value={accountId} onChange={setAccountId} />
-      <div onClick={() => fileRef.current && fileRef.current.click()} style={{ border: `1.5px dashed ${C.accent}`, borderRadius: 16, padding: "28px 16px", textAlign: "center", marginTop: 14, cursor: "pointer" }}>
-        <Ic name="upload" size={26} color={C.accentText} style={{ margin: "0 auto", display: "block" }} />
-        <div style={{ fontSize: 13, fontWeight: 700, marginTop: 8 }}>Drop a PDF or photo here</div>
-        <div style={{ fontSize: 10, color: C.muted, fontWeight: 600, marginTop: 4 }}>or tap to browse — PDFs parse instantly, photos run through on-device OCR, then auto-coding rules apply automatically</div>
-      </div>
-      <input ref={fileRef} type="file" accept="application/pdf,image/*" style={{ display: "none" }} onChange={(e) => { const f = e.target.files[0]; if (f) handleFile(f); }} />
-      {status && <div style={{ fontSize: 11, color: C.accentText, fontWeight: 600, marginTop: 10, textAlign: "center" }}>{status}</div>}
-      <div style={{ fontSize: 9.5, color: C.faint, fontWeight: 600, marginTop: 14, textAlign: "center" }}>Everything stays on your device — nothing is uploaded anywhere.</div>
-    </Sheet>
+    <Modal open title="Import statement" onClose={close}>
+      {!error ? (
+        <>
+          {bankAccounts.length > 0 && cardAccounts.length > 0 && (
+            <Seg value={kind} onChange={selectKind} style={{ marginBottom: 12 }} options={[{ v: "bank", label: "Bank accounts" }, { v: "card", label: "Credit cards" }]} />
+          )}
+          <div style={{ maxHeight: 140, overflowY: "auto", marginBottom: 12 }}>
+            {list.map((a, i) => (
+              <div key={a.id} onClick={() => setAccountId(a.id)} style={{ display: "flex", alignItems: "center", gap: 9, padding: "9px 4px", cursor: "pointer", borderTop: i === 0 ? "none" : `1px solid ${C.line}` }}>
+                <span style={{ width: 9, height: 9, borderRadius: "50%", flexShrink: 0, background: accountId === a.id ? C.accent : "transparent", border: accountId === a.id ? "none" : `1.5px solid ${C.overlayBorder}` }} />
+                <span style={{ fontSize: 12.5, fontWeight: accountId === a.id ? 700 : 500 }}>{a.name}</span>
+              </div>
+            ))}
+            {list.length === 0 && <div style={{ fontSize: 11.5, color: C.muted, padding: "8px 4px" }}>No {kind === "bank" ? "bank accounts" : "credit cards"} yet.</div>}
+          </div>
+          <PrimaryBtn style={{ marginBottom: 8 }} onClick={() => fileRef.current && fileRef.current.click()}>Choose file to import</PrimaryBtn>
+          <input ref={fileRef} type="file" accept="application/pdf,image/*" style={{ display: "none" }} onChange={(e) => { const f = e.target.files[0]; if (f) handleFile(f); }} />
+          <button onClick={close} style={{ width: "100%", padding: "4px 0", border: "none", background: "none", color: C.muted, fontFamily: F.sans, fontWeight: 500, fontSize: 12, cursor: "pointer" }}>Cancel</button>
+          {status && <div style={{ fontSize: 11, color: C.accentText, fontWeight: 600, marginTop: 8, textAlign: "center" }}>{status}</div>}
+          <div style={{ fontSize: 9.5, color: C.faint, fontWeight: 600, marginTop: 10, textAlign: "center" }}>Everything stays on your device — nothing is uploaded anywhere.</div>
+        </>
+      ) : (
+        <div style={{ background: "rgba(204,51,51,.08)", border: "1px solid rgba(204,51,51,.2)", borderRadius: 14, padding: 16, display: "flex", flexDirection: "column", alignItems: "center", textAlign: "center" }}>
+          <div style={{ width: 40, height: 40, borderRadius: "50%", background: "rgba(204,51,51,.14)", display: "flex", alignItems: "center", justifyContent: "center", marginBottom: 10 }}>
+            <Ic name="close" size={16} color={C.red} />
+          </div>
+          <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 4 }}>Import failed</div>
+          <div style={{ fontSize: 11, color: C.muted, marginBottom: 14 }}>{status}</div>
+          <div style={{ display: "flex", gap: 8, width: "100%" }}>
+            <GhostBtn style={{ flex: 1, padding: "10px 0", fontSize: 12 }} onClick={close}>Cancel</GhostBtn>
+            <PrimaryBtn style={{ flex: 1, padding: "10px 0", fontSize: 12 }} onClick={() => fileRef.current && fileRef.current.click()}>Try again</PrimaryBtn>
+          </div>
+        </div>
+      )}
+    </Modal>
   );
 }
 
@@ -1999,7 +2244,6 @@ function ImportSheet({ book, up, close }) {
 const TABS = [
   { id: "home", label: "Home", icon: "home" },
   { id: "owed", label: "Owed", icon: "people" },
-  { id: "travel", label: "Travel", icon: "plane" },
   { id: "tx", label: "Transactions", icon: "swap" },
   { id: "reports", label: "Reports", icon: "bars" },
   { id: "setup", label: "Setup", icon: "sliders" },
@@ -2105,7 +2349,7 @@ export default function App() {
     // Expose the engine for the test harness, mirroring the main app's
     // window.__cashbookEngine convention.
     window.__simpleEngine = {
-      computePL, computeCashFlow, accountsWithBalances, owedAsOf, tripSpendAsOf,
+      computePL, computeCashFlow, accountsWithBalances, owedAsOf,
       isExplained, isRefund, suggestHead, keywordOf, defaultBook, parseAmount, inr,
     };
   }, [book]);
@@ -2163,8 +2407,7 @@ export default function App() {
         {tab !== "home" && <Header title={TABS.find((x) => x.id === tab).label} actions={headerActions} />}
         {tab === "home" && <HomeScreen book={book} go={go} openSheet={openSheet} notifCount={notifCount} />}
         {tab === "owed" && <OwedScreen book={book} openSheet={openSheet} />}
-        {tab === "travel" && <TravelScreen book={book} openSheet={openSheet} />}
-        {tab === "tx" && <TransactionsScreen book={book} openSheet={openSheet} openCodeTx={openCodeTx} selectMode={txSelectMode} setSelectMode={setTxSelectMode} />}
+        {tab === "tx" && <TransactionsScreen book={book} up={up} openSheet={openSheet} openCodeTx={openCodeTx} selectMode={txSelectMode} setSelectMode={setTxSelectMode} />}
         {tab === "reports" && <ReportsScreen book={book} openSheet={openSheet} />}
         {tab === "setup" && <SetupScreen book={book} openSheet={openSheet} openAccountsPage={() => setAccountsPageOpen(true)} />}
       </div>
@@ -2189,14 +2432,13 @@ export default function App() {
       {sheet && sheet.name === "partyDetail" && <PartyDetailSheet book={book} openSheet={openSheet} close={closeSheet} partyId={sheet.ctx.partyId} />}
       {sheet && sheet.name === "notifications" && <NotificationsSheet book={book} go={go} close={closeSheet} />}
       {sheet && sheet.name === "breakdown" && <BreakdownSheet book={book} close={closeSheet} />}
-      {sheet && sheet.name === "newTrip" && <NewTripSheet up={up} close={closeSheet} />}
-      {sheet && sheet.name === "tripDetail" && <TripDetailSheet book={book} up={up} tripId={sheet.ctx.tripId} openSheet={openSheet} close={closeSheet} />}
       {sheet && sheet.name === "import" && <ImportSheet book={book} up={up} close={closeSheet} />}
       {sheet && sheet.name === "setupCategories" && <SetupCategoriesSheet book={book} up={up} close={closeSheet} />}
       {sheet && sheet.name === "setupIncomeCategories" && <SetupIncomeCategoriesSheet book={book} up={up} close={closeSheet} />}
       {sheet && sheet.name === "setupBsCategories" && <SetupBsCategoriesSheet book={book} up={up} close={closeSheet} />}
       {sheet && sheet.name === "setupRules" && <SetupRulesSheet book={book} up={up} close={closeSheet} />}
       {sheet && sheet.name === "setupPrefs" && <SetupPrefsSheet book={book} up={up} close={closeSheet} />}
+      {sheet && sheet.name === "setupProfile" && <ProfileSheet book={book} up={up} close={closeSheet} />}
     </div>
   );
 }
