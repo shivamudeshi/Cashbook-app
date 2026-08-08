@@ -45,42 +45,59 @@ export function monthBounds(dateStr) {
   const last = new Date(y, m, 0).getDate();
   return [`${y}-${pad2(m)}-01`, `${y}-${pad2(m)}-${pad2(last)}`];
 }
-// Matches the approved mockup's period picker options exactly: This
-// Month (period-to-date), Last Month (a full closed month), Full Year
-// (the selected FY), Custom range.
-export function periodRange(span, fy, customFrom, customTo) {
-  const t = today();
-  if (span === "thisMonth") return [t.slice(0, 8) + "01", t];
-  if (span === "lastMonth") {
-    const [y, m] = t.split("-").map(Number);
-    const py = m === 1 ? y - 1 : y, pm = m === 1 ? 12 : m - 1;
-    return monthBounds(`${py}-${pad2(pm)}-01`);
-  }
-  if (span === "year") return fyRange(fy);
-  return [customFrom, customTo];
-}
 export function addDays(dateStr, n) {
   const [y, m, d] = dateStr.split("-").map(Number);
   const dt = new Date(y, m - 1, d + n);
   return `${dt.getFullYear()}-${pad2(dt.getMonth() + 1)}-${pad2(dt.getDate())}`;
 }
-// The "vs previous period" range for Reports' Compare toggle: month spans
-// compare to the prior full calendar month, year compares to the prior FY,
-// and a custom range compares to the same number of days immediately
-// before it -- mirrors the approved mockup's own offset-based period
-// navigation (one whole period-type step back), not a day-for-day partial
-// slice.
-export function previousPeriodRange(span, fy, from, to) {
-  if (span === "year") return fyRange(fy - 1);
-  if (span === "thisMonth" || span === "lastMonth") {
-    const [y, m] = from.split("-").map(Number);
-    const py = m === 1 ? y - 1 : y, pm = m === 1 ? 12 : m - 1;
-    return monthBounds(`${py}-${pad2(pm)}-01`);
+const MONTH_SHORT = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+// Matches the approved design handoff's own period-navigation model
+// exactly: a period *type* (month/quarter/financial year) plus an integer
+// *offset* from today's period (0 = current, 1 = one period back, ...),
+// rather than a raw date-range picker. Quarters follow the Apr-Mar
+// financial year (Q1 = Apr-Jun, ... Q4 = Jan-Mar), matching fyOf/fyRange.
+export function periodByOffset(type, offset, t) {
+  t = t || today();
+  const [ty, tm] = t.split("-").map(Number);
+  if (type === "month") {
+    const total = ty * 12 + (tm - 1) - offset;
+    const y = Math.floor(total / 12), m = total % 12;
+    const [from, to] = monthBounds(`${y}-${pad2(m + 1)}-01`);
+    return { from, to, label: `${MONTH_SHORT[m]} ${y}` };
   }
-  const days = Math.round((new Date(to) - new Date(from)) / 86400000) + 1;
-  const prevTo = addDays(from, -1);
-  const prevFrom = addDays(prevTo, -(days - 1));
-  return [prevFrom, prevTo];
+  if (type === "quarter") {
+    let fy = tm >= 4 ? ty : ty - 1;
+    let qIndex = Math.floor(((tm - 4 + 12) % 12) / 3); // 0=Apr-Jun .. 3=Jan-Mar
+    let totalQ = fy * 4 + qIndex - offset;
+    fy = Math.floor(totalQ / 4);
+    qIndex = ((totalQ % 4) + 4) % 4;
+    const startMonth = 3 + qIndex * 3; // 0-indexed, Apr = 3
+    const y = fy + Math.floor(startMonth / 12), m = startMonth % 12;
+    const start = new Date(y, m, 1);
+    const end = new Date(y, m + 3, 0);
+    const from = `${start.getFullYear()}-${pad2(start.getMonth() + 1)}-01`;
+    const to = `${end.getFullYear()}-${pad2(end.getMonth() + 1)}-${pad2(end.getDate())}`;
+    const fyLabel = `${String(fy).slice(2)}–${String(fy + 1).slice(2)}`;
+    return { from, to, label: `Q${qIndex + 1} FY${fyLabel} (${MONTH_SHORT[start.getMonth()]}–${MONTH_SHORT[end.getMonth()]})` };
+  }
+  if (type === "fy") {
+    const fy = (tm >= 4 ? ty : ty - 1) - offset;
+    const [from, to] = fyRange(fy);
+    return { from, to, label: `FY ${fy}–${String(fy + 1).slice(2)}` };
+  }
+  return null;
+}
+// The "vs previous period" range for Reports' Compare toggle: month/
+// quarter/fy compare to the whole prior period (offset+1); a custom range
+// compares to the same number of days immediately before it.
+export function previousPeriod(type, offset, customFrom, customTo, t) {
+  if (type === "custom") {
+    const days = Math.round((new Date(customTo) - new Date(customFrom)) / 86400000) + 1;
+    const to = addDays(customFrom, -1);
+    const from = addDays(to, -(days - 1));
+    return { from, to, label: `${from} – ${to}` };
+  }
+  return periodByOffset(type, offset + 1, t);
 }
 export const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
 
