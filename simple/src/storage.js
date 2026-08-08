@@ -79,7 +79,7 @@ export const DEFAULT_CODING_RULES = [
 export function defaultBook() {
   return {
     v: 1,
-    prefs: { lock: { on: false, pin: "" }, theme: "system" },
+    prefs: { lock: { on: false, pin: "" } },
     accounts: [],
     categories: {
       expense: ["Rent", "Groceries", "Food out", "Transport", "Utilities", "Shopping", "Suspense"],

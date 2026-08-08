@@ -8,69 +8,44 @@ import {
 import { extractPdfPages, parsePdfTable, parseStatementText, getOcrWorker } from "./pdf.js";
 
 /* ────────────────────────── theme tokens ──────────────────────────
-   Amber Violet (dark) / Paper White (light) — copied verbatim from the
-   main app's current THEMES (src/CashBook.jsx), same palette identity
-   the approved mockup's own dark/light CSS custom properties already
-   match 1:1. No in-app theme toggle: this app follows prefers-color-
-   scheme only (see the useTheme hook below). */
+   Navy on paper-blue — the approved design handoff's palette, light-only
+   by explicit user decision (no dark mode, no in-app appearance toggle). */
 function alpha(hex, a) {
   const n = hex.replace("#", "");
   const r = parseInt(n.slice(0, 2), 16), g = parseInt(n.slice(2, 4), 16), b = parseInt(n.slice(4, 6), 16);
   return `rgba(${r},${g},${b},${a})`;
 }
 
-const THEMES = {
-  dark: {
-    accent: "#a78bfa", accentDeep: "#6d28d9", accentText: "#c4a6ff",
-    bg: "#050308", ink: "#f1ecfb", soft: "#e4d9f5", muted: "#a99cc9", faint: "#8a7fae",
-    glass: "linear-gradient(160deg, rgba(255,255,255,.10), rgba(255,255,255,.02))",
-    glassSoft: "linear-gradient(160deg, rgba(255,255,255,.09), rgba(255,255,255,.02))",
-    border: "1px solid rgba(255,255,255,.14)", borderSoft: "1px solid rgba(255,255,255,.10)",
-    line: "rgba(255,255,255,.08)",
-    shadow: "0 20px 40px -22px rgba(0,0,0,.6)",
-    sheetBg: "linear-gradient(170deg,#171029,#0c0716)", navBg: "rgba(13,10,23,.94)", headerBg: "rgba(6,4,10,.55)",
-    green: "#6ee7b7", red: "#fda4af", amberText: "#fbbf24",
-    overlayWash: "rgba(255,255,255,.06)", overlayBorder: "rgba(255,255,255,.16)", overlayStrong: "rgba(255,255,255,.22)",
-    bgImage: "bg-violet.png", scrim: "rgba(5,3,10,.4)",
-    stripeGrad: "linear-gradient(90deg,#6d28d9,#a78bfa,#fde68a)",
-    iconBg: "rgba(196,166,255,.16)", iconGlow: "0 0 22px 3px rgba(167,139,250,.4), 0 0 0 1px rgba(196,166,255,.3)",
-    dimBg: "rgba(3,2,6,.65)",
-  },
-  light: {
-    accent: "#4f46e5", accentDeep: "#4338ca", accentText: "#3730a3",
-    bg: "#f6f5f3", ink: "#181521", soft: "#3d3850", muted: "#6b6478", faint: "#948da0",
-    glass: "linear-gradient(170deg,#ffffff,#fbfaf9)", glassSoft: "linear-gradient(170deg,#fdfcfb,#f7f6f4)",
-    border: "1px solid rgba(0,0,0,.07)", borderSoft: "1px solid rgba(0,0,0,.045)",
-    line: "rgba(0,0,0,.06)",
-    shadow: "0 20px 40px -22px rgba(24,21,33,.18)",
-    sheetBg: "linear-gradient(170deg,#ffffff,#f4f3f1)", navBg: "rgba(255,255,255,.92)", headerBg: "rgba(255,255,255,.82)",
-    green: "#047857", red: "#dc2626", amberText: "#b45309",
-    overlayWash: "rgba(0,0,0,.045)", overlayBorder: "rgba(0,0,0,.10)", overlayStrong: "rgba(0,0,0,.16)",
-    bgImage: "bg-paperwhite.png", scrim: "rgba(246,245,243,.88)",
-    stripeGrad: "linear-gradient(90deg,#4338ca,#4f46e5,#fde68a)",
-    iconBg: "transparent", iconGlow: "none",
-    dimBg: "rgba(24,21,33,.35)",
-  },
+const THEME = {
+  accent: "#1d3a8f", accentDeep: "#14286b", accentText: "#1d3a8f",
+  bg: "#eef1f8", ink: "#111111", soft: "#333333", muted: "#777777", faint: "#999999",
+  glass: "rgba(255,255,255,.62)", glassSoft: "rgba(255,255,255,.85)",
+  border: "1px solid rgba(17,17,17,.12)", borderSoft: "1px solid rgba(17,17,17,.08)",
+  line: "rgba(17,17,17,.08)",
+  shadow: "0 12px 30px -14px rgba(17,17,17,.22)",
+  sheetBg: "#ffffff", navBg: "rgba(255,255,255,.62)", headerBg: "transparent",
+  green: "#0f6a5c", red: "#cc3333", amberText: "#a6741c",
+  overlayWash: "rgba(17,17,17,.06)", overlayBorder: "rgba(17,17,17,.15)", overlayStrong: "rgba(17,17,17,.22)",
+  bgGradient: "radial-gradient(circle at 12% 8%, rgba(29,58,143,.14), transparent 45%), radial-gradient(circle at 92% 26%, rgba(14,36,97,.10), transparent 50%), radial-gradient(circle at 50% 95%, rgba(29,58,143,.08), transparent 45%)",
+  stripeGrad: "linear-gradient(90deg,#14286b,#1d3a8f,#a6741c)",
+  dimBg: "rgba(17,17,17,.32)",
 };
 
 function deriveTokens(t) {
   return {
     ...t,
     grad: `linear-gradient(135deg,${t.accent},${t.accentDeep})`,
-    accentSoft: alpha(t.accent, 0.18),
-    accentBorder: alpha(t.accent, 0.5),
+    accentSoft: alpha(t.accent, 0.1),
+    accentBorder: alpha(t.accent, 0.4),
   };
 }
 
-const C = { ...deriveTokens(THEMES.dark) };
-function applyTheme(mode) {
-  Object.assign(C, deriveTokens(THEMES[mode] || THEMES.dark));
-}
+const C = deriveTokens(THEME);
 
-const F = { sans: '"Sora", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif' };
+const F = { sans: '"Figtree", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif' };
 
-function glass(radius = 18) {
-  return { background: C.glass, backdropFilter: "blur(24px) saturate(160%)", WebkitBackdropFilter: "blur(24px) saturate(160%)", border: C.border, borderRadius: radius, boxShadow: C.shadow };
+function glass(radius = 16) {
+  return { background: C.glass, backdropFilter: "blur(18px) saturate(140%)", WebkitBackdropFilter: "blur(18px) saturate(140%)", border: C.border, borderRadius: radius, boxShadow: C.shadow };
 }
 const st = {
   get input() { return { width: "100%", boxSizing: "border-box", padding: "10px 12px", borderRadius: 12, border: `1px solid ${C.overlayBorder}`, background: C.overlayWash, fontSize: 13.5, fontFamily: F.sans, color: C.ink }; },
@@ -235,26 +210,28 @@ function PartySelect({ book, up, value, onChange }) {
 }
 
 /* ────────────────────────── header + card helpers ────────────────────────── */
-function Header({ title, brand, actions }) {
+function Header({ title, actions }) {
   return (
     <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "16px 18px 8px", gap: 10 }}>
-      {brand ? (
-        <div style={{ display: "flex", alignItems: "center", gap: 10, minWidth: 0 }}>
-          <div style={{ width: 32, height: 32, borderRadius: 10, background: C.grad, display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 800, fontSize: 14, color: "#fff", boxShadow: `0 8px 16px -4px ${C.accentDeep}`, flexShrink: 0 }}>₹</div>
-          <div>
-            <b style={{ fontWeight: 800, fontSize: 14, display: "block" }}>Cash Book</b>
-            <span style={{ fontSize: 9, color: C.muted, fontWeight: 600 }}>Bank &amp; card, simplified</span>
-          </div>
-        </div>
-      ) : (
-        <div style={{ fontSize: 16, fontWeight: 800, flex: 1 }}>{title}</div>
-      )}
+      <div style={{ fontSize: 20, fontWeight: 700, flex: 1 }}>{title}</div>
       <div style={{ display: "flex", gap: 6, flexShrink: 0 }}>{actions}</div>
     </div>
   );
 }
 function IconBtn({ onClick, children }) {
   return <div onClick={onClick} style={{ width: 29, height: 29, borderRadius: "50%", background: C.glassSoft, border: `1px solid ${C.overlayBorder}`, display: "flex", alignItems: "center", justifyContent: "center", color: C.soft, cursor: "pointer" }}>{children}</div>;
+}
+function BellBtn({ onClick, notifCount }) {
+  return (
+    <div onClick={onClick} style={{ width: 44, height: 44, borderRadius: "50%", position: "relative", overflow: "hidden", cursor: "pointer", flexShrink: 0 }}>
+      <div style={{ position: "absolute", inset: 0, backdropFilter: "blur(12px) saturate(140%)", WebkitBackdropFilter: "blur(12px) saturate(140%)", background: C.glassSoft }} />
+      <div style={{ position: "absolute", inset: 0, borderRadius: "50%", border: `1px solid ${C.overlayBorder}` }} />
+      <div style={{ position: "relative", zIndex: 1, height: "100%", display: "flex", alignItems: "center", justifyContent: "center" }}>
+        <Ic name="bell" size={18} color={C.ink} />
+      </div>
+      {notifCount > 0 && <span style={{ position: "absolute", top: 9, right: 10, width: 8, height: 8, borderRadius: "50%", background: C.red, border: `1.5px solid ${C.glassSoft}` }} />}
+    </div>
+  );
 }
 function Card({ children, style, onClick }) {
   return <div onClick={onClick} style={{ ...glass(18), padding: 16, ...style }}>{children}</div>;
@@ -275,7 +252,78 @@ function RowLine({ children, onClick, last }) {
 }
 
 /* ══════════════════════════ HOME ══════════════════════════ */
-function HomeScreen({ book, go, openSheet, openAccountsPage }) {
+function greeting() {
+  const h = new Date().getHours();
+  return h < 12 ? "Good morning" : h < 17 ? "Good afternoon" : "Good evening";
+}
+
+const HERO_COLORS = ["#1d3a8f", "#4c68b3", "#142a68", "#7a2e3b", "#0f6a5c", "#a6741c"];
+
+function HeroCarousel({ accounts, openSheet }) {
+  const [idx, setIdx] = useState(0);
+  const n = accounts.length;
+  const clamped = Math.min(idx, n - 1);
+  const go = (i) => setIdx(((i % n) + n) % n);
+  return (
+    <div>
+      <div style={{ position: "relative", height: 132, overflow: "hidden", borderRadius: 16, marginBottom: 10 }}>
+        <div style={{ display: "flex", height: "100%", transform: `translateX(-${clamped * 100}%)`, transition: "transform .28s cubic-bezier(.2,.8,.2,1)" }}>
+          {accounts.map((a, i) => (
+            <div key={a.id} style={{ flex: "0 0 100%", height: "100%", boxSizing: "border-box", padding: "0 1px" }}>
+              <div onClick={() => openSheet("breakdown")} style={{ height: "100%", boxSizing: "border-box", background: HERO_COLORS[i % HERO_COLORS.length], borderRadius: 16, padding: 18, color: "#fff", display: "flex", flexDirection: "column", justifyContent: "space-between", cursor: "pointer" }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+                  <span style={{ fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: ".06em", opacity: .8, whiteSpace: "nowrap" }}>{a.name}</span>
+                  {a.kind === "card" && <span style={{ fontSize: 9, fontWeight: 700, background: "rgba(255,255,255,.2)", borderRadius: 999, padding: "3px 8px" }}>{a.dueDay ? `Due ${a.dueDay}${dueOrdinal(a.dueDay)}` : "Card"}</span>}
+                </div>
+                <div>
+                  <div style={{ fontSize: 25, fontWeight: 700, fontVariantNumeric: "tabular-nums" }}>{inr(Math.abs(a.balance))}</div>
+                  <div style={{ fontSize: 10, marginTop: 3, opacity: .82 }}>{a.kind === "bank" ? "Available balance" : "Outstanding"}</div>
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+      {n > 1 && (
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 16 }}>
+          <RoundBtn onClick={() => go(clamped - 1)} style={{ width: 24, height: 24 }}><Ic name="back" size={11} color={C.soft} /></RoundBtn>
+          <div style={{ display: "flex", gap: 5 }}>
+            {accounts.map((a, i) => (
+              <div key={a.id} onClick={() => go(i)} style={{ width: i === clamped ? 16 : 6, height: 6, borderRadius: 3, background: i === clamped ? C.accent : C.overlayStrong, cursor: "pointer", transition: "width .2s ease" }} />
+            ))}
+          </div>
+          <RoundBtn onClick={() => go(clamped + 1)} style={{ width: 24, height: 24 }}><Ic name="back" size={11} color={C.soft} style={{ transform: "rotate(180deg)" }} /></RoundBtn>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function BreakdownSheet({ book, close }) {
+  const t = today();
+  const accounts = accountsWithBalances(book, t);
+  const net = accounts.reduce((s, a) => s + (a.kind === "card" ? -a.balance : a.balance), 0);
+  return (
+    <Sheet open title="Your money breakdown" onClose={close}>
+      <Card style={{ padding: "2px 16px", marginBottom: 12 }}>
+        {accounts.map((a, i) => (
+          <RowLine key={a.id} last={i === accounts.length - 1}>
+            <span style={{ width: 8, height: 8, borderRadius: 2, background: HERO_COLORS[i % HERO_COLORS.length], flexShrink: 0, marginRight: 10 }} />
+            <div style={{ flex: 1, fontSize: 13, fontWeight: 600 }}>{a.name}</div>
+            <div style={{ fontSize: 13.5, fontWeight: 700, fontVariantNumeric: "tabular-nums" }}>{a.kind === "card" ? "−" : ""}{inr(Math.abs(a.balance))}</div>
+          </RowLine>
+        ))}
+      </Card>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "4px 4px 14px" }}>
+        <span style={{ fontSize: 13, fontWeight: 700 }}>Net across accounts</span>
+        <span style={{ fontSize: 15, fontWeight: 800, fontVariantNumeric: "tabular-nums" }}>{inr(net)}</span>
+      </div>
+      <PrimaryBtn onClick={close}>Done</PrimaryBtn>
+    </Sheet>
+  );
+}
+
+function HomeScreen({ book, go, openSheet, notifCount }) {
   const t = today();
   const monthStart = t.slice(0, 8) + "01";
   const pl = computePL(book, monthStart, t);
@@ -283,53 +331,98 @@ function HomeScreen({ book, go, openSheet, openAccountsPage }) {
   const owed = owedAsOf(book, t);
   const trips = tripSpendAsOf(book, t);
   const activeTrip = trips[0];
+  const unexplainedCount = book.entries.filter((e) => (e.type === "in" || e.type === "out") && !isExplained(e)).length;
+
+  const maxInOut = Math.max(pl.totalIncome, pl.totalExpense, 1);
+  const savedPct = pl.totalIncome > 0 ? Math.round((pl.net / pl.totalIncome) * 100) : 0;
+  const ringPct = Math.max(0, Math.min(100, savedPct));
+  const circumference = 2 * Math.PI * 31;
 
   return (
-    <div style={{ padding: "4px 16px 90px" }}>
-      <Card style={{ marginBottom: 14, position: "relative", overflow: "hidden" }}>
-        <div style={{ position: "absolute", top: 0, left: 0, right: 0, height: 5, background: C.stripeGrad }} />
-        <div style={{ fontSize: 10.5, color: C.muted, textTransform: "uppercase", letterSpacing: ".06em", fontWeight: 700 }}>This Month · P&amp;L</div>
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 4, marginTop: 10 }}>
-          <div><div style={{ fontSize: 15.5, fontWeight: 800, color: C.green, fontVariantNumeric: "tabular-nums" }}>{inr(pl.totalIncome)}</div><div style={{ fontSize: 8.5, color: C.faint, fontWeight: 700, textTransform: "uppercase", marginTop: 3 }}>Income</div></div>
-          <div style={{ borderLeft: `1px solid ${C.line}`, paddingLeft: 8 }}><div style={{ fontSize: 15.5, fontWeight: 800, color: C.red, fontVariantNumeric: "tabular-nums" }}>{inr(pl.totalExpense)}</div><div style={{ fontSize: 8.5, color: C.faint, fontWeight: 700, textTransform: "uppercase", marginTop: 3 }}>Expenses</div></div>
-          <div style={{ borderLeft: `1px solid ${C.line}`, paddingLeft: 8 }}><div style={{ fontSize: 15.5, fontWeight: 800, fontVariantNumeric: "tabular-nums" }}>{inr(pl.net)}</div><div style={{ fontSize: 8.5, color: C.faint, fontWeight: 700, textTransform: "uppercase", marginTop: 3 }}>Saved</div></div>
+    <div style={{ padding: "8px 16px 90px" }}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 18 }}>
+        <div>
+          <div style={{ fontSize: 11, fontWeight: 500, letterSpacing: ".05em", textTransform: "uppercase", color: C.muted }}>{greeting()}</div>
+          <div style={{ fontSize: 22, fontWeight: 700, marginTop: 2 }}>Cash Book</div>
         </div>
-        <div style={{ fontSize: 10, color: C.muted, fontWeight: 600, marginTop: 10 }}>EMI &amp; lending excluded here — see Cash Flow in Reports</div>
-      </Card>
-
-      <div style={{ fontSize: 13, fontWeight: 800, marginBottom: 8, padding: "0 2px" }}>Accounts</div>
-      {accounts.length === 0 ? (
-        <div style={{ ...glass(16), padding: 16, marginBottom: 14, fontSize: 12.5, color: C.muted }}>No accounts yet — add one in Setup ▸ Accounts.</div>
-      ) : (
-        <div style={{ display: "flex", gap: 10, overflowX: "auto", paddingBottom: 2, marginBottom: 14 }}>
-          {accounts.map((a) => (
-            <div key={a.id} style={{ flex: "0 0 78%" }}>
-              <div style={{ background: C.glass, backdropFilter: "blur(24px) saturate(160%)", border: "none", borderRadius: 18, boxShadow: C.shadow, padding: "16px 18px" }}>
-                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-                  <div style={{ fontSize: 14, fontWeight: 700 }}>{a.name}</div>
-                  {a.kind === "bank"
-                    ? <span style={{ width: 7, height: 7, borderRadius: 999, background: C.green, boxShadow: `0 0 6px ${C.green}` }} />
-                    : <span style={{ fontSize: 9.5, fontWeight: 700, color: C.red }}>{a.dueDay ? `Due ${a.dueDay}${dueOrdinal(a.dueDay)}` : ""}</span>}
-                </div>
-                <div style={{ fontSize: 9.5, color: C.faint, textTransform: "uppercase", letterSpacing: ".05em", margin: "8px 0 3px", fontWeight: 700 }}>{a.kind === "bank" ? "Available Balance" : "Outstanding"}</div>
-                <div style={{ fontSize: 21, fontWeight: 800, fontVariantNumeric: "tabular-nums", color: a.kind === "card" ? C.red : C.ink }}>{inr(Math.abs(a.balance))}</div>
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
-
-      <div style={{ display: "flex", gap: 8, margin: "0 0 16px" }}>
-        <button onClick={() => openSheet("import")} style={{ flex: 1, padding: "15px 0", borderRadius: 16, background: C.glassSoft, backdropFilter: "blur(20px) saturate(160%)", border: C.borderSoft, color: C.ink, fontWeight: 700, fontSize: 12.5, fontFamily: F.sans, cursor: "pointer", textAlign: "center", boxShadow: C.shadow }}>Import PDF</button>
-        <button onClick={() => openSheet("newTx")} style={{ flex: 1, padding: "15px 0", borderRadius: 16, background: C.glassSoft, backdropFilter: "blur(20px) saturate(160%)", border: C.borderSoft, color: C.accentText, fontWeight: 800, fontSize: 12.5, fontFamily: F.sans, cursor: "pointer", textAlign: "center", boxShadow: C.shadow }}>Add Transaction</button>
+        <BellBtn onClick={() => openSheet("notifications")} notifCount={notifCount} />
       </div>
 
-      <Section title="Owed" action={<div onClick={() => go("owed")} style={{ fontSize: 11, fontWeight: 700, color: C.accentText, cursor: "pointer" }}>View all ›</div>}>
-        <Card style={{ display: "flex", gap: 10 }}>
-          <div style={{ flex: 1 }}><div style={{ fontSize: 9.5, fontWeight: 700, color: C.muted, textTransform: "uppercase" }}>You'll receive</div><div style={{ fontSize: 15, fontWeight: 800, color: C.green, marginTop: 3, fontVariantNumeric: "tabular-nums" }}>{inr(owed.debtors)}</div></div>
-          <div style={{ flex: 1 }}><div style={{ fontSize: 9.5, fontWeight: 700, color: C.muted, textTransform: "uppercase" }}>You owe</div><div style={{ fontSize: 15, fontWeight: 800, color: C.red, marginTop: 3, fontVariantNumeric: "tabular-nums" }}>{inr(owed.creditors)}</div></div>
-        </Card>
-      </Section>
+      <div style={{ ...glass(16), padding: 18, marginBottom: 16 }}>
+        <div style={{ fontSize: 9.5, fontWeight: 500, textTransform: "uppercase", letterSpacing: ".05em", color: C.muted, marginBottom: 12 }}>This month</div>
+        <div style={{ display: "flex", alignItems: "center", gap: 18 }}>
+          <div style={{ position: "relative", width: 76, height: 76, flexShrink: 0 }}>
+            <svg width="76" height="76" viewBox="0 0 76 76">
+              <circle cx="38" cy="38" r="31" fill="none" stroke={C.overlayWash} strokeWidth="8" />
+              <circle cx="38" cy="38" r="31" fill="none" stroke={C.accent} strokeWidth="8" strokeLinecap="round"
+                strokeDasharray={circumference} strokeDashoffset={circumference * (1 - ringPct / 100)}
+                transform="rotate(-90 38 38)" />
+            </svg>
+            <div style={{ position: "absolute", inset: 0, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center" }}>
+              <div style={{ fontSize: 15, fontWeight: 700 }}>{savedPct}%</div>
+              <div style={{ fontSize: 7.5, color: C.muted, textTransform: "uppercase" }}>Saved</div>
+            </div>
+          </div>
+          <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: 8 }}>
+            <div>
+              <div style={{ display: "flex", justifyContent: "space-between", fontSize: 10.5, color: C.soft, marginBottom: 3 }}><span>In</span><span style={{ fontWeight: 600, color: C.ink, fontVariantNumeric: "tabular-nums" }}>{inr(pl.totalIncome)}</span></div>
+              <div style={{ height: 5, borderRadius: 3, background: C.overlayWash }}><div style={{ width: `${(pl.totalIncome / maxInOut) * 100}%`, height: "100%", borderRadius: 3, background: C.ink }} /></div>
+            </div>
+            <div>
+              <div style={{ display: "flex", justifyContent: "space-between", fontSize: 10.5, color: C.soft, marginBottom: 3 }}><span>Out</span><span style={{ fontWeight: 600, color: C.ink, fontVariantNumeric: "tabular-nums" }}>{inr(pl.totalExpense)}</span></div>
+              <div style={{ height: 5, borderRadius: 3, background: C.overlayWash }}><div style={{ width: `${(pl.totalExpense / maxInOut) * 100}%`, height: "100%", borderRadius: 3, background: C.accent }} /></div>
+            </div>
+          </div>
+        </div>
+        <div style={{ fontSize: 9.5, color: C.faint, fontWeight: 500, marginTop: 12 }}>EMI &amp; lending excluded — see Cash Flow in Reports</div>
+      </div>
+
+      {accounts.length === 0 ? (
+        <div style={{ ...glass(16), padding: "22px 18px", textAlign: "center", marginBottom: 18 }}>
+          <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 4 }}>No accounts yet</div>
+          <div style={{ fontSize: 11.5, color: C.muted, marginBottom: 14 }}>Add a bank or credit card account to see your money here.</div>
+          <div onClick={() => go("setup")} style={{ display: "inline-block", background: C.accent, color: "#fff", borderRadius: 10, padding: "9px 16px", fontSize: 12, fontWeight: 600, cursor: "pointer" }}>Add account</div>
+        </div>
+      ) : (
+        <>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8, padding: "0 2px", gap: 8 }}>
+            <div style={{ fontSize: 14.5, fontWeight: 700, whiteSpace: "nowrap" }}>Your money</div>
+            <div onClick={() => openSheet("breakdown")} style={{ fontSize: 11.5, fontWeight: 500, color: C.ink, cursor: "pointer", whiteSpace: "nowrap" }}>Detailed breakdown ›</div>
+          </div>
+          <HeroCarousel accounts={accounts} openSheet={openSheet} />
+        </>
+      )}
+
+      <div style={{ display: "flex", gap: 8, margin: "18px 0" }}>
+        <button onClick={() => openSheet("newTx")} style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", gap: 6, padding: "13px 0", border: "none", borderRadius: 999, background: C.accent, color: "#fff", fontFamily: F.sans, fontWeight: 600, fontSize: 13, cursor: "pointer" }}><Ic name="plus" size={14} color="#fff" />Add transaction</button>
+        <button onClick={() => openSheet("import")} style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", gap: 6, padding: "13px 0", border: `1px solid ${C.overlayBorder}`, borderRadius: 999, background: "#fff", color: C.ink, fontFamily: F.sans, fontWeight: 600, fontSize: 13, cursor: "pointer" }}><Ic name="upload" size={14} color={C.ink} />Import statement</button>
+      </div>
+
+      {(owed.debtors > 0 || owed.creditors > 0) && (
+        <>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8, padding: "0 2px" }}>
+            <div style={{ fontSize: 14.5, fontWeight: 700 }}>Owed</div>
+            <div onClick={() => go("owed")} style={{ fontSize: 11.5, fontWeight: 500, color: C.ink, cursor: "pointer" }}>See all ›</div>
+          </div>
+          <div onClick={() => go("owed")} style={{ background: "#fff", borderRadius: 16, padding: "4px 14px", marginBottom: 18, cursor: "pointer" }}>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "11px 0", borderBottom: `1px solid ${C.line}` }}><span style={{ fontSize: 12, color: C.muted }}>You'll get</span><span style={{ fontSize: 13.5, fontWeight: 700, color: C.accent, fontVariantNumeric: "tabular-nums" }}>{inr(owed.debtors)}</span></div>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "11px 0" }}><span style={{ fontSize: 12, color: C.muted }}>You owe</span><span style={{ fontSize: 13.5, fontWeight: 700, fontVariantNumeric: "tabular-nums" }}>{inr(owed.creditors)}</span></div>
+          </div>
+        </>
+      )}
+
+      {unexplainedCount > 0 && (
+        <>
+          <div style={{ fontSize: 14.5, fontWeight: 700, marginBottom: 8, padding: "0 2px" }}>Needs attention</div>
+          <div onClick={() => go("tx")} style={{ ...glass(16), padding: "14px 16px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, cursor: "pointer", marginBottom: 18 }}>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ fontSize: 13.5, fontWeight: 700, marginBottom: 3, whiteSpace: "nowrap" }}>{unexplainedCount} unexplained transaction{unexplainedCount === 1 ? "" : "s"}</div>
+              <div style={{ fontSize: 11, color: C.soft }}>Missing a category</div>
+            </div>
+            <div style={{ display: "inline-flex", alignItems: "center", fontSize: 10.5, fontWeight: 600, padding: "5px 12px", borderRadius: 999, background: C.accent, color: "#fff", flexShrink: 0 }}>Categorize</div>
+          </div>
+        </>
+      )}
 
       <Section title="Travel" action={<div onClick={() => go("travel")} style={{ fontSize: 11, fontWeight: 700, color: C.accentText, cursor: "pointer" }}>View all ›</div>}>
         {activeTrip ? (
@@ -1137,7 +1230,6 @@ function SetupScreen({ book, openSheet, openAccountsPage }) {
         <SetupRow title="Auto-coding Rules" sub={`${book.codingRules.length} rules`} onClick={() => openSheet("setupRules")} />
         <SetupRow title="Import & OCR" sub="Upload PDFs or photos" onClick={() => openSheet("import")} />
         <SetupRow title="Security & App Lock" sub={book.prefs.lock.on ? "PIN lock is on" : "PIN lock is off"} onClick={() => openSheet("setupPrefs")} />
-        <SetupRow title="Appearance" sub={{ system: "Match system", dark: "Dark", light: "Light" }[book.prefs.theme || "system"]} onClick={() => openSheet("setupPrefs")} />
         <SetupRow title="Backup & Restore" sub="Export or import your data" onClick={() => openSheet("setupPrefs")} last />
       </Card>
     </div>
@@ -1263,14 +1355,6 @@ function SetupPrefsSheet({ book, up, close }) {
   const [pin, setPin] = useState(book.prefs.lock.pin || "");
   return (
     <Sheet open title="Preferences" onClose={close}>
-      <Card style={{ padding: "16px 18px", marginBottom: 12 }}>
-        <div style={{ fontSize: 13.5, fontWeight: 700, marginBottom: 10 }}>Appearance</div>
-        <Seg value={book.prefs.theme || "system"} onChange={(v) => up((b) => { b.prefs.theme = v; return b; })} options={[
-          { v: "system", label: "System" },
-          { v: "dark", label: "Dark" },
-          { v: "light", label: "Light" },
-        ]} />
-      </Card>
       <Card style={{ padding: "16px 18px", marginBottom: 12 }}>
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
           <div style={{ fontSize: 13.5, fontWeight: 700 }}>Security &amp; App Lock</div>
@@ -1923,16 +2007,13 @@ const TABS = [
 
 function NavBar({ tab, setTab }) {
   return (
-    <div style={{ position: "fixed", bottom: 0, left: 0, right: 0, display: "flex", padding: "10px 2px 13px", background: C.navBg, backdropFilter: "blur(20px)", borderTop: `1px solid ${C.overlayBorder}`, zIndex: 30 }}>
+    <div style={{ position: "fixed", left: 14, right: 14, bottom: 14, zIndex: 30, ...glass(20), display: "flex", alignItems: "center", justifyContent: "space-around", padding: "10px 4px" }}>
       {TABS.map((tItem) => {
         const active = tItem.id === tab;
         return (
-          <button key={tItem.id} data-tab={tItem.id} onClick={() => setTab(tItem.id)} style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: 2, color: active ? C.accentText : C.faint, background: "none", border: "none", cursor: "pointer", fontFamily: F.sans, padding: 0 }}>
-            <div style={{ width: 17, height: 17, borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center", background: active ? C.iconBg : "transparent", boxShadow: active ? C.iconGlow : "none" }}>
-              <Ic name={tItem.icon} size={17} />
-            </div>
-            <div style={{ fontSize: 8, fontWeight: 600 }}>{tItem.label}</div>
-            <div style={{ width: 12, height: 2.5, borderRadius: 2, marginTop: 1, background: active ? C.accent : "transparent", boxShadow: active ? `0 0 8px 0 ${C.accent}` : "none" }} />
+          <button key={tItem.id} data-tab={tItem.id} onClick={() => setTab(tItem.id)} style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: 3, color: active ? C.accent : C.faint, background: "none", border: "none", cursor: "pointer", fontFamily: F.sans, padding: 0 }}>
+            <Ic name={tItem.icon} size={19} color={active ? C.accent : C.faint} />
+            <div style={{ fontSize: 8.5, fontWeight: active ? 700 : 500 }}>{tItem.label}</div>
           </button>
         );
       })}
@@ -1963,8 +2044,7 @@ function LockScreen({ pin, onUnlock, onForgot }) {
 
   return (
     <div style={{ position: "fixed", inset: 0, zIndex: 300, background: C.bg, color: C.ink, fontFamily: F.sans, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: 24 }}>
-      <div style={{ position: "fixed", inset: 0, backgroundImage: `url(${C.bgImage})`, backgroundSize: "cover", backgroundPosition: "center top", zIndex: 0 }} />
-      <div style={{ position: "fixed", inset: 0, background: C.scrim, zIndex: 1 }} />
+      <div style={{ position: "fixed", inset: 0, background: C.bgGradient, zIndex: 0 }} />
       <div style={{ position: "relative", zIndex: 2, display: "flex", flexDirection: "column", alignItems: "center", width: "100%", maxWidth: 300 }}>
         <div style={{ width: 52, height: 52, borderRadius: 16, background: C.grad, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 22, fontWeight: 800, color: "#fff", boxShadow: `0 14px 28px -8px ${C.accentDeep}`, marginBottom: 16 }}>₹</div>
         <div style={{ fontSize: 16, fontWeight: 800 }}>Cash Book — Simple</div>
@@ -1991,22 +2071,6 @@ function LockScreen({ pin, onUnlock, onForgot }) {
   );
 }
 
-// pref: "system" (follow the OS) | "dark" | "light" (forced regardless of OS).
-function useTheme(pref) {
-  const [, force] = useState(0);
-  useEffect(() => {
-    const mq = window.matchMedia("(prefers-color-scheme: dark)");
-    const apply = () => {
-      const mode = pref === "dark" || pref === "light" ? pref : (mq.matches ? "dark" : "light");
-      applyTheme(mode);
-      force((n) => n + 1);
-    };
-    apply();
-    mq.addEventListener("change", apply);
-    return () => mq.removeEventListener("change", apply);
-  }, [pref]);
-}
-
 const GLOBAL_CSS = `
 * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
 html, body { margin: 0; padding: 0; overflow-x: hidden; overscroll-behavior-x: none; touch-action: manipulation; -webkit-touch-callout: none; -webkit-user-select: none; user-select: none; }
@@ -2017,7 +2081,6 @@ input, select, textarea { -webkit-user-select: text; user-select: text; }
 
 export default function App() {
   const [book, setBook] = useState(null);
-  useTheme(book && book.prefs.theme);
   const [tab, setTab] = useState("home");
   const [sheet, setSheet] = useState(null); // { name, ctx }
   const [accountsPageOpen, setAccountsPageOpen] = useState(false);
@@ -2090,28 +2153,15 @@ export default function App() {
   }
 
   const notifCount = notificationsFor(book).length;
-  const headerActions = tab === "home"
-    ? <>
-        <IconBtn onClick={() => openSheet("import")}><Ic name="upload" size={13} /></IconBtn>
-        <IconBtn onClick={() => go("tx")}><Ic name="search" size={13} /></IconBtn>
-        <IconBtn onClick={() => openSheet("notifications")}>
-          <div style={{ position: "relative", display: "flex" }}>
-            <Ic name="bell" size={13} />
-            {notifCount > 0 && <span style={{ position: "absolute", top: -2, right: -2, width: 7, height: 7, borderRadius: "50%", background: C.red, border: `1.5px solid ${C.bg}` }} />}
-          </div>
-        </IconBtn>
-      </>
-    : tab === "tx" ? <IconBtn onClick={() => openSheet("import")}><Ic name="upload" size={13} /></IconBtn>
-    : null;
+  const headerActions = tab === "tx" ? <IconBtn onClick={() => openSheet("import")}><Ic name="upload" size={13} /></IconBtn> : null;
 
   return (
     <div style={{ position: "relative", minHeight: "100vh", background: C.bg, color: C.ink, fontFamily: F.sans, overflowX: "hidden" }}>
       <style>{GLOBAL_CSS}</style>
-      <div style={{ position: "fixed", inset: 0, backgroundImage: `url(${C.bgImage})`, backgroundSize: "cover", backgroundPosition: "center top", zIndex: 0 }} />
-      <div style={{ position: "fixed", inset: 0, background: C.scrim, zIndex: 1 }} />
+      <div style={{ position: "fixed", inset: 0, background: C.bgGradient, zIndex: 0 }} />
       <div style={{ position: "relative", zIndex: 2, minHeight: "100vh", paddingBottom: 70 }}>
-        <Header title={TABS.find((x) => x.id === tab).label} brand={tab === "home"} actions={headerActions} />
-        {tab === "home" && <HomeScreen book={book} go={go} openSheet={openSheet} />}
+        {tab !== "home" && <Header title={TABS.find((x) => x.id === tab).label} actions={headerActions} />}
+        {tab === "home" && <HomeScreen book={book} go={go} openSheet={openSheet} notifCount={notifCount} />}
         {tab === "owed" && <OwedScreen book={book} openSheet={openSheet} />}
         {tab === "travel" && <TravelScreen book={book} openSheet={openSheet} />}
         {tab === "tx" && <TransactionsScreen book={book} openSheet={openSheet} openCodeTx={openCodeTx} selectMode={txSelectMode} setSelectMode={setTxSelectMode} />}
@@ -2138,6 +2188,7 @@ export default function App() {
       {sheet && sheet.name === "recordPayment" && <RecordPaymentSheet book={book} up={up} close={closeSheet} presetPartyId={sheet.ctx.partyId} />}
       {sheet && sheet.name === "partyDetail" && <PartyDetailSheet book={book} openSheet={openSheet} close={closeSheet} partyId={sheet.ctx.partyId} />}
       {sheet && sheet.name === "notifications" && <NotificationsSheet book={book} go={go} close={closeSheet} />}
+      {sheet && sheet.name === "breakdown" && <BreakdownSheet book={book} close={closeSheet} />}
       {sheet && sheet.name === "newTrip" && <NewTripSheet up={up} close={closeSheet} />}
       {sheet && sheet.name === "tripDetail" && <TripDetailSheet book={book} up={up} tripId={sheet.ctx.tripId} openSheet={openSheet} close={closeSheet} />}
       {sheet && sheet.name === "import" && <ImportSheet book={book} up={up} close={closeSheet} />}
