@@ -6,6 +6,7 @@ import {
   owedAsOf, suggestHead, keywordOf,
 } from "./engine.js";
 import { extractPdfPages, parsePdfTable, parseStatementText, getOcrWorker } from "./pdf.js";
+import ExcelJS from "exceljs";
 
 /* ────────────────────────── theme tokens ──────────────────────────
    Navy on paper-blue — the approved design handoff's palette, light-only
@@ -105,10 +106,11 @@ function Seg({ value, onChange, options, wrap4, style }) {
     </div>
   );
 }
-function Toggle({ value, onChange }) {
+function Toggle({ value, onChange, reverse }) {
+  const opts = reverse ? [["off", "Off"], ["on", "On"]] : [["on", "On"], ["off", "Off"]];
   return (
     <div style={{ display: "flex", gap: 0, background: C.overlayWash, border: `1px solid ${C.line}`, borderRadius: 999, padding: 3 }}>
-      {[["on", "On"], ["off", "Off"]].map(([v, l]) => (
+      {opts.map(([v, l]) => (
         <button key={v} onClick={() => onChange(v === "on")} style={{ padding: "6px 14px", borderRadius: 999, border: "none", fontWeight: 700, fontSize: 12, fontFamily: F.sans, cursor: "pointer", background: (value ? "on" : "off") === v ? C.grad : "transparent", color: (value ? "on" : "off") === v ? "#fff" : C.muted }}>{l}</button>
       ))}
     </div>
@@ -967,7 +969,7 @@ function PeriodPicker(p) {
   const periodTypeOptions = [["month", "Month"], ["quarter", "Quarter"], ["fy", "Financial Year"], ["custom", "Custom"]];
   const quickOffsets = p.periodType === "fy" ? [0, 1] : [0, 1, 2, 3];
   return (
-    <div style={{ marginBottom: 8 }}>
+    <div className="no-print" style={{ marginBottom: 8 }}>
       <div style={{ ...glass(16), display: "flex", alignItems: "center", padding: "10px 12px", gap: 10 }}>
         <div onClick={() => p.setPickerOpen(!p.pickerOpen)} style={{ display: "flex", alignItems: "center", gap: 6, flex: 1, minWidth: 0, cursor: "pointer" }}>
           <span style={{ fontSize: 12.5, fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p.label}</span>
@@ -976,7 +978,7 @@ function PeriodPicker(p) {
         <div style={{ width: 1, height: 20, background: C.line, flexShrink: 0 }} />
         <div onClick={() => p.setCompare(!p.compare)} style={{ display: "flex", alignItems: "center", gap: 7, flexShrink: 0, cursor: "pointer" }}>
           <span style={{ fontSize: 11.5, fontWeight: 600, color: C.soft, whiteSpace: "nowrap" }}>Compare</span>
-          <Toggle value={p.compare} onChange={p.setCompare} />
+          <Toggle value={p.compare} onChange={p.setCompare} reverse />
         </div>
       </div>
 
@@ -1052,12 +1054,12 @@ function CategoryDetailSheet({ book, title, entries, close }) {
           return (
             <RowLine key={e.id} last={i === rows.length - 1}>
               <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ fontSize: 13, fontWeight: 700, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{info.title}</div>
-                <div style={{ fontSize: 10.5, color: C.muted, fontWeight: 600, marginTop: 1 }}>{info.sub}</div>
+                <div style={{ fontSize: 12.5, fontWeight: 600, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{info.title}</div>
+                <div style={{ fontSize: 11, color: C.muted, fontWeight: 500, marginTop: 1 }}>{info.sub}</div>
               </div>
               <div style={{ textAlign: "right", flexShrink: 0 }}>
-                <div style={{ fontSize: 13, fontWeight: 800, color: info.color, fontVariantNumeric: "tabular-nums" }}>{info.sign}{inr(e.amount)}</div>
-                <div style={{ fontSize: 9.5, color: C.faint, fontWeight: 600, marginTop: 1 }}>{e.date}</div>
+                <div style={{ fontSize: 12.5, fontWeight: 700, color: info.color, fontVariantNumeric: "tabular-nums" }}>{info.sign}{inr(e.amount)}</div>
+                <div style={{ fontSize: 10, color: C.faint, fontWeight: 500, marginTop: 1 }}>{e.date}</div>
               </div>
             </RowLine>
           );
@@ -1126,9 +1128,14 @@ function RptBalanceRow({ label, current, prev, compare, border, padding, fontSiz
 }
 function ExportPills({ onExcel, onPdf }) {
   const [flash, setFlash] = useState(null);
-  const fire = (kind, fn) => { fn(); setFlash(kind); setTimeout(() => setFlash((k) => (k === kind ? null : k)), 1600); };
+  const fire = (kind, fn) => {
+    Promise.resolve(fn()).then(() => {
+      setFlash(kind);
+      setTimeout(() => setFlash((k) => (k === kind ? null : k)), 1600);
+    });
+  };
   return (
-    <div style={{ display: "flex", gap: 8, marginBottom: 14 }}>
+    <div className="no-print" style={{ display: "flex", gap: 8, marginBottom: 14 }}>
       <div onClick={() => fire("excel", onExcel)} style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", gap: 6, padding: "11px 0", borderRadius: 12, background: "rgba(15,106,92,.08)", color: C.green, fontSize: 12, fontWeight: 600, cursor: "pointer" }}>
         <Ic name="upload" size={13} color={C.green} />{flash === "excel" ? "Exported ✓" : "Export Excel"}
       </div>
@@ -1139,6 +1146,102 @@ function ExportPills({ onExcel, onPdf }) {
   );
 }
 
+// The print-only report layout Export PDF actually produces -- a clean A4/
+// Letter table (title, period, generated-on date) instead of a printout of
+// the phone-width app chrome. rows: [{ kind: "section"|"data"|"total"|"net"
+// |"balance", label, current, previous }].
+function PrintReport({ reportTitle, periodLabel, prevPeriodLabel, compare, rows }) {
+  return (
+    <div className="print-only">
+      <div style={{ fontSize: 18, fontWeight: 700, marginBottom: 2 }}>Cash Book</div>
+      <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 6 }}>{reportTitle}</div>
+      <div style={{ fontSize: 11, color: "#555", marginBottom: 2 }}>Period: {periodLabel}{compare ? ` · Compared to ${prevPeriodLabel}` : ""}</div>
+      <div style={{ fontSize: 9.5, color: "#888", marginBottom: 14 }}>Generated on {new Date().toLocaleString("en-IN", { dateStyle: "medium", timeStyle: "short" })}</div>
+      <table className="print-table">
+        <thead>
+          <tr>
+            <th>Category</th>
+            <th>{periodLabel}</th>
+            {compare && <th>{prevPeriodLabel}</th>}
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((r, i) => {
+            if (r.kind === "section") return <tr key={i} className="print-section-row"><td colSpan={compare ? 3 : 2}>{r.label}</td></tr>;
+            const cls = r.kind === "total" ? "print-total-row" : r.kind === "net" ? "print-net-row" : "";
+            return (
+              <tr key={i} className={cls}>
+                <td>{r.label}</td>
+                <td>{r.current}</td>
+                {compare && <td>{r.previous}</td>}
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+// Export Excel: a real, auditable .xlsx workbook -- bold navy header row,
+// shaded section headers, real numbers with a currency format (so a user
+// can re-sort/re-total in Excel), and live SUM/reference formulas for every
+// total/net/closing row rather than baked-in values.
+const RPT_CURRENCY_FMT = '"₹"#,##0;[Red]-"₹"#,##0';
+function xlsxTitleBlock(ws, reportTitle, periodLabel, prevPeriodLabel, compare) {
+  ws.addRow(["Cash Book"]).font = { bold: true, size: 14 };
+  ws.addRow([reportTitle]).font = { bold: true, size: 12, color: { argb: "FF1D3A8F" } };
+  ws.addRow([`Period: ${periodLabel}` + (compare ? `   |   Compared to: ${prevPeriodLabel}` : "")]).font = { italic: true, size: 10, color: { argb: "FF555555" } };
+  ws.addRow([`Generated on ${new Date().toLocaleString("en-IN", { dateStyle: "medium", timeStyle: "short" })}`]).font = { size: 9, color: { argb: "FF999999" } };
+  ws.addRow([]);
+  const header = ws.addRow(compare ? ["Category", periodLabel, prevPeriodLabel] : ["Category", periodLabel]);
+  header.font = { bold: true, color: { argb: "FFFFFFFF" } };
+  header.eachCell((cell) => { cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FF1D3A8F" } }; });
+  header.getCell(2).alignment = { horizontal: "right" };
+  if (compare) header.getCell(3).alignment = { horizontal: "right" };
+}
+function xlsxSectionRow(ws, label) {
+  const r = ws.addRow([label]);
+  r.font = { bold: true, size: 10, color: { argb: "FF555555" } };
+  r.getCell(1).fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFF2F2F2" } };
+  return r;
+}
+function xlsxDataRow(ws, label, cur, prev, compare) {
+  const r = ws.addRow(compare ? [label, cur, prev] : [label, cur]);
+  r.getCell(2).numFmt = RPT_CURRENCY_FMT;
+  if (compare) r.getCell(3).numFmt = RPT_CURRENCY_FMT;
+  return r;
+}
+function xlsxTotalRow(ws, label, startRowNum, endRowNum, compare, hasRows) {
+  const cur = hasRows ? { formula: `SUM(B${startRowNum}:B${endRowNum})` } : 0;
+  const prev = !compare ? undefined : hasRows ? { formula: `SUM(C${startRowNum}:C${endRowNum})` } : 0;
+  const r = ws.addRow(compare ? [label, cur, prev] : [label, cur]);
+  r.font = { bold: true };
+  r.getCell(1).border = { top: { style: "thin" } };
+  r.getCell(2).numFmt = RPT_CURRENCY_FMT;
+  r.getCell(2).border = { top: { style: "thin" } };
+  if (compare) { r.getCell(3).numFmt = RPT_CURRENCY_FMT; r.getCell(3).border = { top: { style: "thin" } }; }
+  return r;
+}
+function xlsxNetRow(ws, label, curFormula, prevFormula, compare, color) {
+  const r = ws.addRow(compare ? [label, { formula: curFormula }, { formula: prevFormula }] : [label, { formula: curFormula }]);
+  r.font = { bold: true, size: 12, color: { argb: color } };
+  r.getCell(1).border = { top: { style: "double" } };
+  r.getCell(2).numFmt = RPT_CURRENCY_FMT;
+  r.getCell(2).border = { top: { style: "double" } };
+  if (compare) { r.getCell(3).numFmt = RPT_CURRENCY_FMT; r.getCell(3).border = { top: { style: "double" } }; r.getCell(3).font = { size: 10, color: { argb: "FF999999" } }; }
+  return r;
+}
+async function downloadWorkbook(wb, filename) {
+  const buf = await wb.xlsx.writeBuffer();
+  const blob = new Blob([buf], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = filename;
+  a.click();
+  URL.revokeObjectURL(a.href);
+}
+
 function PLReport({ book, p, openSheet }) {
   const pl = computePL(book, p.from, p.to);
   const prevPl = p.compare ? computePL(book, p.prevFrom, p.prevTo) : null;
@@ -1147,28 +1250,52 @@ function PLReport({ book, p, openSheet }) {
   const inRange = (e) => e.date >= p.from && e.date <= p.to && isExplained(e);
   const openCategory = (title, entries) => openSheet("categoryDetail", { title, entries });
 
-  const downloadCsv = () => {
-    const esc = (s) => `"${String(s).replace(/"/g, '""')}"`;
-    const lines = [["Section", "Category", "Amount"].map(esc).join(",")];
-    for (const [c, a] of income) lines.push(["Income", c, a].map(esc).join(","));
-    for (const [c, a] of expense) lines.push(["Expense", c, a].map(esc).join(","));
-    lines.push(["Total", "Income", pl.totalIncome].map(esc).join(","));
-    lines.push(["Total", "Expenses", pl.totalExpense].map(esc).join(","));
-    lines.push(["Total", "Net", pl.net].map(esc).join(","));
-    const blob = new Blob([lines.join("\n")], { type: "text/csv" });
-    const a = document.createElement("a");
-    a.href = URL.createObjectURL(blob);
-    a.download = `simple-cashbook-pl-${p.from}-to-${p.to}.csv`;
-    a.click();
-    URL.revokeObjectURL(a.href);
+  const downloadXlsx = async () => {
+    const wb = new ExcelJS.Workbook();
+    wb.creator = "Cash Book";
+    wb.created = new Date();
+    const ws = wb.addWorksheet("Profit & Loss");
+    ws.columns = p.compare ? [{ width: 30 }, { width: 16 }, { width: 16 }] : [{ width: 30 }, { width: 16 }];
+    xlsxTitleBlock(ws, "Profit & Loss Report", p.label, p.prevLabel, p.compare);
+
+    xlsxSectionRow(ws, "Income");
+    const incomeStart = ws.rowCount + 1;
+    if (income.length === 0) ws.addRow(["No income recorded"]);
+    else for (const [c, a] of income) xlsxDataRow(ws, c, a, prevPl ? (prevPl.income[c] || 0) : 0, p.compare);
+    const totalIncomeRow = xlsxTotalRow(ws, "Total Income", incomeStart, ws.rowCount, p.compare, income.length > 0);
+
+    xlsxSectionRow(ws, "Expenses");
+    const expenseStart = ws.rowCount + 1;
+    if (expense.length === 0) ws.addRow(["No expenses recorded"]);
+    else for (const [c, a] of expense) xlsxDataRow(ws, c, -a, prevPl ? -(prevPl.expense[c] || 0) : 0, p.compare);
+    const totalExpenseRow = xlsxTotalRow(ws, "Total Expenses", expenseStart, ws.rowCount, p.compare, expense.length > 0);
+
+    xlsxNetRow(ws, "Net Profit", `B${totalIncomeRow.number}+B${totalExpenseRow.number}`,
+      p.compare ? `C${totalIncomeRow.number}+C${totalExpenseRow.number}` : null, p.compare, pl.net < 0 ? "FF7A2E3B" : "FF0F6A5C");
+
+    await downloadWorkbook(wb, `cash-book-pl-${p.from}-to-${p.to}.xlsx`);
   };
+
+  const printRows = [
+    { kind: "section", label: "Income" },
+    ...(income.length === 0
+      ? [{ kind: "data", label: "No income recorded", current: "", previous: "" }]
+      : income.map(([c, a]) => ({ kind: "data", label: c, current: plusInr(a), previous: prevPl ? plusInr(prevPl.income[c] || 0) : "" }))),
+    { kind: "total", label: "Total Income", current: plusInr(pl.totalIncome), previous: prevPl ? plusInr(prevPl.totalIncome) : "" },
+    { kind: "section", label: "Expenses" },
+    ...(expense.length === 0
+      ? [{ kind: "data", label: "No expenses recorded", current: "", previous: "" }]
+      : expense.map(([c, a]) => ({ kind: "data", label: c, current: minusInr(a), previous: prevPl ? minusInr(prevPl.expense[c] || 0) : "" }))),
+    { kind: "total", label: "Total Expenses", current: minusInr(pl.totalExpense), previous: prevPl ? minusInr(prevPl.totalExpense) : "" },
+    { kind: "net", label: "Net Profit", current: signedInr(pl.net), previous: prevPl ? signedInr(prevPl.net) : "" },
+  ];
 
   return (
     <div>
       <PeriodPicker {...p} />
-      <ExportPills onExcel={downloadCsv} onPdf={() => window.print()} />
+      <ExportPills onExcel={downloadXlsx} onPdf={() => window.print()} />
 
-      <div style={{ ...glass(16), padding: "4px 14px 14px" }}>
+      <div className="no-print" style={{ ...glass(16), padding: "4px 14px 14px" }}>
         <div style={{ display: "flex", alignItems: "baseline", paddingTop: 10, paddingBottom: 6, borderBottom: `1px solid ${C.overlayBorder}` }}>
           <span style={{ flex: 1, fontSize: 9.5, color: C.faint, textTransform: "uppercase", letterSpacing: ".04em" }}>Category</span>
           <span style={{ width: 78, textAlign: "right", fontSize: 9.5, color: C.faint, textTransform: "uppercase" }}>{p.label}</span>
@@ -1201,6 +1328,8 @@ function PLReport({ book, p, openSheet }) {
           current={signedInr(pl.net)} prev={prevPl ? signedInr(prevPl.net) : null}
           color={pl.net < 0 ? "#7a2e3b" : C.green} delta={prevPl ? pctDelta(pl.net, prevPl.net) : null} />
       </div>
+
+      <PrintReport reportTitle="Profit & Loss Report" periodLabel={p.label} prevPeriodLabel={p.prevLabel} compare={p.compare} rows={printRows} />
     </div>
   );
 }
@@ -1217,32 +1346,77 @@ function CashFlowReport({ book, p, openSheet }) {
   const inRange = (e) => e.date >= p.from && e.date <= p.to && isExplained(e);
   const openCategory = (title, entries) => openSheet("categoryDetail", { title, entries });
 
-  const downloadCsv = () => {
-    const esc = (s) => `"${String(s).replace(/"/g, '""')}"`;
-    const lines = [["Section", "Line", "Amount"].map(esc).join(",")];
-    lines.push(["", "Opening Balance", cf.opening].map(esc).join(","));
-    for (const r of cf.moneyIn) lines.push(["Money In", r.category, r.amount].map(esc).join(","));
-    lines.push(["Money In", "Total", cf.totalIn].map(esc).join(","));
-    for (const r of cf.moneyOut) lines.push(["Money Out", r.category, -r.amount].map(esc).join(","));
-    lines.push(["Money Out", "Total", -cf.totalOut].map(esc).join(","));
-    for (const r of cf.other) lines.push(["Other Movement", r.label, r.amount].map(esc).join(","));
-    lines.push(["Other Movement", "Total", cf.totalOther].map(esc).join(","));
-    lines.push(["", "Net Cash Flow", cf.net].map(esc).join(","));
-    lines.push(["", "Closing Balance", cf.closing].map(esc).join(","));
-    const blob = new Blob([lines.join("\n")], { type: "text/csv" });
-    const a = document.createElement("a");
-    a.href = URL.createObjectURL(blob);
-    a.download = `simple-cashbook-cashflow-${p.from}-to-${p.to}.csv`;
-    a.click();
-    URL.revokeObjectURL(a.href);
+  const downloadXlsx = async () => {
+    const wb = new ExcelJS.Workbook();
+    wb.creator = "Cash Book";
+    wb.created = new Date();
+    const ws = wb.addWorksheet("Cash Flow");
+    ws.columns = p.compare ? [{ width: 30 }, { width: 16 }, { width: 16 }] : [{ width: 30 }, { width: 16 }];
+    xlsxTitleBlock(ws, "Cash Flow Report", p.label, p.prevLabel, p.compare);
+
+    const openingRow = ws.addRow(p.compare ? ["Opening Balance", cf.opening, prevCf ? prevCf.opening : 0] : ["Opening Balance", cf.opening]);
+    openingRow.font = { bold: true };
+    openingRow.getCell(2).numFmt = RPT_CURRENCY_FMT;
+    if (p.compare) openingRow.getCell(3).numFmt = RPT_CURRENCY_FMT;
+
+    xlsxSectionRow(ws, "Money In");
+    const inStart = ws.rowCount + 1;
+    if (cf.moneyIn.length === 0) ws.addRow(["No money in recorded"]);
+    else for (const r of cf.moneyIn) xlsxDataRow(ws, r.category, r.amount, prevIn ? (prevIn[r.category] || 0) : 0, p.compare);
+    const totalInRow = xlsxTotalRow(ws, "Total Money In", inStart, ws.rowCount, p.compare, cf.moneyIn.length > 0);
+
+    xlsxSectionRow(ws, "Money Out");
+    const outStart = ws.rowCount + 1;
+    if (cf.moneyOut.length === 0) ws.addRow(["No money out recorded"]);
+    else for (const r of cf.moneyOut) xlsxDataRow(ws, r.category, -r.amount, prevOut ? -(prevOut[r.category] || 0) : 0, p.compare);
+    const totalOutRow = xlsxTotalRow(ws, "Total Money Out", outStart, ws.rowCount, p.compare, cf.moneyOut.length > 0);
+
+    xlsxSectionRow(ws, "Other Movement");
+    const otherStart = ws.rowCount + 1;
+    if (cf.other.length === 0) ws.addRow(["No other movements recorded"]);
+    else for (const r of cf.other) xlsxDataRow(ws, r.label + (r.bs ? " (Balance Sheet)" : ""), r.amount, prevOther ? (prevOther[r.label] || 0) : 0, p.compare);
+    const totalOtherRow = xlsxTotalRow(ws, "Total Other Movement", otherStart, ws.rowCount, p.compare, cf.other.length > 0);
+
+    const netRow = xlsxNetRow(ws, "Net Cash Flow", `B${totalInRow.number}+B${totalOutRow.number}+B${totalOtherRow.number}`,
+      p.compare ? `C${totalInRow.number}+C${totalOutRow.number}+C${totalOtherRow.number}` : null, p.compare, cf.net < 0 ? "FF7A2E3B" : "FF0F6A5C");
+
+    const closingRow = ws.addRow(p.compare
+      ? ["Closing Balance", { formula: `B${openingRow.number}+B${netRow.number}` }, { formula: `C${openingRow.number}+C${netRow.number}` }]
+      : ["Closing Balance", { formula: `B${openingRow.number}+B${netRow.number}` }]);
+    closingRow.font = { bold: true };
+    closingRow.getCell(2).numFmt = RPT_CURRENCY_FMT;
+    if (p.compare) closingRow.getCell(3).numFmt = RPT_CURRENCY_FMT;
+
+    await downloadWorkbook(wb, `cash-book-cashflow-${p.from}-to-${p.to}.xlsx`);
   };
+
+  const printRows = [
+    { kind: "balance", label: "Opening Balance", current: magInr(cf.opening), previous: prevCf ? magInr(prevCf.opening) : "" },
+    { kind: "section", label: "Money In" },
+    ...(cf.moneyIn.length === 0
+      ? [{ kind: "data", label: "No money in recorded", current: "", previous: "" }]
+      : cf.moneyIn.map((r) => ({ kind: "data", label: r.category, current: plusInr(r.amount), previous: prevIn ? plusInr(prevIn[r.category] || 0) : "" }))),
+    { kind: "total", label: "Total Money In", current: plusInr(cf.totalIn), previous: prevCf ? plusInr(prevCf.totalIn) : "" },
+    { kind: "section", label: "Money Out" },
+    ...(cf.moneyOut.length === 0
+      ? [{ kind: "data", label: "No money out recorded", current: "", previous: "" }]
+      : cf.moneyOut.map((r) => ({ kind: "data", label: r.category, current: minusInr(r.amount), previous: prevOut ? minusInr(prevOut[r.category] || 0) : "" }))),
+    { kind: "total", label: "Total Money Out", current: minusInr(cf.totalOut), previous: prevCf ? minusInr(prevCf.totalOut) : "" },
+    { kind: "section", label: "Other Movement" },
+    ...(cf.other.length === 0
+      ? [{ kind: "data", label: "No other movements recorded", current: "", previous: "" }]
+      : cf.other.map((r) => ({ kind: "data", label: r.label + (r.bs ? " (Balance Sheet)" : ""), current: signedInr(r.amount), previous: prevOther ? signedInr(prevOther[r.label] || 0) : "" }))),
+    { kind: "total", label: "Total Other Movement", current: signedInr(cf.totalOther), previous: prevCf ? signedInr(prevCf.totalOther) : "" },
+    { kind: "net", label: "Net Cash Flow", current: signedInr(cf.net), previous: prevCf ? signedInr(prevCf.net) : "" },
+    { kind: "balance", label: "Closing Balance", current: magInr(cf.closing), previous: prevCf ? magInr(prevCf.closing) : "" },
+  ];
 
   return (
     <div>
       <PeriodPicker {...p} />
-      <ExportPills onExcel={downloadCsv} onPdf={() => window.print()} />
+      <ExportPills onExcel={downloadXlsx} onPdf={() => window.print()} />
 
-      <div style={{ ...glass(16), padding: "4px 14px 14px" }}>
+      <div className="no-print" style={{ ...glass(16), padding: "4px 14px 14px" }}>
         <RptBalanceRow label="Opening Balance" compare={p.compare} border padding="10px 0"
           current={magInr(cf.opening)} prev={prevCf ? magInr(prevCf.opening) : null} />
 
@@ -1288,6 +1462,8 @@ function CashFlowReport({ book, p, openSheet }) {
         <RptBalanceRow label="Closing Balance" compare={p.compare} border={false} padding="10px 0 4px" fontSize={14}
           current={magInr(cf.closing)} prev={prevCf ? magInr(prevCf.closing) : null} />
       </div>
+
+      <PrintReport reportTitle="Cash Flow Report" periodLabel={p.label} prevPeriodLabel={p.prevLabel} compare={p.compare} rows={printRows} />
     </div>
   );
 }
@@ -1320,7 +1496,7 @@ function ReportsScreen({ book, openSheet }) {
   const info = RPT_INFO[view];
   return (
     <div style={{ padding: "4px 16px 90px" }}>
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 14 }}>
+      <div className="no-print" style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 14 }}>
         <div style={{ fontSize: 20, fontWeight: 700 }}>Reports</div>
         <RoundBtn onClick={() => setInfoOpen(true)}><Ic name="info" size={15} color={C.soft} /></RoundBtn>
       </div>
@@ -1328,7 +1504,9 @@ function ReportsScreen({ book, openSheet }) {
         {info.paragraphs.map((t, i) => <div key={i} style={{ fontSize: 12.5, lineHeight: 1.55, color: C.soft, marginBottom: 8 }}>{t}</div>)}
         <PrimaryBtn style={{ marginTop: 8 }} onClick={() => setInfoOpen(false)}>Got it</PrimaryBtn>
       </Modal>
-      <Seg value={view} onChange={setView} style={{ marginBottom: 10 }} options={[{ v: "pl", label: "P&L" }, { v: "cashflow", label: "Cash Flow" }]} />
+      <div className="no-print">
+        <Seg value={view} onChange={setView} style={{ marginBottom: 10 }} options={[{ v: "pl", label: "P&L" }, { v: "cashflow", label: "Cash Flow" }]} />
+      </div>
       {view === "pl" ? <PLReport book={book} p={p} openSheet={openSheet} /> : <CashFlowReport book={book} p={p} openSheet={openSheet} />}
     </div>
   );
@@ -2344,7 +2522,7 @@ const TABS = [
 
 function NavBar({ tab, setTab }) {
   return (
-    <div style={{ position: "fixed", left: 14, right: 14, bottom: 14, zIndex: 30, ...glass(20), display: "flex", alignItems: "center", justifyContent: "space-around", padding: "10px 4px" }}>
+    <div className="no-print" style={{ position: "fixed", left: 14, right: 14, bottom: 14, zIndex: 30, ...glass(20), display: "flex", alignItems: "center", justifyContent: "space-around", padding: "10px 4px" }}>
       {TABS.map((tItem) => {
         const active = tItem.id === tab;
         return (
@@ -2414,6 +2592,25 @@ html, body { margin: 0; padding: 0; overflow-x: hidden; overscroll-behavior-x: n
 ::-webkit-scrollbar { display: none; }
 input, select, textarea { -webkit-user-select: text; user-select: text; }
 @keyframes cbShake { 0%,100% { transform: translateX(0); } 20%,60% { transform: translateX(-8px); } 40%,80% { transform: translateX(8px); } }
+
+/* Export PDF: the app's own phone-width chrome (nav, header, period picker,
+   export pills) is irrelevant on paper, so it's hidden entirely in favor of
+   a dedicated print-only report layout built for A4/Letter -- see
+   PrintReport below. */
+.print-only { display: none; }
+@media print {
+  html, body, .app-root { background: #fff !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  .no-print { display: none !important; }
+  .print-only { display: block !important; }
+  .print-table { width: 100%; border-collapse: collapse; }
+  .print-table th, .print-table td { border: 1px solid #ccc; padding: 5px 8px; font-size: 10.5px; text-align: right; }
+  .print-table th:first-child, .print-table td:first-child { text-align: left; }
+  .print-table thead { display: table-header-group; }
+  .print-table tr { page-break-inside: avoid; }
+  .print-section-row td { background: #f2f2f2; font-weight: 700; text-transform: uppercase; font-size: 9.5px; letter-spacing: .04em; }
+  .print-total-row td { font-weight: 700; border-top: 2px solid #999; }
+  .print-net-row td { font-weight: 700; font-size: 12px; border-top: 2px solid #333; }
+}
 `;
 
 export default function App() {
@@ -2493,9 +2690,9 @@ export default function App() {
   const headerActions = tab === "tx" ? <IconBtn onClick={() => openSheet("import")}><Ic name="upload" size={13} /></IconBtn> : null;
 
   return (
-    <div style={{ position: "relative", minHeight: "100vh", background: C.bg, color: C.ink, fontFamily: F.sans, overflowX: "hidden" }}>
+    <div className="app-root" style={{ position: "relative", minHeight: "100vh", background: C.bg, color: C.ink, fontFamily: F.sans, overflowX: "hidden" }}>
       <style>{GLOBAL_CSS}</style>
-      <div style={{ position: "fixed", inset: 0, background: C.bgGradient, zIndex: 0 }} />
+      <div className="no-print" style={{ position: "fixed", inset: 0, background: C.bgGradient, zIndex: 0 }} />
       <div style={{ position: "relative", zIndex: 2, minHeight: "100vh", paddingBottom: 70 }}>
         {tab !== "home" && tab !== "reports" && <Header title={TABS.find((x) => x.id === tab).label} actions={headerActions} />}
         {tab === "home" && <HomeScreen book={book} go={go} openSheet={openSheet} notifCount={notifCount} />}
@@ -2506,7 +2703,7 @@ export default function App() {
       </div>
 
       {tab === "tx" && !txSelectMode && (
-        <button onClick={() => openSheet("newTx")} style={{ position: "fixed", zIndex: 25, right: 18, bottom: 92, width: 50, height: 50, borderRadius: "50%", background: C.grad, display: "flex", alignItems: "center", justifyContent: "center", color: "#fff", boxShadow: `0 14px 28px -8px ${C.accentDeep}`, border: "none", cursor: "pointer" }}>
+        <button onClick={() => openSheet("newTx")} className="no-print" style={{ position: "fixed", zIndex: 25, right: 18, bottom: 92, width: 50, height: 50, borderRadius: "50%", background: C.grad, display: "flex", alignItems: "center", justifyContent: "center", color: "#fff", boxShadow: `0 14px 28px -8px ${C.accentDeep}`, border: "none", cursor: "pointer" }}>
           <Ic name="plus" size={19} />
         </button>
       )}
