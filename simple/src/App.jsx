@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { loadBook, saveBook, defaultBook } from "./storage.js";
 import {
-  inr, parseAmount, today, fyOf, fyRange, periodRange, previousPeriodRange,
+  inr, parseAmount, today, periodByOffset, previousPeriod,
   uid, isExplained, isRefund, computePL, computeCashFlow, accountsWithBalances,
   owedAsOf, suggestHead, keywordOf,
 } from "./engine.js";
@@ -70,6 +70,8 @@ function Ic({ name, size = 16, color, style }) {
     back: "M15 18l-6-6 6-6",
     card: "M3 5h18v14H3Z M3 10h18",
     check: "M20 6 9 17l-5-5",
+    info: "M12 12m-9 0a9 9 0 1 0 18 0a9 9 0 1 0 -18 0 M12 11v5M12 8h.01",
+    chevronDown: "m6 9 6 6 6-6",
   };
   return (
     <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color || "currentColor"} strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round" style={style}>
@@ -919,67 +921,103 @@ function TransactionsScreen({ book, up, openSheet, openCodeTx, selectMode, setSe
 }
 
 /* ══════════════════════════ REPORTS ══════════════════════════ */
+// Matches the design handoff's own period-navigation model: a period type
+// (Month / Quarter / Financial Year / Custom) plus an integer offset from
+// today's period, with quick chips to step back through recent periods --
+// not a raw FY/month <select> pair.
 function usePeriodPicker(book) {
   const t = today();
-  const fys = useMemo(() => {
-    const s = new Set([fyOf(t)]);
-    for (const e of book.entries) s.add(fyOf(e.date));
-    return [...s].sort((a, b) => b - a);
-  }, [book.entries, t]);
-  // Defaulting to "this month of the current FY" silently shows nothing for
-  // a book whose data is all in the past (e.g. everything just imported
-  // from an old statement) -- default to wherever the most recent entry
-  // actually is instead, only falling back to "this month" when that
-  // happens to be the real current month.
+  // Defaulting to "this month" silently shows nothing for a book whose data
+  // is all in the past (e.g. everything just imported from an old
+  // statement) -- default to whichever month the most recent entry is
+  // actually in instead, only landing on the real current month when that
+  // happens to be where the data is.
   const latestEntryDate = useMemo(() => {
     let max = null;
     for (const e of book.entries) if (!max || e.date > max) max = e.date;
     return max || t;
   }, [book.entries, t]);
-  const [fy, setFy] = useState(fyOf(latestEntryDate));
-  const [span, setSpan] = useState(latestEntryDate.slice(0, 7) === t.slice(0, 7) ? "thisMonth" : "year");
+  const monthsBack = (t.slice(0, 4) - latestEntryDate.slice(0, 4)) * 12 + (+t.slice(5, 7) - +latestEntryDate.slice(5, 7));
+
+  const [periodType, setPeriodType] = useState("month");
+  const [offset, setOffset] = useState(Math.max(0, monthsBack));
   const [customFrom, setCustomFrom] = useState(t.slice(0, 8) + "01");
   const [customTo, setCustomTo] = useState(t);
   const [compare, setCompare] = useState(false);
-  const [from, to] = periodRange(span, fy, customFrom, customTo);
-  const [prevFrom, prevTo] = previousPeriodRange(span, fy, from, to);
-  return { fys, fy, setFy, span, setSpan, customFrom, setCustomFrom, customTo, setCustomTo, compare, setCompare, from, to, prevFrom, prevTo };
+  const [pickerOpen, setPickerOpen] = useState(false);
+
+  const setType = (v) => { setPeriodType(v); setOffset(0); };
+
+  const range = periodType === "custom"
+    ? { from: customFrom, to: customTo, label: `${customFrom} – ${customTo}` }
+    : periodByOffset(periodType, offset, t);
+  const prevRange = previousPeriod(periodType, offset, customFrom, customTo, t);
+
+  return {
+    periodType, setType, offset, setOffset,
+    customFrom, setCustomFrom, customTo, setCustomTo,
+    compare, setCompare, pickerOpen, setPickerOpen,
+    from: range.from, to: range.to, label: range.label,
+    prevFrom: prevRange.from, prevTo: prevRange.to, prevLabel: prevRange.label,
+    t,
+  };
 }
 
 function PeriodPicker(p) {
+  const periodTypeOptions = [["month", "Month"], ["quarter", "Quarter"], ["fy", "Financial Year"], ["custom", "Custom"]];
+  const quickOffsets = p.periodType === "fy" ? [0, 1] : [0, 1, 2, 3];
   return (
-    <div style={{ marginBottom: 14 }}>
-      <div style={{ display: "flex", gap: 8 }}>
-        <select style={{ ...st.input, flex: "0 0 40%" }} value={p.fy} onChange={(e) => p.setFy(+e.target.value)}>
-          {p.fys.map((y) => <option key={y} value={y}>FY {y}–{String(y + 1).slice(2)}</option>)}
-        </select>
-        <select style={{ ...st.input, flex: 1 }} value={p.span} onChange={(e) => p.setSpan(e.target.value)}>
-          <option value="thisMonth">This Month</option>
-          <option value="lastMonth">Last Month</option>
-          <option value="year">Full Year</option>
-          <option value="custom">Custom range…</option>
-        </select>
+    <div style={{ marginBottom: 8 }}>
+      <div style={{ ...glass(16), display: "flex", alignItems: "center", padding: "10px 12px", gap: 10 }}>
+        <div onClick={() => p.setPickerOpen(!p.pickerOpen)} style={{ display: "flex", alignItems: "center", gap: 6, flex: 1, minWidth: 0, cursor: "pointer" }}>
+          <span style={{ fontSize: 12.5, fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p.label}</span>
+          <Ic name="chevronDown" size={12} color={C.muted} style={{ flexShrink: 0 }} />
+        </div>
+        <div style={{ width: 1, height: 20, background: C.line, flexShrink: 0 }} />
+        <div onClick={() => p.setCompare(!p.compare)} style={{ display: "flex", alignItems: "center", gap: 7, flexShrink: 0, cursor: "pointer" }}>
+          <span style={{ fontSize: 11.5, fontWeight: 600, color: C.soft, whiteSpace: "nowrap" }}>Compare</span>
+          <Toggle value={p.compare} onChange={p.setCompare} />
+        </div>
       </div>
-      {p.span === "custom" && (
-        <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
-          <input style={st.input} type="date" value={p.customFrom} onChange={(e) => p.setCustomFrom(e.target.value)} />
-          <input style={st.input} type="date" value={p.customTo} onChange={(e) => p.setCustomTo(e.target.value)} />
+
+      {p.pickerOpen && (
+        <div style={{ ...glass(16), padding: 10, marginTop: 8 }}>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 10 }}>
+            {periodTypeOptions.map(([v, label]) => (
+              <div key={v} onClick={() => p.setType(v)} style={{ display: "inline-flex", alignItems: "center", fontSize: 10.5, fontWeight: 600, padding: "6px 11px", borderRadius: 999, cursor: "pointer", whiteSpace: "nowrap", background: p.periodType === v ? C.accent : C.overlayWash, color: p.periodType === v ? "#fff" : C.soft }}>{label}</div>
+            ))}
+          </div>
+          {p.periodType === "custom" ? (
+            <div style={{ display: "flex", gap: 8 }}>
+              <div style={{ flex: 1 }}>
+                <div style={{ fontSize: 9, color: C.faint, marginBottom: 3 }}>From</div>
+                <input type="date" value={p.customFrom} onChange={(e) => p.setCustomFrom(e.target.value)} style={{ width: "100%", boxSizing: "border-box", border: `1px solid ${C.overlayBorder}`, borderRadius: 8, padding: "6px 8px", fontFamily: F.sans, fontSize: 10.5, color: C.ink, background: "#fff" }} />
+              </div>
+              <div style={{ flex: 1 }}>
+                <div style={{ fontSize: 9, color: C.faint, marginBottom: 3 }}>To</div>
+                <input type="date" value={p.customTo} onChange={(e) => p.setCustomTo(e.target.value)} style={{ width: "100%", boxSizing: "border-box", border: `1px solid ${C.overlayBorder}`, borderRadius: 8, padding: "6px 8px", fontFamily: F.sans, fontSize: 10.5, color: C.ink, background: "#fff" }} />
+              </div>
+            </div>
+          ) : (
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+              {quickOffsets.map((o) => {
+                const r = periodByOffset(p.periodType, o, p.t);
+                return <div key={o} onClick={() => p.setOffset(o)} style={{ display: "inline-flex", alignItems: "center", fontSize: 10.5, fontWeight: 500, padding: "5px 10px", borderRadius: 999, cursor: "pointer", whiteSpace: "nowrap", background: p.offset === o ? C.accent : C.overlayWash, color: p.offset === o ? "#fff" : C.soft }}>{r.label}</div>;
+              })}
+            </div>
+          )}
         </div>
       )}
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginTop: 10 }}>
-        <span style={{ fontSize: 12, fontWeight: 600, color: C.soft }}>Compare to previous period</span>
-        <Toggle value={p.compare} onChange={p.setCompare} />
-      </div>
     </div>
   );
 }
 
-// Prev-period delta as a "+12%"/"−8%" label; null when there's nothing
-// meaningful to compare against (previous period had zero).
+// Prev-period delta as a "+12%"/"−8%" label, matching the design handoff's
+// own rptVals pctDelta exactly (including its zero-previous special case).
 function pctDelta(cur, prev) {
-  if (!prev) return null;
+  if (prev === 0) return cur === 0 ? "0%" : cur > 0 ? "+100%" : "−100%";
   const pct = Math.round(((cur - prev) / Math.abs(prev)) * 100);
-  return `${pct >= 0 ? "+" : ""}${pct}%`;
+  return (pct >= 0 ? "+" : "−") + Math.abs(pct) + "%";
 }
 
 // Shared read-only row used by the report drill-down sheet -- description
@@ -1029,39 +1067,84 @@ function CategoryDetailSheet({ book, title, entries, close }) {
   );
 }
 
-// A category/expense/income row is a plain flex row (not a Card) so drill-
-// down rows read as one continuous list per section. When Compare is on,
-// prevLabel adds a small right-aligned "vs ₹X (+N%)" line underneath.
-function ReportRow({ label, amount, prevLabel, onClick, badge, bar, last }) {
+/* Report table rows -- built to match the design handoff's own markup
+   exactly: a 3-column layout (category / current-period / previous-period,
+   the last only when Compare is on), plain (uncolored) amounts at the row
+   and section-total level, and dynamic teal/maroon color reserved for the
+   Net Profit / Net Cash Flow lines only. */
+const rptSectionLabel = { fontSize: 10.5, fontWeight: 700, color: C.soft, textTransform: "uppercase", letterSpacing: ".04em", padding: "10px 0 2px" };
+const rptEmpty = { fontSize: 11, color: C.muted, padding: "6px 0" };
+function magInr(n) { return inr(Math.abs(n)); }
+function plusInr(n) { return "+" + magInr(n); }
+function minusInr(n) { return "−" + magInr(n); }
+function signedInr(n) { return (n < 0 ? "−" : "+") + magInr(n); }
+
+function RptRow({ label, onClick, current, prev, compare }) {
   return (
-    <div onClick={onClick} style={{ padding: "12px 0", borderTop: last ? "none" : `1px solid ${C.line}`, cursor: onClick ? "pointer" : "default" }}>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
-        <span style={{ fontSize: 13, fontWeight: 700, flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-          {label}
-          {badge}
-        </span>
-        <span style={{ fontWeight: 700, fontVariantNumeric: "tabular-nums", flexShrink: 0 }}>{amount}</span>
-        {onClick && <Ic name="back" size={11} color={C.faint} style={{ transform: "rotate(180deg)", flexShrink: 0 }} />}
-      </div>
-      {prevLabel && <div style={{ fontSize: 10, color: C.faint, fontWeight: 600, marginTop: 2, textAlign: "right" }}>{prevLabel}</div>}
-      {bar}
+    <div style={{ display: "flex", alignItems: "center", padding: "7px 0", borderBottom: `1px solid ${C.line}` }}>
+      <span onClick={onClick} style={{ flex: 1, fontSize: 12, minWidth: 0, cursor: onClick ? "pointer" : "default", display: "flex", alignItems: "center", gap: 4 }}>
+        <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{label}</span>
+        {onClick && <Ic name="back" size={9} color={C.faint} style={{ transform: "rotate(180deg)", flexShrink: 0 }} />}
+      </span>
+      <span style={{ width: 78, textAlign: "right", fontSize: 12.5, fontWeight: 600, flexShrink: 0 }}>{current}</span>
+      {compare && <span style={{ width: 78, textAlign: "right", fontSize: 11, color: C.faint, flexShrink: 0 }}>{prev}</span>}
     </div>
   );
 }
-function prevRowLabel(cur, prev) {
-  if (prev == null) return null;
-  const d = pctDelta(cur, prev);
-  return `vs ${inr(prev)}${d ? ` (${d})` : ""}`;
+function RptTotalRow({ label, current, prev, compare, delta, deltaMarginBottom }) {
+  return (
+    <>
+      <div style={{ display: "flex", alignItems: "center", padding: "9px 0", borderTop: `1px solid ${C.line}`, marginTop: 2 }}>
+        <span style={{ flex: 1, fontSize: 12.5, fontWeight: 700 }}>{label}</span>
+        <span style={{ width: 78, textAlign: "right", fontSize: 13, fontWeight: 700, flexShrink: 0 }}>{current}</span>
+        {compare && <span style={{ width: 78, textAlign: "right", fontSize: 11, color: C.faint, flexShrink: 0 }}>{prev}</span>}
+      </div>
+      {compare && <div style={{ textAlign: "right", fontSize: 10, color: C.soft, marginBottom: deltaMarginBottom }}>{delta} vs previous period</div>}
+    </>
+  );
+}
+function RptNetRow({ label, current, prev, compare, color, delta, fontSize1, fontSize2, padding }) {
+  return (
+    <>
+      <div style={{ display: "flex", alignItems: "center", padding: padding, borderTop: `2px solid ${C.overlayStrong}`, marginTop: 4 }}>
+        <span style={{ flex: 1, fontSize: fontSize1, fontWeight: 700 }}>{label}</span>
+        <span style={{ width: 78, textAlign: "right", fontSize: fontSize2, fontWeight: 700, color, flexShrink: 0 }}>{current}</span>
+        {compare && <span style={{ width: 78, textAlign: "right", fontSize: 11, color: C.faint, flexShrink: 0 }}>{prev}</span>}
+      </div>
+      {compare && delta != null && <div style={{ textAlign: "right", fontSize: 10, color: C.soft }}>{delta} vs previous period</div>}
+    </>
+  );
+}
+function RptBalanceRow({ label, current, prev, compare, border, padding, fontSize }) {
+  return (
+    <div style={{ display: "flex", alignItems: "center", padding, borderBottom: border ? `1px solid ${C.line}` : "none" }}>
+      <span style={{ flex: 1, fontSize: 12.5, fontWeight: 700 }}>{label}</span>
+      <span style={{ width: 78, textAlign: "right", fontSize: fontSize || 13, fontWeight: 700, flexShrink: 0 }}>{current}</span>
+      {compare && <span style={{ width: 78, textAlign: "right", fontSize: 11, color: C.faint, flexShrink: 0 }}>{prev}</span>}
+    </div>
+  );
+}
+function ExportPills({ onExcel, onPdf }) {
+  const [flash, setFlash] = useState(null);
+  const fire = (kind, fn) => { fn(); setFlash(kind); setTimeout(() => setFlash((k) => (k === kind ? null : k)), 1600); };
+  return (
+    <div style={{ display: "flex", gap: 8, marginBottom: 14 }}>
+      <div onClick={() => fire("excel", onExcel)} style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", gap: 6, padding: "11px 0", borderRadius: 12, background: "rgba(15,106,92,.08)", color: C.green, fontSize: 12, fontWeight: 600, cursor: "pointer" }}>
+        <Ic name="upload" size={13} color={C.green} />{flash === "excel" ? "Exported ✓" : "Export Excel"}
+      </div>
+      <div onClick={() => fire("pdf", onPdf)} style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", gap: 6, padding: "11px 0", borderRadius: 12, background: "rgba(122,46,59,.08)", color: "#7a2e3b", fontSize: 12, fontWeight: 600, cursor: "pointer" }}>
+        <Ic name="upload" size={13} color="#7a2e3b" />{flash === "pdf" ? "Exported ✓" : "Export PDF"}
+      </div>
+    </div>
+  );
 }
 
 function PLReport({ book, p, openSheet }) {
   const pl = computePL(book, p.from, p.to);
   const prevPl = p.compare ? computePL(book, p.prevFrom, p.prevTo) : null;
-  const income = Object.entries(pl.income);
-  const expense = Object.entries(pl.expense).sort((a, b) => b[1] - a[1]);
-  const maxExp = expense.length ? expense[0][1] : 0;
+  const income = Object.entries(pl.income).sort((a, b) => Math.abs(b[1]) - Math.abs(a[1]));
+  const expense = Object.entries(pl.expense).sort((a, b) => Math.abs(b[1]) - Math.abs(a[1]));
   const inRange = (e) => e.date >= p.from && e.date <= p.to && isExplained(e);
-
   const openCategory = (title, entries) => openSheet("categoryDetail", { title, entries });
 
   const downloadCsv = () => {
@@ -1083,53 +1166,48 @@ function PLReport({ book, p, openSheet }) {
   return (
     <div>
       <PeriodPicker {...p} />
-      <Card style={{ marginBottom: 14 }}>
-        <div style={{ fontSize: 10.5, color: C.muted, textTransform: "uppercase", letterSpacing: ".06em", fontWeight: 700 }}>Net This Period</div>
-        <div style={{ fontSize: 24, fontWeight: 800, margin: "6px 0 2px", fontVariantNumeric: "tabular-nums" }}>{inr(pl.net)}</div>
-        {prevPl && <div style={{ fontSize: 11, color: C.accentText, fontWeight: 600 }}>{prevRowLabel(pl.net, prevPl.net)}</div>}
-        <div style={{ fontSize: 10, color: C.faint, fontWeight: 600, marginTop: 8 }}>Cash basis · Balance Sheet categories are excluded here — see Cash Flow below</div>
-      </Card>
+      <ExportPills onExcel={downloadCsv} onPdf={() => window.print()} />
 
-      <div style={{ fontSize: 13, fontWeight: 800, marginBottom: 6, padding: "0 2px" }}>Income</div>
-      <Card style={{ padding: "2px 16px", marginBottom: 14 }}>
-        {income.length === 0 && <div style={{ padding: "10px 0", fontSize: 12.5, color: C.muted }}>Nothing in this period.</div>}
+      <div style={{ ...glass(16), padding: "4px 14px 14px" }}>
+        <div style={{ display: "flex", alignItems: "baseline", paddingTop: 10, paddingBottom: 6, borderBottom: `1px solid ${C.overlayBorder}` }}>
+          <span style={{ flex: 1, fontSize: 9.5, color: C.faint, textTransform: "uppercase", letterSpacing: ".04em" }}>Category</span>
+          <span style={{ width: 78, textAlign: "right", fontSize: 9.5, color: C.faint, textTransform: "uppercase" }}>{p.label}</span>
+          {p.compare && <span style={{ width: 78, textAlign: "right", fontSize: 9.5, color: C.faint, textTransform: "uppercase" }}>{p.prevLabel}</span>}
+        </div>
+
+        <div style={rptSectionLabel}>Income</div>
+        {income.length === 0 && <div style={rptEmpty}>No income recorded</div>}
         {income.map(([c, a]) => (
-          <ReportRow key={c} last={false} label={c} amount={inr(a)}
-            prevLabel={prevPl ? prevRowLabel(a, prevPl.income[c] || 0) : null}
+          <RptRow key={c} label={c} compare={p.compare}
+            current={plusInr(a)} prev={prevPl ? plusInr(prevPl.income[c] || 0) : null}
             onClick={() => openCategory(c, book.entries.filter((e) => inRange(e) && e.type === "in" && e.category === c && !isRefund(book, e)))} />
         ))}
-        <div style={{ borderTop: `1px solid ${C.line}`, marginTop: 2, paddingTop: 10 }}>
-          <div style={{ display: "flex", fontSize: 14, fontWeight: 800 }}><span style={{ flex: 1 }}>Total income</span><span style={{ color: C.green }}>{inr(pl.totalIncome)}</span></div>
-          {prevPl && <div style={{ fontSize: 10, color: C.faint, fontWeight: 600, marginTop: 2, textAlign: "right" }}>{prevRowLabel(pl.totalIncome, prevPl.totalIncome)}</div>}
-        </div>
-      </Card>
+        <RptTotalRow label="Total Income" compare={p.compare} deltaMarginBottom={6}
+          current={plusInr(pl.totalIncome)} prev={prevPl ? plusInr(prevPl.totalIncome) : null}
+          delta={prevPl ? pctDelta(pl.totalIncome, prevPl.totalIncome) : null} />
 
-      <div style={{ fontSize: 13, fontWeight: 800, marginBottom: 6, padding: "0 2px" }}>Expenses</div>
-      <Card style={{ padding: "2px 16px 6px", marginBottom: 14 }}>
-        {expense.length === 0 && <div style={{ padding: "10px 0", fontSize: 12.5, color: C.muted }}>Nothing in this period.</div>}
+        <div style={rptSectionLabel}>Expenses</div>
+        {expense.length === 0 && <div style={rptEmpty}>No expenses recorded</div>}
         {expense.map(([c, a]) => (
-          <ReportRow key={c} last={false} label={c} amount={inr(a)}
-            prevLabel={prevPl ? prevRowLabel(a, prevPl.expense[c] || 0) : null}
-            onClick={() => openCategory(c, book.entries.filter((e) => inRange(e) && e.category === c && (e.type === "out" || isRefund(book, e))))}
-            bar={<div style={{ height: 5, borderRadius: 3, background: C.overlayWash, overflow: "hidden", marginTop: 7 }}><div style={{ height: "100%", width: `${maxExp ? Math.max(2, Math.round((a / maxExp) * 100)) : 0}%`, borderRadius: 3, background: C.accent }} /></div>} />
+          <RptRow key={c} label={c} compare={p.compare}
+            current={minusInr(a)} prev={prevPl ? minusInr(prevPl.expense[c] || 0) : null}
+            onClick={() => openCategory(c, book.entries.filter((e) => inRange(e) && e.category === c && (e.type === "out" || isRefund(book, e))))} />
         ))}
-        <div style={{ borderTop: `1px solid ${C.line}`, marginTop: 2, paddingTop: 10 }}>
-          <div style={{ display: "flex", fontSize: 14, fontWeight: 800 }}><span style={{ flex: 1 }}>Total expenses</span><span style={{ color: C.red }}>{inr(pl.totalExpense)}</span></div>
-          {prevPl && <div style={{ fontSize: 10, color: C.faint, fontWeight: 600, marginTop: 2, textAlign: "right" }}>{prevRowLabel(pl.totalExpense, prevPl.totalExpense)}</div>}
-        </div>
-      </Card>
+        <RptTotalRow label="Total Expenses" compare={p.compare} deltaMarginBottom={8}
+          current={minusInr(pl.totalExpense)} prev={prevPl ? minusInr(prevPl.totalExpense) : null}
+          delta={prevPl ? pctDelta(pl.totalExpense, prevPl.totalExpense) : null} />
 
-      <div style={{ display: "flex", gap: 8 }}>
-        <GhostBtn style={{ flex: 1 }} onClick={downloadCsv}><Ic name="download" size={13} style={{ verticalAlign: -2, marginRight: 4 }} />Export CSV</GhostBtn>
-        <GhostBtn style={{ flex: 1 }} onClick={() => window.print()}>⎙ Print / PDF</GhostBtn>
+        <RptNetRow label="Net Profit" compare={p.compare} fontSize1={13.5} fontSize2={14} padding="12px 0 4px"
+          current={signedInr(pl.net)} prev={prevPl ? signedInr(prevPl.net) : null}
+          color={pl.net < 0 ? "#7a2e3b" : C.green} delta={prevPl ? pctDelta(pl.net, prevPl.net) : null} />
       </div>
     </div>
   );
 }
 
-// Matches the approved design handoff exactly: a literal running ledger
-// (Opening -> Money In -> Money Out -> Other Movement -> Net -> Closing)
-// instead of a P&L/Balance-Sheet bifurcation.
+// Matches the design handoff exactly: a literal running ledger (Opening ->
+// Money In -> Money Out -> Other Movement -> Net -> Closing) inside a
+// single continuous card, instead of a P&L/Balance-Sheet bifurcation.
 function CashFlowReport({ book, p, openSheet }) {
   const cf = computeCashFlow(book, p.from, p.to);
   const prevCf = p.compare ? computeCashFlow(book, p.prevFrom, p.prevTo) : null;
@@ -1162,80 +1240,95 @@ function CashFlowReport({ book, p, openSheet }) {
   return (
     <div>
       <PeriodPicker {...p} />
+      <ExportPills onExcel={downloadCsv} onPdf={() => window.print()} />
 
-      <Card style={{ padding: "2px 16px", marginBottom: 14 }}>
-        <ReportRow last label="Opening Balance" amount={inr(cf.opening)} prevLabel={prevCf ? prevRowLabel(cf.opening, prevCf.opening) : null} />
-      </Card>
+      <div style={{ ...glass(16), padding: "4px 14px 14px" }}>
+        <RptBalanceRow label="Opening Balance" compare={p.compare} border padding="10px 0"
+          current={magInr(cf.opening)} prev={prevCf ? magInr(prevCf.opening) : null} />
 
-      <div style={{ fontSize: 13, fontWeight: 800, marginBottom: 6, padding: "0 2px" }}>Money In</div>
-      <Card style={{ padding: "2px 16px", marginBottom: 14 }}>
-        {cf.moneyIn.length === 0 && <div style={{ padding: "10px 0", fontSize: 12.5, color: C.muted }}>Nothing in this period.</div>}
+        <div style={rptSectionLabel}>Money In</div>
+        {cf.moneyIn.length === 0 && <div style={rptEmpty}>No money in recorded</div>}
         {cf.moneyIn.map((r) => (
-          <ReportRow key={r.category} last={false} label={r.category} amount={<span style={{ color: C.green }}>+{inr(r.amount)}</span>}
-            prevLabel={prevIn ? prevRowLabel(r.amount, prevIn[r.category] || 0) : null}
+          <RptRow key={r.category} label={r.category} compare={p.compare}
+            current={plusInr(r.amount)} prev={prevIn ? plusInr(prevIn[r.category] || 0) : null}
             onClick={() => openCategory(r.category, book.entries.filter((e) => inRange(e) && e.type === "in" && e.category === r.category && !isRefund(book, e)))} />
         ))}
-        <div style={{ borderTop: `1px solid ${C.line}`, marginTop: 2, paddingTop: 10 }}>
-          <div style={{ display: "flex", fontSize: 14, fontWeight: 800 }}><span style={{ flex: 1 }}>Total Money In</span><span style={{ color: C.green }}>+{inr(cf.totalIn)}</span></div>
-          {prevCf && <div style={{ fontSize: 10, color: C.faint, fontWeight: 600, marginTop: 2, textAlign: "right" }}>{prevRowLabel(cf.totalIn, prevCf.totalIn)}</div>}
-        </div>
-      </Card>
+        <RptTotalRow label="Total Money In" compare={p.compare} deltaMarginBottom={6}
+          current={plusInr(cf.totalIn)} prev={prevCf ? plusInr(prevCf.totalIn) : null}
+          delta={prevCf ? pctDelta(cf.totalIn, prevCf.totalIn) : null} />
 
-      <div style={{ fontSize: 13, fontWeight: 800, marginBottom: 6, padding: "0 2px" }}>Money Out</div>
-      <Card style={{ padding: "2px 16px", marginBottom: 14 }}>
-        {cf.moneyOut.length === 0 && <div style={{ padding: "10px 0", fontSize: 12.5, color: C.muted }}>Nothing in this period.</div>}
+        <div style={rptSectionLabel}>Money Out</div>
+        {cf.moneyOut.length === 0 && <div style={rptEmpty}>No money out recorded</div>}
         {cf.moneyOut.map((r) => (
-          <ReportRow key={r.category} last={false} label={r.category} amount={<span style={{ color: C.red }}>−{inr(r.amount)}</span>}
-            prevLabel={prevOut ? prevRowLabel(r.amount, prevOut[r.category] || 0) : null}
+          <RptRow key={r.category} label={r.category} compare={p.compare}
+            current={minusInr(r.amount)} prev={prevOut ? minusInr(prevOut[r.category] || 0) : null}
             onClick={() => openCategory(r.category, book.entries.filter((e) => inRange(e) && e.category === r.category && (e.type === "out" || isRefund(book, e))))} />
         ))}
-        <div style={{ borderTop: `1px solid ${C.line}`, marginTop: 2, paddingTop: 10 }}>
-          <div style={{ display: "flex", fontSize: 14, fontWeight: 800 }}><span style={{ flex: 1 }}>Total Money Out</span><span style={{ color: C.red }}>−{inr(cf.totalOut)}</span></div>
-          {prevCf && <div style={{ fontSize: 10, color: C.faint, fontWeight: 600, marginTop: 2, textAlign: "right" }}>{prevRowLabel(cf.totalOut, prevCf.totalOut)}</div>}
-        </div>
-      </Card>
+        <RptTotalRow label="Total Money Out" compare={p.compare} deltaMarginBottom={8}
+          current={minusInr(cf.totalOut)} prev={prevCf ? minusInr(prevCf.totalOut) : null}
+          delta={prevCf ? pctDelta(cf.totalOut, prevCf.totalOut) : null} />
 
-      {cf.other.length > 0 && (
-        <>
-          <div style={{ fontSize: 13, fontWeight: 800, marginBottom: 6, padding: "0 2px" }}>Other Movement</div>
-          <Card style={{ padding: "2px 16px", marginBottom: 14 }}>
-            {cf.other.map((r) => (
-              <ReportRow key={r.label} last={false}
-                label={<>{r.label}{r.bs && <span style={{ fontSize: 9, fontWeight: 800, padding: "2px 7px", borderRadius: 999, background: "rgba(251,191,36,.18)", border: "1px solid rgba(251,191,36,.4)", color: C.amberText, marginLeft: 6 }}>BS</span>}</>}
-                amount={<span style={{ color: r.amount >= 0 ? C.green : C.red }}>{r.amount >= 0 ? "+" : "−"}{inr(Math.abs(r.amount))}</span>}
-                prevLabel={prevOther ? prevRowLabel(r.amount, prevOther[r.label] || 0) : null}
-                onClick={() => openCategory(r.label, book.entries.filter((e) => r.partyIds
-                  ? (inRange(e) && e.type === "party" && r.partyIds.includes(e.partyId))
-                  : (inRange(e) && e.category === r.label && (e.type === "out" || e.type === "in"))))} />
-            ))}
-            <div style={{ borderTop: `1px solid ${C.line}`, marginTop: 2, paddingTop: 10 }}>
-              <div style={{ display: "flex", fontSize: 14, fontWeight: 800 }}><span style={{ flex: 1 }}>Total Other Movement</span><span>{cf.totalOther >= 0 ? "+" : "−"}{inr(Math.abs(cf.totalOther))}</span></div>
-              {prevCf && <div style={{ fontSize: 10, color: C.faint, fontWeight: 600, marginTop: 2, textAlign: "right" }}>{prevRowLabel(cf.totalOther, prevCf.totalOther)}</div>}
-            </div>
-          </Card>
-        </>
-      )}
+        <div style={rptSectionLabel}>Other Movement</div>
+        {cf.other.length === 0 && <div style={rptEmpty}>No other movements recorded</div>}
+        {cf.other.map((r) => (
+          <RptRow key={r.label} compare={p.compare}
+            label={<>{r.label}{r.bs && <span style={{ fontSize: 9, fontWeight: 800, padding: "2px 7px", borderRadius: 999, background: "rgba(251,191,36,.18)", border: "1px solid rgba(251,191,36,.4)", color: C.amberText, marginLeft: 6 }}>BS</span>}</>}
+            current={signedInr(r.amount)} prev={prevOther ? signedInr(prevOther[r.label] || 0) : null}
+            onClick={() => openCategory(r.label, book.entries.filter((e) => r.partyIds
+              ? (inRange(e) && e.type === "party" && r.partyIds.includes(e.partyId))
+              : (inRange(e) && e.category === r.label && (e.type === "out" || e.type === "in"))))} />
+        ))}
+        <RptTotalRow label="Total Other Movement" compare={p.compare} deltaMarginBottom={8}
+          current={signedInr(cf.totalOther)} prev={prevCf ? signedInr(prevCf.totalOther) : null}
+          delta={prevCf ? pctDelta(cf.totalOther, prevCf.totalOther) : null} />
 
-      <Card style={{ padding: "2px 16px", marginBottom: 14 }}>
-        <ReportRow last={false} label="Net Cash Flow" amount={<span style={{ color: cf.net >= 0 ? C.green : C.red }}>{cf.net >= 0 ? "+" : "−"}{inr(Math.abs(cf.net))}</span>}
-          prevLabel={prevCf ? prevRowLabel(cf.net, prevCf.net) : null} />
-        <ReportRow last label="Closing Balance" amount={inr(cf.closing)} prevLabel={prevCf ? prevRowLabel(cf.closing, prevCf.closing) : null} />
-      </Card>
-
-      <div style={{ display: "flex", gap: 8 }}>
-        <GhostBtn style={{ flex: 1 }} onClick={downloadCsv}><Ic name="download" size={13} style={{ verticalAlign: -2, marginRight: 4 }} />Export CSV</GhostBtn>
-        <GhostBtn style={{ flex: 1 }} onClick={() => window.print()}>⎙ Print / PDF</GhostBtn>
+        <RptNetRow label="Net Cash Flow" compare={p.compare} fontSize1={13} fontSize2={13.5} padding="10px 0" delta={null}
+          current={signedInr(cf.net)} prev={prevCf ? signedInr(prevCf.net) : null}
+          color={cf.net < 0 ? "#7a2e3b" : C.green} />
+        <RptBalanceRow label="Closing Balance" compare={p.compare} border={false} padding="10px 0 4px" fontSize={14}
+          current={magInr(cf.closing)} prev={prevCf ? magInr(prevCf.closing) : null} />
       </div>
     </div>
   );
 }
 
+const RPT_INFO = {
+  pl: {
+    title: "About the P&L report",
+    paragraphs: [
+      "The Profit & Loss report shows how much your business earned and spent in the selected period, grouped by category.",
+      "Income lists money earned from sales, services, interest and other income categories. Expenses lists everything spent on running the business.",
+      "Net Profit is Total Income minus Total Expenses. Transfers between your own accounts, loan repayments, asset purchases and similar items are excluded — this report reflects trading performance only.",
+      "Turn on Compare to see the previous period's figures and the change alongside each line.",
+    ],
+  },
+  cashflow: {
+    title: "About the Cash Flow report",
+    paragraphs: [
+      "The Cash Flow report tracks money that actually moved in and out of your accounts in the selected period.",
+      "Money In and Money Out mirror the Income and Expenses from your P&L. Other Movement covers everything else — transfers between accounts, loan repayments, asset purchases and similar items — which can add to or subtract from cash depending on the transaction.",
+      "Opening Balance plus Money In, Money Out and Other Movement gives the Closing Balance for the period.",
+      "Turn on Compare to see the previous period's figures alongside each line.",
+    ],
+  },
+};
+
 function ReportsScreen({ book, openSheet }) {
   const [view, setView] = useState("pl");
+  const [infoOpen, setInfoOpen] = useState(false);
   const p = usePeriodPicker(book);
+  const info = RPT_INFO[view];
   return (
     <div style={{ padding: "4px 16px 90px" }}>
-      <Seg value={view} onChange={setView} style={{ marginBottom: 14 }} options={[{ v: "pl", label: "Profit & Loss" }, { v: "cashflow", label: "Cash Flow" }]} />
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 14 }}>
+        <div style={{ fontSize: 20, fontWeight: 700 }}>Reports</div>
+        <RoundBtn onClick={() => setInfoOpen(true)}><Ic name="info" size={15} color={C.soft} /></RoundBtn>
+      </div>
+      <Modal open={infoOpen} onClose={() => setInfoOpen(false)} title={info.title}>
+        {info.paragraphs.map((t, i) => <div key={i} style={{ fontSize: 12.5, lineHeight: 1.55, color: C.soft, marginBottom: 8 }}>{t}</div>)}
+        <PrimaryBtn style={{ marginTop: 8 }} onClick={() => setInfoOpen(false)}>Got it</PrimaryBtn>
+      </Modal>
+      <Seg value={view} onChange={setView} style={{ marginBottom: 10 }} options={[{ v: "pl", label: "P&L" }, { v: "cashflow", label: "Cash Flow" }]} />
       {view === "pl" ? <PLReport book={book} p={p} openSheet={openSheet} /> : <CashFlowReport book={book} p={p} openSheet={openSheet} />}
     </div>
   );
@@ -2404,7 +2497,7 @@ export default function App() {
       <style>{GLOBAL_CSS}</style>
       <div style={{ position: "fixed", inset: 0, background: C.bgGradient, zIndex: 0 }} />
       <div style={{ position: "relative", zIndex: 2, minHeight: "100vh", paddingBottom: 70 }}>
-        {tab !== "home" && <Header title={TABS.find((x) => x.id === tab).label} actions={headerActions} />}
+        {tab !== "home" && tab !== "reports" && <Header title={TABS.find((x) => x.id === tab).label} actions={headerActions} />}
         {tab === "home" && <HomeScreen book={book} go={go} openSheet={openSheet} notifCount={notifCount} />}
         {tab === "owed" && <OwedScreen book={book} openSheet={openSheet} />}
         {tab === "tx" && <TransactionsScreen book={book} up={up} openSheet={openSheet} openCodeTx={openCodeTx} selectMode={txSelectMode} setSelectMode={setTxSelectMode} />}
