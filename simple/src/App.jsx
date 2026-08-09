@@ -924,9 +924,9 @@ function TransactionsScreen({ book, up, openSheet, selectMode, setSelectMode, sh
     : { label: "Delete", icon: "trash", color: "#c33", onTrigger: () => deleteEntries([e.id]) });
 
   const approveEntry = (id) => up((b) => { const idx = b.entries.findIndex((e) => e.id === id); if (idx >= 0) b.entries[idx] = { ...b.entries[idx], pendingApproval: false }; });
-  const rejectEntry = (id) => up((b) => { const idx = b.entries.findIndex((e) => e.id === id); if (idx >= 0) b.entries[idx] = { ...b.entries[idx], category: "Suspense", pendingApproval: false }; });
+  const rejectEntry = (id) => up((b) => { const idx = b.entries.findIndex((e) => e.id === id); if (idx >= 0) b.entries[idx] = { ...b.entries[idx], category: "Suspense", pendingApproval: false, codingRejected: true }; });
   const bulkApprove = () => { up((b) => { for (const id of selected) { const idx = b.entries.findIndex((e) => e.id === id); if (idx >= 0) b.entries[idx] = { ...b.entries[idx], pendingApproval: false }; } }); setSelected(new Set()); setSelectMode(false); };
-  const bulkReject = () => { up((b) => { for (const id of selected) { const idx = b.entries.findIndex((e) => e.id === id); if (idx >= 0) b.entries[idx] = { ...b.entries[idx], category: "Suspense", pendingApproval: false }; } }); setSelected(new Set()); setSelectMode(false); };
+  const bulkReject = () => { up((b) => { for (const id of selected) { const idx = b.entries.findIndex((e) => e.id === id); if (idx >= 0) b.entries[idx] = { ...b.entries[idx], category: "Suspense", pendingApproval: false, codingRejected: true }; } }); setSelected(new Set()); setSelectMode(false); };
   const openCategorize = (ids) => openSheet("categorize", { entryIds: ids });
 
   const catGroups = [{ label: null, items: usedCategories.filter((c) => c.toLowerCase().includes(catSearch.trim().toLowerCase())) }];
@@ -2082,6 +2082,11 @@ function NewTransactionSheet({ book, up, close, preset }) {
     return <Sheet open title="Add transaction" onClose={close}><div style={{ fontSize: 13, color: C.muted }}>Add an account first, in Setup ▸ Accounts.</div></Sheet>;
   }
 
+  const saveLabel = tab === "expense" ? "Record expense"
+    : tab === "income" ? (incomeMode === "refund" ? "Record refund" : "Record income")
+    : tab === "transfer" ? "Record transfer"
+    : "Settle up";
+
   // Plain label/value rows with hairline dividers, matching the mockup --
   // no glass-card wrapper (the mockup's account/date fields sit directly
   // on the sheet's own white background).
@@ -2217,7 +2222,7 @@ function NewTransactionSheet({ book, up, close, preset }) {
         </div>
       )}
 
-      <PrimaryBtn style={{ marginTop: 16 }} onClick={save}>Save Transaction</PrimaryBtn>
+      <PrimaryBtn style={{ marginTop: 16 }} onClick={save}>{saveLabel}</PrimaryBtn>
     </Sheet>
   );
 }
@@ -2859,6 +2864,12 @@ export default function App() {
   useEffect(() => {
     loadBook().then((b) => {
       const loaded = b || defaultBook();
+      // Catches up any row that was already sitting Unexplained before a
+      // matching coding rule existed (or before this sweep existed at all)
+      // -- without this, only a rule added from this point forward would
+      // ever get applied retroactively.
+      applyCodingRules(loaded);
+      saveBook(loaded);
       setBook(loaded);
       setUnlocked(!loaded.prefs.lock.on);
     });

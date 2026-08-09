@@ -298,17 +298,19 @@ export function keywordOf(note) {
 }
 
 // Coding rules are only ever checked against a row's merchant text at the
-// moment it's imported (see storage/import) -- a rule added *after* that
-// still leaves the old row sitting in Suspense forever, since nothing else
-// ever re-checks it. Call this right after a rule is added/edited to sweep
-// every still-uncoded row against the current rule set, promoting any new
-// matches to Approval exactly like a fresh import would have. Deliberately
-// NOT run on every mutation: an entry the user just rejected also reads as
-// plain Suspense, and re-sweeping on unrelated changes would immediately
-// re-promote it right back, defeating "reject".
+// moment it's imported (see storage/import) -- a rule added, or already
+// existing before a given row was imported, otherwise leaves that row
+// sitting in Suspense forever, since nothing else ever re-checks it. Call
+// this on every app load (and again right after a rule is added/edited) to
+// sweep every still-uncoded row against the current rule set, promoting
+// matches to Approval exactly like a fresh import would have.
+// Entries the user explicitly rejected are skipped via e.codingRejected --
+// without that, a rejected entry (which also just reads as plain Suspense)
+// would get immediately re-promoted right back on the next sweep, defeating
+// "reject".
 export function applyCodingRules(db) {
   for (const e of db.entries) {
-    if ((e.type !== "in" && e.type !== "out") || e.category !== "Suspense" || e.pendingApproval) continue;
+    if ((e.type !== "in" && e.type !== "out") || e.category !== "Suspense" || e.pendingApproval || e.codingRejected) continue;
     const matched = suggestHead(db, e.merchant || "");
     if (matched !== "Suspense") { e.category = matched; e.pendingApproval = true; }
   }
