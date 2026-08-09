@@ -3150,7 +3150,7 @@ function LockScreen({ pin, onUnlock, onForgot }) {
 
 const GLOBAL_CSS = `
 * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
-html, body { margin: 0; padding: 0; overflow-x: hidden; overscroll-behavior: none; touch-action: manipulation; -webkit-touch-callout: none; -webkit-user-select: none; user-select: none; }
+html, body { margin: 0; padding: 0; overflow-x: hidden; overscroll-behavior-y: contain; touch-action: manipulation; -webkit-touch-callout: none; -webkit-user-select: none; user-select: none; }
 ::-webkit-scrollbar { display: none; }
 input, select, textarea { -webkit-user-select: text; user-select: text; }
 @keyframes cbShake { 0%,100% { transform: translateX(0); } 20%,60% { transform: translateX(-8px); } 40%,80% { transform: translateX(8px); } }
