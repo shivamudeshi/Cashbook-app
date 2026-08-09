@@ -3,7 +3,7 @@ import { loadBook, saveBook, defaultBook } from "./storage.js";
 import {
   inr, parseAmount, today, addDays, periodByOffset, previousPeriod, shortDateLabel,
   uid, isExplained, isRefund, computePL, computeCashFlow, accountsWithBalances,
-  owedAsOf, suggestHead, keywordOf,
+  owedAsOf, suggestHead, keywordOf, applyCodingRules,
 } from "./engine.js";
 import { extractPdfPages, parsePdfTable, parseStatementText, getOcrWorker } from "./pdf.js";
 import ExcelJS from "exceljs";
@@ -280,7 +280,7 @@ function RowLine({ children, onClick, last }) {
 // stays "open" at a time via the shared openId/setOpenId pair, and dragging
 // is disabled while select mode is on (selecting rows takes over the tap).
 const SWIPE_OPEN_DX = -76;
-function SwipeRow({ id, openId, setOpenId, action, disabled, onClick, children }) {
+function SwipeRow({ id, openId, setOpenId, action, disabled, locked, onClick, children }) {
   const [dx, setDx] = useState(0);
   const drag = useRef(null); // { startX, moved }
   // A mouseup/pointerup after real movement still gets a synthetic click
@@ -315,6 +315,7 @@ function SwipeRow({ id, openId, setOpenId, action, disabled, onClick, children }
   };
   const handleTap = () => {
     if (justDragged.current) { justDragged.current = false; return; }
+    if (locked) return;
     if (isOpen) { setOpenId(null); return; }
     if (onClick) onClick();
   };
@@ -322,10 +323,12 @@ function SwipeRow({ id, openId, setOpenId, action, disabled, onClick, children }
   return (
     <div style={{ position: "relative", borderRadius: 14, overflow: "hidden", marginBottom: 8 }}>
       <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "flex-end", paddingRight: 20, background: dx < 0 ? action.color : "transparent" }}>
-        <div onClick={(e) => { e.stopPropagation(); setOpenId(null); setDx(0); action.onTrigger(); }} style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 2, color: "#fff", cursor: "pointer", width: 64 }}>
-          <Ic name={action.icon} size={15} color="#fff" />
-          <span style={{ fontSize: 9, fontWeight: 700 }}>{action.label}</span>
-        </div>
+        {dx < 0 && (
+          <div onClick={(e) => { e.stopPropagation(); setOpenId(null); setDx(0); action.onTrigger(); }} style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 2, color: "#fff", cursor: "pointer", width: 64 }}>
+            <Ic name={action.icon} size={15} color="#fff" />
+            <span style={{ fontSize: 9, fontWeight: 700 }}>{action.label}</span>
+          </div>
+        )}
       </div>
       <div
         onPointerDown={disabled ? undefined : onPointerDown}
@@ -335,7 +338,7 @@ function SwipeRow({ id, openId, setOpenId, action, disabled, onClick, children }
         onClick={handleTap}
         style={{
           border: `1px solid ${C.line}`, borderRadius: 14, padding: "10px 12px", boxSizing: "border-box",
-          background: C.glass, cursor: "pointer", touchAction: "pan-y",
+          background: locked ? "rgba(17,17,17,.04)" : C.glass, opacity: locked ? 0.45 : 1, cursor: locked ? "default" : "pointer", touchAction: "pan-y",
           transform: `translateX(${dx}px)`, transition: drag.current ? "none" : "transform .2s ease",
         }}
       >
@@ -795,20 +798,26 @@ function OwedScreen({ book, up, openSheet }) {
 // app "didn't save" the change). Each type gets its own title/subtitle/
 // amount-sign treatment since none of them share Category/Party/Transfer
 // shape.
+// title is the row's own identifying text (bank narration for an imported
+// row, or whatever note was typed for a manual one) with category shown
+// separately as a pill -- matching the mockup's shape, where "name" (a
+// description) and "category" are always two distinct fields, never one
+// standing in for the other.
 function explainedRowInfo(book, e) {
   const accountName = (id) => (book.accounts.find((a) => a.id === id) || {}).name || "—";
   const partyName = (id) => (book.parties.find((p) => p.id === id) || {}).name || "Unknown";
   if (e.type === "transfer") {
-    return { title: "Transfer", sub: `${accountName(e.fromAccountId)} → ${accountName(e.toAccountId)}`, sign: null, color: C.ink };
+    return { title: "Transfer", sub: `${accountName(e.fromAccountId)} → ${accountName(e.toAccountId)}`, pill: null, sign: null, color: C.ink };
   }
   if (e.type === "party") {
     const out = e.dir === "out";
-    return { title: out ? `Paid ${partyName(e.partyId)}` : `Received from ${partyName(e.partyId)}`, sub: accountName(e.accountId), sign: out ? "−" : "+", color: out ? C.red : C.green };
+    return { title: out ? `Paid ${partyName(e.partyId)}` : `Received from ${partyName(e.partyId)}`, sub: accountName(e.accountId), pill: null, sign: out ? "−" : "+", color: out ? C.red : C.green };
   }
   const isBS = book.bsCategories.includes(e.category);
   return {
-    title: e.category, isBS,
-    sub: e.note ? `${e.note} · ${accountName(e.accountId)}` : accountName(e.accountId),
+    title: e.merchant || e.note || e.category,
+    sub: accountName(e.accountId),
+    pill: e.category, isBS,
     sign: e.type === "in" ? "+" : "−", color: e.type === "in" ? C.green : C.red,
   };
 }
@@ -950,10 +959,10 @@ function TransactionsScreen({ book, up, openSheet, selectMode, setSelectMode, sh
           <Ic name="search" size={13} color={C.muted} />
           <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search transactions" style={{ flex: 1, minWidth: 0, border: "none", background: "none", fontFamily: F.sans, fontSize: 11, color: C.ink }} />
         </div>
-        <button onClick={() => { setSortOpen((v) => !v); setFilterOpen(false); }} style={{ ...txChipBtn(sortOpen), display: "inline-flex", alignItems: "center", gap: 4, padding: "0 12px" }}>
+        <button onClick={() => { setSortOpen((v) => !v); setFilterOpen(false); setOpenSwipeId(null); }} style={{ ...txChipBtn(sortOpen), display: "inline-flex", alignItems: "center", gap: 4, padding: "9px 12px", flexShrink: 0 }}>
           <Ic name="sliders" size={12} color={sortOpen ? "#fff" : "#444"} />Sort
         </button>
-        <button onClick={() => { setFilterOpen((v) => !v); setSortOpen(false); }} style={{ ...txChipBtn(filterOpen), padding: "0 13px" }}>
+        <button onClick={() => { setFilterOpen((v) => !v); setSortOpen(false); setOpenSwipeId(null); }} style={{ ...txChipBtn(filterOpen), padding: "9px 13px", flexShrink: 0 }}>
           Filters{activeFilterCount > 0 ? ` · ${activeFilterCount}` : " ▾"}
         </button>
       </div>
@@ -1031,21 +1040,20 @@ function TransactionsScreen({ book, up, openSheet, selectMode, setSelectMode, sh
           <div style={{ fontSize: 10.5, fontWeight: 700, color: C.muted, textTransform: "uppercase", letterSpacing: ".04em", padding: "10px 2px 6px" }}>{g.label}</div>
           {g.rows.map((e) => {
             const checked = selected.has(e.id);
-            const disabledCheckbox = !!lockedType && lockedType !== e.type && !checked;
+            const rowLocked = selectMode && !!lockedType && lockedType !== e.type && !checked;
             const info = tab === "explained" ? explainedRowInfo(book, e) : null;
             const match = tab === "unexplained" ? suggestHead(book, e.merchant || "") : null;
             return (
-              <SwipeRow key={e.id} id={e.id} openId={openSwipeId} setOpenId={setOpenSwipeId} action={swipeActionFor(e)} disabled={selectMode}
+              <SwipeRow key={e.id} id={e.id} openId={openSwipeId} setOpenId={setOpenSwipeId} action={swipeActionFor(e)} disabled={selectMode} locked={rowLocked}
                 onClick={() => (selectMode ? toggleSelected(e.id) : openSheet("viewTx", { entryId: e.id }))}>
                 <div style={{ display: "flex", alignItems: "baseline", gap: 8 }}>
                   {selectMode && (
-                    <div onClick={(ev) => { ev.stopPropagation(); if (!disabledCheckbox) toggleSelected(e.id); }} style={{ width: 17, height: 17, borderRadius: 5, flexShrink: 0, alignSelf: "center", display: "flex", alignItems: "center", justifyContent: "center", cursor: disabledCheckbox ? "not-allowed" : "pointer", background: checked ? C.grad : disabledCheckbox ? C.overlayWash : "transparent", border: checked ? "none" : `1.5px solid ${disabledCheckbox ? C.line : C.overlayBorder}`, opacity: disabledCheckbox ? 0.5 : 1 }}>
+                    <div onClick={(ev) => { ev.stopPropagation(); if (!rowLocked) toggleSelected(e.id); }} style={{ width: 17, height: 17, borderRadius: 5, flexShrink: 0, alignSelf: "center", display: "flex", alignItems: "center", justifyContent: "center", cursor: rowLocked ? "not-allowed" : "pointer", background: checked ? C.grad : rowLocked ? C.overlayWash : "transparent", border: checked ? "none" : `1.5px solid ${rowLocked ? C.line : C.overlayBorder}` }}>
                       {checked && <Ic name="check" size={10} color="#fff" />}
                     </div>
                   )}
                   <div style={{ flex: 1, minWidth: 0, fontSize: 13, fontWeight: 600, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
                     {tab === "explained" ? info.title : (e.merchant || "Unrecognized transaction")}
-                    {tab === "explained" && info.isBS && <span style={{ fontSize: 9, fontWeight: 800, padding: "2px 7px", borderRadius: 999, background: "rgba(251,191,36,.18)", border: "1px solid rgba(251,191,36,.4)", color: C.amberText, marginLeft: 6 }}>BS</span>}
                   </div>
                   <div style={{ fontSize: 13, fontWeight: 700, flexShrink: 0, color: tab === "explained" ? info.color : (e.type === "in" ? C.green : C.ink), fontVariantNumeric: "tabular-nums" }}>
                     {tab === "explained" ? (info.sign || "") : (e.type === "in" ? "+" : "−")}{inr(e.amount)}
@@ -1055,6 +1063,9 @@ function TransactionsScreen({ book, up, openSheet, selectMode, setSelectMode, sh
                   <div style={{ fontSize: 10, color: C.faint, minWidth: 0, overflow: "hidden", whiteSpace: "nowrap", textOverflow: "ellipsis", flex: 1 }}>
                     {tab === "explained" ? info.sub : tab === "approval" ? `Suggested: ${e.category} · ${accountName(e.accountId)}` : (match !== "Suspense" ? `Auto-matched: ${match}` : "Needs a category") + " · " + accountName(e.accountId)}
                   </div>
+                  {tab === "explained" && info.pill && (
+                    <span style={{ display: "inline-flex", alignItems: "center", fontSize: 9.5, fontWeight: 500, padding: "2px 8px", borderRadius: 999, background: info.isBS ? "rgba(251,191,36,.18)" : "rgba(17,17,17,.06)", border: info.isBS ? "1px solid rgba(251,191,36,.4)" : "none", color: info.isBS ? C.amberText : "#444", flexShrink: 0, whiteSpace: "nowrap" }}>{info.pill}{info.isBS ? " · BS" : ""}</span>
+                  )}
                   {!selectMode && tab === "approval" && (
                     <div style={{ display: "flex", gap: 6, flexShrink: 0 }}>
                       <div onClick={(ev) => { ev.stopPropagation(); rejectEntry(e.id); }} style={{ width: 22, height: 22, borderRadius: "50%", background: "rgba(122,46,59,.1)", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer" }}><Ic name="close" size={10} color="#7a2e3b" /></div>
@@ -1843,7 +1854,11 @@ function RuleAdd({ book, up }) {
           {allCats.map((c) => <option key={c} value={c}>{c}</option>)}
         </select>
       </div>
-      <PrimaryBtn style={{ marginTop: 8 }} onClick={() => { if (match.trim()) { up((b) => { b.codingRules.push({ match: match.trim(), head }); return b; }); setMatch(""); } }}>Add Rule</PrimaryBtn>
+      <PrimaryBtn style={{ marginTop: 8 }} onClick={() => {
+        if (!match.trim()) return;
+        up((b) => { b.codingRules.push({ match: match.trim(), head }); applyCodingRules(b); return b; });
+        setMatch("");
+      }}>Add Rule</PrimaryBtn>
     </div>
   );
 }
@@ -1938,6 +1953,8 @@ function SetupAccountsPage({ book, up, open, onBack }) {
 /* ══════════════════════════ NEW TRANSACTION ══════════════════════════ */
 // A searchable, tappable category list -- replaces the plain <select> for
 // Add Transaction's Expense/Income/Refund pickers, matching the mockup.
+// Selection reads via background+bold+navy text alone, matching the
+// mockup exactly -- no checkmark icon (that was our own addition).
 function CategoryPickList({ items, value, onChange, maxHeight }) {
   const [q, setQ] = useState("");
   const needle = q.trim().toLowerCase();
@@ -1948,12 +1965,11 @@ function CategoryPickList({ items, value, onChange, maxHeight }) {
         <Ic name="search" size={13} color={C.faint} />
         <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search categories" style={{ flex: 1, minWidth: 0, border: "none", outline: "none", fontFamily: F.sans, fontSize: 12, background: "none", color: C.ink }} />
       </div>
-      <div style={{ maxHeight: maxHeight || 150, overflowY: "auto", marginBottom: 8 }}>
+      <div style={{ maxHeight: maxHeight || 145, overflowY: "auto", marginBottom: 8 }}>
         {filtered.map((it) => (
-          <div key={it.value} onClick={() => onChange(it.value)} style={{ display: "flex", alignItems: "center", gap: 6, padding: "9px 10px", borderRadius: 10, cursor: "pointer", background: value === it.value ? C.accentSoft : "transparent" }}>
-            <span style={{ flex: 1, minWidth: 0, fontSize: 12.5, fontWeight: value === it.value ? 700 : 500, color: value === it.value ? C.accent : C.ink }}>{it.label}</span>
+          <div key={it.value} onClick={() => onChange(it.value)} style={{ display: "flex", alignItems: "center", gap: 6, padding: "8px 8px", borderRadius: 8, cursor: "pointer", marginBottom: 2, background: value === it.value ? C.accentSoft : "transparent" }}>
+            <span style={{ flex: 1, minWidth: 0, fontSize: 12.5, fontWeight: value === it.value ? 600 : 400, color: value === it.value ? C.accent : C.soft }}>{it.label}</span>
             {it.isBS && <span style={{ fontSize: 8.5, fontWeight: 800, padding: "2px 6px", borderRadius: 999, background: "rgba(166,116,28,.14)", color: C.amberText, flexShrink: 0 }}>BS</span>}
-            {value === it.value && <Ic name="check" size={13} color={C.accent} style={{ flexShrink: 0 }} />}
           </div>
         ))}
         {filtered.length === 0 && <div style={{ padding: "10px 4px", fontSize: 11.5, color: C.muted }}>No matches.</div>}
@@ -2002,8 +2018,10 @@ function NewTransactionSheet({ book, up, close, preset }) {
   const [toAccountId, setToAccountId] = useState(secondAccountId);
 
   const [owedMode, setOwedMode] = useState((preset && preset.owedMode) || "receive"); // receive | pay
-  const [owedPartyId, setOwedPartyId] = useState(book.parties[0] ? book.parties[0].id : "");
+  const [owedPartyId, setOwedPartyId] = useState("");
   const [owedAccountId, setOwedAccountId] = useState(firstAccountId);
+  const [addingOwedParty, setAddingOwedParty] = useState(false);
+  const [newOwedName, setNewOwedName] = useState("");
 
   const expenseCatItems = [
     ...book.categories.expense.filter((c) => c !== "Suspense").map((c) => ({ value: c, label: c })),
@@ -2011,12 +2029,24 @@ function NewTransactionSheet({ book, up, close, preset }) {
   ];
   const incomeCatItems = book.categories.income.map((c) => ({ value: c, label: c }));
   const refundCatItems = book.categories.expense.filter((c) => c !== "Suspense").map((c) => ({ value: c, label: c }));
+  // Every party is selectable either direction -- e.g. "You'll pay" someone
+  // who currently owes YOU is a perfectly normal partial settlement, not an
+  // edge case -- but whoever already has an outstanding balance in the
+  // selected direction sorts first (matching the mockup's owedToYou/
+  // owedByYou lists) since that's the far more common case.
+  const owed = owedAsOf(book, today());
+  const owedCandidates = owed.perParty.slice().sort((a, b) => {
+    const aMatch = owedMode === "receive" ? a.balance > 0 : a.balance < 0;
+    const bMatch = owedMode === "receive" ? b.balance > 0 : b.balance < 0;
+    return (bMatch ? 1 : 0) - (aMatch ? 1 : 0);
+  });
 
   const amt = parseAmount(amount) || 0;
   const transferInvalid = tab === "transfer" && fromAccountId === toAccountId;
+  const owedInvalid = tab === "owed" && !owedPartyId;
 
   const save = () => {
-    if (!amt || amt <= 0 || transferInvalid) return;
+    if (!amt || amt <= 0 || transferInvalid || owedInvalid) return;
     up((b) => {
       if (tab === "expense") {
         b.entries.push({ id: uid(), date, amount: amt, type: "out", category: expCategory, accountId: expAccountId, note });
@@ -2038,12 +2068,25 @@ function NewTransactionSheet({ book, up, close, preset }) {
     close();
   };
 
+  const addOwedParty = () => {
+    const n = newOwedName.trim();
+    if (!n) return;
+    const id = uid();
+    up((b) => { b.parties.push({ id, name: n }); return b; });
+    setOwedPartyId(id);
+    setAddingOwedParty(false);
+    setNewOwedName("");
+  };
+
   if (book.accounts.length === 0) {
     return <Sheet open title="Add transaction" onClose={close}><div style={{ fontSize: 13, color: C.muted }}>Add an account first, in Setup ▸ Accounts.</div></Sheet>;
   }
 
-  const AccountDateCard = ({ accountId, setAccountId, accountLabel }) => (
-    <Card style={{ padding: "2px 14px", marginBottom: 12 }}>
+  // Plain label/value rows with hairline dividers, matching the mockup --
+  // no glass-card wrapper (the mockup's account/date fields sit directly
+  // on the sheet's own white background).
+  const AccountDateRows = ({ accountId, setAccountId, accountLabel }) => (
+    <div style={{ marginBottom: 12 }}>
       <SummaryRow label={accountLabel || "Account"}>
         <select style={rowSelectStyle} value={accountId} onChange={(e) => setAccountId(e.target.value)}>
           {book.accounts.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
@@ -2052,12 +2095,12 @@ function NewTransactionSheet({ book, up, close, preset }) {
       <SummaryRow label="Date" last>
         <input type="date" style={rowSelectStyle} value={date} onChange={(e) => setDate(e.target.value)} />
       </SummaryRow>
-    </Card>
+    </div>
   );
 
   return (
     <Sheet open title="Add transaction" onClose={close}>
-      <Seg value={tab} onChange={setTab} style={{ marginBottom: 14 }} wrap4 options={[
+      <Seg value={tab} onChange={setTab} style={{ marginBottom: 14 }} options={[
         { v: "expense", label: "Expense" }, { v: "income", label: "Income" },
         { v: "transfer", label: "Transfer" }, { v: "owed", label: "Settle owed" },
       ]} />
@@ -2072,12 +2115,12 @@ function NewTransactionSheet({ book, up, close, preset }) {
         <div>
           <div style={st.label}>Category</div>
           <CategoryPickList items={expenseCatItems} value={expCategory} onChange={setExpCategory} />
-          <AccountDateCard accountId={expAccountId} setAccountId={setExpAccountId} />
-          <input style={st.input} placeholder="Add a note" value={note} onChange={(e) => setNote(e.target.value)} />
-          <Card style={{ marginTop: 12, padding: "12px 14px" }}>
+          <AccountDateRows accountId={expAccountId} setAccountId={setExpAccountId} />
+          <input style={{ ...st.input, marginBottom: 12 }} placeholder="Add a note" value={note} onChange={(e) => setNote(e.target.value)} />
+          <div style={{ border: `1px solid ${C.overlayBorder}`, borderRadius: 12, padding: "12px 14px" }}>
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-              <span style={{ fontSize: 12.5, fontWeight: 600 }}>Split with someone</span>
-              <Toggle value={splitOn} onChange={setSplitOn} />
+              <span style={{ fontSize: 12.5, fontWeight: 500 }}>Split with someone</span>
+              <Toggle value={splitOn} onChange={setSplitOn} reverse />
             </div>
             {splitOn && (
               <div style={{ marginTop: 12, paddingTop: 12, borderTop: `1px solid ${C.line}` }}>
@@ -2089,7 +2132,7 @@ function NewTransactionSheet({ book, up, close, preset }) {
                 )}
               </div>
             )}
-          </Card>
+          </div>
         </div>
       )}
 
@@ -2107,14 +2150,14 @@ function NewTransactionSheet({ book, up, close, preset }) {
               <CategoryPickList items={incomeCatItems} value={incCategory} onChange={setIncCategory} />
             </>
           )}
-          <AccountDateCard accountId={incAccountId} setAccountId={setIncAccountId} />
+          <AccountDateRows accountId={incAccountId} setAccountId={setIncAccountId} />
           <input style={st.input} placeholder="Add a note" value={note} onChange={(e) => setNote(e.target.value)} />
         </div>
       )}
 
       {tab === "transfer" && (
         <div>
-          <Card style={{ padding: "2px 14px", marginBottom: 12 }}>
+          <div>
             <SummaryRow label="From account">
               <select style={rowSelectStyle} value={fromAccountId} onChange={(e) => setFromAccountId(e.target.value)}>
                 {book.accounts.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
@@ -2128,29 +2171,49 @@ function NewTransactionSheet({ book, up, close, preset }) {
             <SummaryRow label="Date" last>
               <input type="date" style={rowSelectStyle} value={date} onChange={(e) => setDate(e.target.value)} />
             </SummaryRow>
-          </Card>
-          {transferInvalid && <div style={{ fontSize: 11, color: C.red, fontWeight: 600, marginBottom: 8 }}>From and To accounts must be different.</div>}
-          <input style={st.input} placeholder="Add a note" value={note} onChange={(e) => setNote(e.target.value)} />
+          </div>
+          {transferInvalid && <div style={{ fontSize: 11, color: C.red, fontWeight: 600, margin: "8px 0" }}>From and To accounts must be different.</div>}
+          <input style={{ ...st.input, marginTop: 12 }} placeholder="Add a note" value={note} onChange={(e) => setNote(e.target.value)} />
         </div>
       )}
 
       {tab === "owed" && (
         <div>
-          <Seg value={owedMode} onChange={setOwedMode} style={{ marginBottom: 14 }} options={[{ v: "receive", label: "You'll receive" }, { v: "pay", label: "You'll pay" }]} />
-          <div style={st.label}>Person</div>
-          <PartySelect book={book} up={up} value={owedPartyId} onChange={setOwedPartyId} />
+          <Seg value={owedMode} onChange={(v) => { setOwedMode(v); setOwedPartyId(""); setAmount(""); }} style={{ marginBottom: 14 }} options={[{ v: "receive", label: "You'll receive" }, { v: "pay", label: "You'll pay" }]} />
+          <div style={st.label}>{owedMode === "receive" ? "Who owes you" : "Who you owe"}</div>
+          <div style={{ border: `1px solid ${C.line}`, borderRadius: 12, overflow: "hidden", marginBottom: 14 }}>
+            {owedCandidates.map((p) => {
+              const selected = p.id === owedPartyId;
+              return (
+                <div key={p.id} onClick={() => { setOwedPartyId(p.id); if (p.balance) setAmount(String(Math.abs(p.balance))); }} style={{ display: "flex", alignItems: "center", gap: 9, padding: "11px 12px", cursor: "pointer", borderBottom: `1px solid ${C.line}`, background: selected ? C.accentSoft : "transparent" }}>
+                  <PartyAvatarCircle id={p.id} name={p.name} size={26} />
+                  <span style={{ fontSize: 12.5, flex: 1, minWidth: 0, fontWeight: selected ? 600 : 400, color: selected ? C.ink : C.soft }}>{p.name}</span>
+                  {p.balance !== 0 && <span style={{ fontSize: 12, fontWeight: 700, color: p.balance > 0 ? C.accent : C.ink, flexShrink: 0 }}>{inr(Math.abs(p.balance))}</span>}
+                </div>
+              );
+            })}
+            {addingOwedParty ? (
+              <div style={{ display: "flex", gap: 8, padding: "10px 12px" }}>
+                <input style={{ ...st.input, flex: 1, padding: "7px 10px", fontSize: 12 }} placeholder="Person's name" value={newOwedName} autoFocus onChange={(e) => setNewOwedName(e.target.value)} onKeyDown={(e) => e.key === "Enter" && addOwedParty()} />
+                <PrimaryBtn style={{ width: "auto", padding: "0 14px" }} onClick={addOwedParty}>Add</PrimaryBtn>
+              </div>
+            ) : (
+              <div onClick={() => setAddingOwedParty(true)} style={{ display: "flex", alignItems: "center", gap: 9, padding: "11px 12px", cursor: "pointer" }}>
+                <div style={{ width: 26, height: 26, borderRadius: "50%", flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center", border: `1.5px dashed ${C.overlayBorder}`, color: C.muted, fontSize: 14, lineHeight: 1 }}>+</div>
+                <span style={{ fontSize: 12.5, fontWeight: 600, color: C.accentText }}>New person</span>
+              </div>
+            )}
+          </div>
           <div style={{ textAlign: "center", margin: "16px 0" }}>
             <div style={{ fontSize: 10, color: C.muted, textTransform: "uppercase", marginBottom: 4 }}>{owedMode === "receive" ? "They'll owe you" : "You'll owe them"}</div>
             <span style={{ fontSize: 24, fontWeight: 700 }}>₹<input value={amount} onChange={(e) => setAmount(e.target.value)} placeholder="0" style={{ border: "none", outline: "none", fontFamily: F.sans, fontSize: 24, fontWeight: 700, width: 110, textAlign: "center", background: "none", color: C.ink }} /></span>
           </div>
-          <Card style={{ padding: "2px 14px", marginBottom: 12 }}>
-            <SummaryRow label="Account" last>
-              <select style={rowSelectStyle} value={owedAccountId} onChange={(e) => setOwedAccountId(e.target.value)}>
-                {book.accounts.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
-              </select>
-            </SummaryRow>
-          </Card>
-          <input style={st.input} placeholder="Add a note" value={note} onChange={(e) => setNote(e.target.value)} />
+          <SummaryRow label={owedMode === "receive" ? "Deposit into" : "Pay from"} last>
+            <select style={rowSelectStyle} value={owedAccountId} onChange={(e) => setOwedAccountId(e.target.value)}>
+              {book.accounts.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
+            </select>
+          </SummaryRow>
+          <input style={{ ...st.input, marginTop: 12 }} placeholder="Add a note" value={note} onChange={(e) => setNote(e.target.value)} />
         </div>
       )}
 
@@ -2296,7 +2359,7 @@ function CategorizeSheet({ book, up, close, entryIds }) {
     if (idx < 0) return;
     const base = b.entries[idx];
     b.entries.splice(idx, 1);
-    b.entries.push({ id: base.id, date: base.date, amount: base.amount, type: "party", partyId, accountId: base.accountId, dir: signIn ? "in" : "out", note: base.note || "" });
+    b.entries.push({ id: base.id, date: base.date, amount: base.amount, type: "party", partyId, accountId: base.accountId, dir: signIn ? "in" : "out", note: base.note || "", merchant: base.merchant || "" });
   };
   const applyParty = (partyId) => {
     up((b) => { for (const id of entryIds) recodeAsParty(b, id, partyId); return b; });
@@ -2322,7 +2385,7 @@ function CategorizeSheet({ book, up, close, entryIds }) {
           id: base.id, date: base.date, amount: base.amount, type: "transfer",
           fromAccountId: signIn ? toAccountId : base.accountId,
           toAccountId: signIn ? base.accountId : toAccountId,
-          note: base.note || "",
+          note: base.note || "", merchant: base.merchant || "",
         });
       }
       return b;
@@ -2370,9 +2433,9 @@ function CategorizeSheet({ book, up, close, entryIds }) {
       for (const sp of splits) {
         const amt = Math.round(parseAmount(sp.amount) || 0);
         if (sp.target.kind === "category") {
-          b.entries.push({ id: uid(), date: base.date, amount: amt, type: base.type, category: sp.target.value, accountId: base.accountId, note: base.note || "" });
+          b.entries.push({ id: uid(), date: base.date, amount: amt, type: base.type, category: sp.target.value, accountId: base.accountId, note: base.note || "", merchant: base.merchant || "" });
         } else {
-          b.entries.push({ id: uid(), date: base.date, amount: amt, type: "party", partyId: sp.target.value, accountId: base.accountId, dir: signIn ? "in" : "out", note: base.note || "" });
+          b.entries.push({ id: uid(), date: base.date, amount: amt, type: "party", partyId: sp.target.value, accountId: base.accountId, dir: signIn ? "in" : "out", note: base.note || "", merchant: base.merchant || "" });
         }
       }
       return b;
@@ -2396,13 +2459,13 @@ function CategorizeSheet({ book, up, close, entryIds }) {
                 <div style={{ fontSize: 12, fontWeight: 600 }}>This is a refund</div>
                 <div style={{ fontSize: 10, color: C.muted, marginTop: 1 }}>{refundOn ? "Showing expense categories" : "Showing income categories"}</div>
               </div>
-              <Toggle value={refundOn} onChange={setRefundOn} />
+              <Toggle value={refundOn} onChange={setRefundOn} reverse />
             </div>
           )}
           {!isBulk && (
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, padding: "9px 12px", marginBottom: 10, borderRadius: 12, background: C.accentSoft }}>
               <span style={{ fontSize: 12, fontWeight: 600 }}>Split this amount</span>
-              <Toggle value={splitOn} onChange={toggleSplit} />
+              <Toggle value={splitOn} onChange={toggleSplit} reverse />
             </div>
           )}
 
