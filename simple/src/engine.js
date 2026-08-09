@@ -51,6 +51,13 @@ export function addDays(dateStr, n) {
   return `${dt.getFullYear()}-${pad2(dt.getMonth() + 1)}-${pad2(dt.getDate())}`;
 }
 const MONTH_SHORT = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+// "Aug 5" style short label for grouping/display -- Transactions rows are
+// grouped by the full ISO date underneath, so same-label entries a year
+// apart still land in separate groups even though this label drops the year.
+export function shortDateLabel(dateStr) {
+  const [, m, d] = dateStr.split("-").map(Number);
+  return `${MONTH_SHORT[m - 1]} ${d}`;
+}
 // Matches the approved design handoff's own period-navigation model
 // exactly: a period *type* (month/quarter/financial year) plus an integer
 // *offset* from today's period (0 = current, 1 = one period back, ...),
