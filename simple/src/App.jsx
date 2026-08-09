@@ -73,6 +73,7 @@ function Ic({ name, size = 16, color, style }) {
     check: "M20 6 9 17l-5-5",
     info: "M12 12m-9 0a9 9 0 1 0 18 0a9 9 0 1 0 -18 0 M12 11v5M12 8h.01",
     chevronDown: "m6 9 6 6 6-6",
+    trash: "M3 6h18M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2m3 0-1 14a1 1 0 0 1-1 1H7a1 1 0 0 1-1-1L5 6",
   };
   return (
     <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color || "currentColor"} strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round" style={style}>
@@ -508,103 +509,199 @@ function NotificationsSheet({ book, go, close }) {
 }
 
 /* ══════════════════════════ OWED ══════════════════════════ */
-function OwedScreen({ book, openSheet }) {
-  const t = today();
-  const owed = owedAsOf(book, t);
-  const [seg, setSeg] = useState("all");
-  const net = owed.debtors - owed.creditors;
-  const recv = owed.perParty.filter((p) => p.balance > 0);
-  const pay = owed.perParty.filter((p) => p.balance < 0);
-  const rows = seg === "recv" ? recv : seg === "pay" ? pay : owed.perParty.filter((p) => p.balance !== 0);
-
+// Parties don't carry a stored color -- a small deterministic hash over
+// the id keeps each person's avatar stable across renders/sessions
+// without needing to persist a color choice anywhere.
+const OWED_AVATAR_PALETTE = [
+  { color: C.accent, bg: "rgba(29,58,143,.14)" },
+  { color: C.green, bg: "rgba(15,106,92,.14)" },
+  { color: C.amberText, bg: "rgba(166,116,28,.14)" },
+  { color: "#7a2e3b", bg: "rgba(122,46,59,.14)" },
+];
+function partyAvatar(id) {
+  let h = 0;
+  for (let i = 0; i < id.length; i++) h = (h * 31 + id.charCodeAt(i)) >>> 0;
+  return OWED_AVATAR_PALETTE[h % OWED_AVATAR_PALETTE.length];
+}
+function PartyAvatarCircle({ id, name, size, muted }) {
+  const av = partyAvatar(id);
   return (
-    <div style={{ padding: "4px 16px 90px" }}>
-      <Card style={{ marginBottom: 14, position: "relative", overflow: "hidden" }}>
-        <div style={{ position: "absolute", top: 0, left: 0, right: 0, height: 5, background: C.stripeGrad }} />
-        <div style={{ fontSize: 10.5, color: C.muted, textTransform: "uppercase", letterSpacing: ".06em", fontWeight: 700 }}>Net Position</div>
-        <div style={{ fontSize: 28, fontWeight: 800, color: net >= 0 ? C.green : C.red, margin: "6px 0 12px", fontVariantNumeric: "tabular-nums" }}>{net >= 0 ? "+" : "−"}{inr(Math.abs(net))}</div>
-        <div style={{ display: "flex", gap: 10 }}>
-          <div style={{ flex: 1, background: "rgba(52,211,153,.12)", border: "1px solid rgba(52,211,153,.3)", borderRadius: 12, padding: "10px 12px" }}>
-            <div style={{ fontSize: 9.5, fontWeight: 700, color: C.muted, textTransform: "uppercase" }}>You'll receive</div>
-            <div style={{ fontSize: 14.5, fontWeight: 800, color: C.green, marginTop: 3 }}>{inr(owed.debtors)}</div>
-          </div>
-          <div style={{ flex: 1, background: "rgba(251,113,133,.12)", border: "1px solid rgba(251,113,133,.3)", borderRadius: 12, padding: "10px 12px" }}>
-            <div style={{ fontSize: 9.5, fontWeight: 700, color: C.muted, textTransform: "uppercase" }}>You owe</div>
-            <div style={{ fontSize: 14.5, fontWeight: 800, color: C.red, marginTop: 3 }}>{inr(owed.creditors)}</div>
-          </div>
-        </div>
-      </Card>
-
-      <Seg value={seg} onChange={setSeg} style={{ marginBottom: 14 }} options={[{ v: "all", label: "All" }, { v: "recv", label: "Receivables" }, { v: "pay", label: "Payables" }]} />
-
-      <div style={{ fontSize: 13, fontWeight: 800, marginBottom: 6, padding: "0 2px" }}>{seg === "recv" ? "Receivables" : seg === "pay" ? "Payables" : "All Activity"}</div>
-      <Card style={{ padding: "2px 16px", marginBottom: 14 }}>
-        {rows.length === 0 && <div style={{ padding: "14px 0", fontSize: 12.5, color: C.muted }}>Nothing here yet.</div>}
-        {rows.map((p, i) => (
-          <RowLine key={p.id} last={i === rows.length - 1} onClick={() => openSheet("partyDetail", { partyId: p.id })}>
-            <div style={{ flex: 1, minWidth: 0 }}>
-              <div style={{ fontSize: 13.5, fontWeight: 700 }}>{p.name}</div>
-              <div style={{ fontSize: 10.5, color: C.muted, fontWeight: 600, marginTop: 1 }}>{p.balance > 0 ? "Owes you" : "You owe them"}</div>
-            </div>
-            <div style={{ fontSize: 14, fontWeight: 800, color: p.balance > 0 ? C.green : C.red, fontVariantNumeric: "tabular-nums" }}>{inr(Math.abs(p.balance))}</div>
-          </RowLine>
-        ))}
-      </Card>
-
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
-        <PrimaryBtn onClick={() => openSheet("newTx", { tab: "owed", owedMode: "receive" })}>+ Add Receivable</PrimaryBtn>
-        <GhostBtn onClick={() => openSheet("recordPayment")}>Record Payment</GhostBtn>
-      </div>
+    <div style={{ width: size, height: size, borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center", fontSize: size * 0.34, fontWeight: 700, flexShrink: 0, background: muted ? C.overlayWash : av.bg, color: muted ? C.muted : av.color }}>
+      {(name || "?").trim().charAt(0).toUpperCase() || "?"}
     </div>
   );
 }
 
-// Tapping a party row in Owed used to jump straight to Record Payment,
-// which is fine for settling up but gives no way to actually see what
-// made up the outstanding balance -- this is the "what do I actually owe
-// them for" detail view, with Record Payment reachable from here too.
-function PartyDetailSheet({ book, partyId, openSheet, close }) {
+// A party's full history, newest first, signed the same way owedAsOf
+// sums balances: dir "out" (money left your account) raises what they
+// owe you, dir "in" lowers it -- so a positive/negative sign here always
+// matches the direction that entry actually moved the balance.
+function partyHistory(book, partyId) {
+  return book.entries
+    .filter((e) => e.type === "party" && e.partyId === partyId)
+    .sort((a, b) => b.date.localeCompare(a.date))
+    .map((e) => ({
+      id: e.id,
+      note: e.note || (e.dir === "out" ? "You paid" : "They paid"),
+      when: e.date,
+      signed: e.dir === "out" ? e.amount : -e.amount,
+    }));
+}
+
+const OWED_SORTS = [["amount-desc", "Amount: high to low"], ["amount-asc", "Amount: low to high"], ["az", "A – Z"]];
+const owedSortLabel = (sortBy) => (sortBy === "amount-asc" ? "Amount ▴" : sortBy === "az" ? "A – Z" : "Amount ▾");
+
+function OwedScreen({ book, up, openSheet }) {
   const t = today();
-  const party = book.parties.find((x) => x.id === partyId);
-  if (!party) return null;
   const owed = owedAsOf(book, t);
-  const row = owed.perParty.find((p) => p.id === partyId);
-  const balance = row ? row.balance : 0;
-  const accountName = (id) => (book.accounts.find((a) => a.id === id) || {}).name || "—";
-  const entries = book.entries
-    .filter((e) => e.type === "party" && e.partyId === partyId && isExplained(e))
-    .sort((a, b) => b.date.localeCompare(a.date));
+  const [activeTab, setActiveTab] = useState("get"); // get | owe | settled
+  const [search, setSearch] = useState("");
+  const [sortOpen, setSortOpen] = useState(false);
+  const [sortBy, setSortBy] = useState("amount-desc");
+  const [selectedId, setSelectedId] = useState(null);
+
+  const selectTab = (v) => { setActiveTab(v); setSearch(""); setSortOpen(false); };
+
+  if (selectedId) {
+    const party = book.parties.find((p) => p.id === selectedId);
+    if (!party) return null;
+    const row = owed.perParty.find((p) => p.id === selectedId);
+    const balance = row ? row.balance : 0;
+    const hist = partyHistory(book, selectedId);
+    const av = partyAvatar(selectedId);
+    const headline = balance > 0 ? "Owes you" : balance < 0 ? "You owe" : "Settled up";
+    const color = balance > 0 ? C.accent : balance < 0 ? C.ink : C.muted;
+    const deleteEntry = (id) => up((b) => {
+      const idx = b.entries.findIndex((e) => e.id === id);
+      if (idx >= 0) b.entries.splice(idx, 1);
+      return b;
+    });
+
+    return (
+      <div style={{ padding: "4px 16px 90px" }}>
+        <div onClick={() => setSelectedId(null)} style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 18, cursor: "pointer" }}>
+          <Ic name="back" size={16} />
+          <div style={{ fontSize: 15, fontWeight: 700, whiteSpace: "nowrap" }}>{party.name}</div>
+        </div>
+        <div style={{ display: "flex", flexDirection: "column", alignItems: "center", marginBottom: 18 }}>
+          <div style={{ width: 64, height: 64, borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 22, fontWeight: 700, background: av.bg, color: av.color, marginBottom: 10 }}>
+            {party.name.trim().charAt(0).toUpperCase() || "?"}
+          </div>
+          <div style={{ fontSize: 12, color: C.muted }}>{headline}</div>
+          <div style={{ fontSize: 30, fontWeight: 700, color, marginTop: 2, fontVariantNumeric: "tabular-nums" }}>{inr(Math.abs(balance))}</div>
+        </div>
+        {balance !== 0 && (
+          <div style={{ display: "flex", gap: 8, marginBottom: 18 }}>
+            <PrimaryBtn style={{ padding: "12px 0" }} onClick={() => openSheet("recordPayment", { partyId: selectedId })}>Settle up</PrimaryBtn>
+          </div>
+        )}
+        <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 8, padding: "0 2px" }}>History</div>
+        <Card style={{ padding: "2px 16px" }}>
+          {hist.length === 0 && <div style={{ padding: "14px 0", fontSize: 12.5, color: C.muted }}>No transactions with {party.name} yet.</div>}
+          {hist.map((h, i) => (
+            <RowLine key={h.id} last={i === hist.length - 1}>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontSize: 13, fontWeight: 600, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{h.note}</div>
+                <div style={{ fontSize: 10.5, color: C.muted, marginTop: 2 }}>{h.when}</div>
+              </div>
+              <div style={{ fontSize: 13.5, fontWeight: 700, marginRight: 6, fontVariantNumeric: "tabular-nums" }}>{h.signed >= 0 ? "+" : "−"}{inr(Math.abs(h.signed))}</div>
+              <div onClick={() => deleteEntry(h.id)} style={{ cursor: "pointer", flexShrink: 0, display: "flex" }}><Ic name="trash" size={14} color={C.faint} /></div>
+            </RowLine>
+          ))}
+        </Card>
+      </div>
+    );
+  }
+
+  const isSettled = activeTab === "settled";
+  const q = search.trim().toLowerCase();
+  const getCount = owed.perParty.filter((p) => p.balance > 0).length;
+  const oweCount = owed.perParty.filter((p) => p.balance < 0).length;
+
+  let rows = owed.perParty
+    .filter((p) => (activeTab === "get" ? p.balance > 0 : p.balance < 0))
+    .filter((p) => p.name.toLowerCase().includes(q));
+  rows.sort((a, b) => (sortBy === "amount-asc" ? Math.abs(a.balance) - Math.abs(b.balance) : sortBy === "az" ? a.name.localeCompare(b.name) : Math.abs(b.balance) - Math.abs(a.balance)));
+
+  let settledRows = owed.perParty
+    .map((p) => ({ p, hist: partyHistory(book, p.id) }))
+    .filter(({ p, hist }) => p.balance === 0 && hist.length > 0 && p.name.toLowerCase().includes(q))
+    .map(({ p, hist }) => ({ id: p.id, name: p.name, note: hist[0].note, when: hist[0].when, amount: Math.abs(hist[0].signed) }));
+  settledRows.sort((a, b) => (sortBy === "amount-asc" ? a.amount - b.amount : sortBy === "az" ? a.name.localeCompare(b.name) : b.amount - a.amount));
+
+  const total = isSettled ? settledRows.reduce((s, r) => s + r.amount, 0) : rows.reduce((s, p) => s + Math.abs(p.balance), 0);
+  const totalColor = isSettled ? C.muted : activeTab === "get" ? C.accent : C.ink;
+
+  const tabBtn = (key, label, count) => {
+    const active = activeTab === key;
+    return (
+      <div key={key} onClick={() => selectTab(key)} style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", gap: 5, padding: "8px 0", borderRadius: 8, fontSize: 11, fontWeight: active ? 700 : 500, color: active ? C.ink : C.muted, background: active ? "#fff" : "transparent", whiteSpace: "nowrap", cursor: "pointer" }}>
+        {label}
+        {count != null && <span style={{ display: "inline-flex", alignItems: "center", fontSize: 9, fontWeight: 500, padding: "1px 6px", borderRadius: 999, background: active ? C.accent : "rgba(17,17,17,.1)", color: active ? "#fff" : "#555" }}>{count}</span>}
+      </div>
+    );
+  };
 
   return (
-    <Sheet open title={party.name} onClose={close}>
-      <Card style={{ marginBottom: 14 }}>
-        <div style={{ fontSize: 10.5, color: C.muted, textTransform: "uppercase", letterSpacing: ".06em", fontWeight: 700 }}>{balance > 0 ? "Owes You" : balance < 0 ? "You Owe Them" : "Settled Up"}</div>
-        <div style={{ fontSize: 24, fontWeight: 800, color: balance > 0 ? C.green : balance < 0 ? C.red : C.ink, margin: "6px 0 2px", fontVariantNumeric: "tabular-nums" }}>{inr(Math.abs(balance))}</div>
-      </Card>
+    <div style={{ padding: "4px 16px 90px" }}>
+      <div style={{ fontSize: 20, fontWeight: 700, marginBottom: 14 }}>Owed</div>
+      <div style={{ display: "flex", background: "rgba(17,17,17,.06)", borderRadius: 10, padding: 3, marginBottom: 10 }}>
+        {tabBtn("get", "You'll get", getCount)}
+        {tabBtn("owe", "You owe", oweCount)}
+        {tabBtn("settled", "Settled")}
+      </div>
 
-      <div style={{ fontSize: 12, fontWeight: 800, marginBottom: 6 }}>Activity</div>
-      <Card style={{ padding: "2px 16px", marginBottom: 14 }}>
-        {entries.length === 0 && <div style={{ padding: "14px 0", fontSize: 12.5, color: C.muted }}>No transactions with {party.name} yet.</div>}
-        {entries.map((e, i) => {
-          const out = e.dir === "out";
-          const title = e.merchant || e.note || (out ? "Paid" : "Received");
-          return (
-            <RowLine key={e.id} last={i === entries.length - 1}>
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ fontSize: 13, fontWeight: 700, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{title}</div>
-                <div style={{ fontSize: 10.5, color: C.muted, fontWeight: 600, marginTop: 1 }}>{accountName(e.accountId)}</div>
-              </div>
-              <div style={{ textAlign: "right", flexShrink: 0 }}>
-                <div style={{ fontSize: 13, fontWeight: 800, color: out ? C.red : C.green, fontVariantNumeric: "tabular-nums" }}>{out ? "−" : "+"}{inr(e.amount)}</div>
-                <div style={{ fontSize: 9.5, color: C.faint, fontWeight: 600, marginTop: 1 }}>{e.date}</div>
-              </div>
-            </RowLine>
-          );
-        })}
-      </Card>
+      <div style={{ position: "relative", display: "flex", gap: 8, marginBottom: 10 }}>
+        <div style={{ ...glass(14), flex: 1, display: "flex", alignItems: "center", gap: 6, padding: "8px 11px" }}>
+          <Ic name="search" size={12} color={C.muted} />
+          <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search people" style={{ flex: 1, minWidth: 0, border: "none", background: "none", fontFamily: F.sans, fontSize: 11, color: C.ink }} />
+          {search && <div onClick={() => setSearch("")} style={{ cursor: "pointer", flexShrink: 0, display: "flex" }}><Ic name="close" size={12} color={C.muted} /></div>}
+        </div>
+        <div onClick={() => setSortOpen((v) => !v)} style={{ display: "inline-flex", alignItems: "center", whiteSpace: "nowrap", fontSize: 10.5, fontWeight: 500, padding: "3px 12px", borderRadius: 999, cursor: "pointer", background: sortOpen ? C.grad : C.overlayWash, color: sortOpen ? "#fff" : C.ink }}>
+          {owedSortLabel(sortBy)}
+        </div>
+        {sortOpen && (
+          <div style={{ ...glass(14), position: "absolute", top: 38, right: 0, width: 172, padding: 6, zIndex: 2 }}>
+            {OWED_SORTS.map(([v, label]) => (
+              <div key={v} onClick={() => { setSortBy(v); setSortOpen(false); }} style={{ padding: "8px 10px", borderRadius: 8, fontSize: 12, fontWeight: sortBy === v ? 600 : 400, color: sortBy === v ? C.accentText : C.soft, background: sortBy === v ? C.accentSoft : "transparent", cursor: "pointer" }}>{label}</div>
+            ))}
+          </div>
+        )}
+      </div>
 
-      {balance !== 0 && <PrimaryBtn style={{ width: "100%" }} onClick={() => openSheet("recordPayment", { partyId })}>Record Payment</PrimaryBtn>}
-    </Sheet>
+      <div style={{ fontSize: 15, fontWeight: 700, color: totalColor, marginBottom: 10 }}>{inr(total)} {isSettled ? "settled" : "total"}</div>
+      <Card style={{ padding: "2px 16px", opacity: isSettled ? 0.75 : 1 }}>
+        {isSettled ? (
+          <>
+            {settledRows.length === 0 && <div style={{ padding: "14px 0", fontSize: 12.5, color: C.muted }}>Nothing settled yet.</div>}
+            {settledRows.map((r, i) => (
+              <RowLine key={r.id} last={i === settledRows.length - 1}>
+                <PartyAvatarCircle id={r.id} name={r.name} size={38} muted />
+                <div style={{ flex: 1, minWidth: 0, marginLeft: 12 }}>
+                  <div style={{ fontSize: 13, fontWeight: 600, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{r.name}</div>
+                  <div style={{ fontSize: 10, color: C.faint, marginTop: 1 }}>{r.note} · {r.when}</div>
+                </div>
+                <div style={{ display: "inline-flex", alignItems: "center", fontSize: 10.5, fontWeight: 500, padding: "3px 9px", borderRadius: 999, background: "rgba(17,17,17,.06)", color: C.muted, fontVariantNumeric: "tabular-nums" }}>{inr(r.amount)}</div>
+              </RowLine>
+            ))}
+          </>
+        ) : (
+          <>
+            {rows.length === 0 && <div style={{ padding: "14px 0", fontSize: 12.5, color: C.muted }}>Nothing here yet.</div>}
+            {rows.map((p, i) => (
+              <RowLine key={p.id} last={i === rows.length - 1} onClick={() => setSelectedId(p.id)}>
+                <PartyAvatarCircle id={p.id} name={p.name} size={38} />
+                <div style={{ flex: 1, minWidth: 0, marginLeft: 12 }}>
+                  <div style={{ fontSize: 13.5, fontWeight: 600, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{p.name}</div>
+                  <div style={{ fontSize: 10.5, color: C.muted, marginTop: 1 }}>{p.balance > 0 ? "Owes you" : "You owe them"}</div>
+                </div>
+                <div style={{ fontSize: 14, fontWeight: 700, color: p.balance > 0 ? C.accent : C.ink, fontVariantNumeric: "tabular-nums" }}>{inr(Math.abs(p.balance))}</div>
+              </RowLine>
+            ))}
+          </>
+        )}
+      </Card>
+    </div>
   );
 }
 
@@ -2346,9 +2443,13 @@ function BulkCodeSheet({ book, up, close, entryIds, onApplied }) {
 /* ══════════════════════════ RECORD PAYMENT / IMPORT ══════════════════════════ */
 function RecordPaymentSheet({ book, up, close, presetPartyId }) {
   const owed = owedAsOf(book, today());
+  // Opened as "Settle up" from a party's balance, so the amount/direction
+  // that would zero them out are pre-filled -- still editable, since a
+  // partial payment is a perfectly normal thing to record here too.
+  const presetBalance = presetPartyId ? ((owed.perParty.find((p) => p.id === presetPartyId) || {}).balance || 0) : 0;
   const [partyId, setPartyId] = useState(presetPartyId || (book.parties[0] ? book.parties[0].id : ""));
-  const [amount, setAmount] = useState("");
-  const [dir, setDir] = useState("in");
+  const [amount, setAmount] = useState(presetBalance ? String(Math.abs(presetBalance)) : "");
+  const [dir, setDir] = useState(presetBalance < 0 ? "out" : "in");
   const [accountId, setAccountId] = useState((book.accounts[0] || {}).id || "");
   const [date, setDate] = useState(today());
   const [addingParty, setAddingParty] = useState(book.parties.length === 0);
@@ -2694,9 +2795,9 @@ export default function App() {
       <style>{GLOBAL_CSS}</style>
       <div className="no-print" style={{ position: "fixed", inset: 0, background: C.bgGradient, zIndex: 0 }} />
       <div style={{ position: "relative", zIndex: 2, minHeight: "100vh", paddingBottom: 70 }}>
-        {tab !== "home" && tab !== "reports" && <Header title={TABS.find((x) => x.id === tab).label} actions={headerActions} />}
+        {tab !== "home" && tab !== "reports" && tab !== "owed" && <Header title={TABS.find((x) => x.id === tab).label} actions={headerActions} />}
         {tab === "home" && <HomeScreen book={book} go={go} openSheet={openSheet} notifCount={notifCount} />}
-        {tab === "owed" && <OwedScreen book={book} openSheet={openSheet} />}
+        {tab === "owed" && <OwedScreen book={book} up={up} openSheet={openSheet} />}
         {tab === "tx" && <TransactionsScreen book={book} up={up} openSheet={openSheet} openCodeTx={openCodeTx} selectMode={txSelectMode} setSelectMode={setTxSelectMode} />}
         {tab === "reports" && <ReportsScreen book={book} openSheet={openSheet} />}
         {tab === "setup" && <SetupScreen book={book} openSheet={openSheet} openAccountsPage={() => setAccountsPageOpen(true)} />}
@@ -2719,7 +2820,6 @@ export default function App() {
       {sheet && sheet.name === "txFilters" && <TxFilterSheet book={book} close={closeSheet} {...sheet.ctx} />}
       {sheet && sheet.name === "bulkCode" && <BulkCodeSheet book={book} up={up} close={closeSheet} entryIds={sheet.ctx.entryIds} onApplied={sheet.ctx.onApplied} />}
       {sheet && sheet.name === "recordPayment" && <RecordPaymentSheet book={book} up={up} close={closeSheet} presetPartyId={sheet.ctx.partyId} />}
-      {sheet && sheet.name === "partyDetail" && <PartyDetailSheet book={book} openSheet={openSheet} close={closeSheet} partyId={sheet.ctx.partyId} />}
       {sheet && sheet.name === "notifications" && <NotificationsSheet book={book} go={go} close={closeSheet} />}
       {sheet && sheet.name === "breakdown" && <BreakdownSheet book={book} close={closeSheet} />}
       {sheet && sheet.name === "import" && <ImportSheet book={book} up={up} close={closeSheet} />}
