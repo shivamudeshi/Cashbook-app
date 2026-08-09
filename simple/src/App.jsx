@@ -654,7 +654,7 @@ function partyHistory(book, partyId) {
 const OWED_SORTS = [["amount-desc", "Amount: high to low"], ["amount-asc", "Amount: low to high"], ["az", "A – Z"]];
 const owedSortLabel = (sortBy) => (sortBy === "amount-asc" ? "Amount ▴" : sortBy === "az" ? "A – Z" : "Amount ▾");
 
-function OwedScreen({ book, up, openSheet }) {
+function OwedScreen({ book, up, openSheet, showToast }) {
   const t = today();
   const owed = owedAsOf(book, t);
   const [activeTab, setActiveTab] = useState("get"); // get | owe | settled
@@ -674,11 +674,20 @@ function OwedScreen({ book, up, openSheet }) {
     const av = partyAvatar(selectedId);
     const headline = balance > 0 ? "Owes you" : balance < 0 ? "You owe" : "Settled up";
     const color = balance > 0 ? C.accent : balance < 0 ? C.ink : C.muted;
-    const deleteEntry = (id) => up((b) => {
-      const idx = b.entries.findIndex((e) => e.id === id);
-      if (idx >= 0) b.entries.splice(idx, 1);
-      return b;
-    });
+    // Removing a row from a party's history never deletes the underlying
+    // transaction -- it unexplains it back to a plain Suspense entry (see
+    // unexplainEntryInPlace), so the money still shows up needing
+    // recategorization in Unexplained instead of vanishing from the ledger.
+    const deleteEntry = (id) => {
+      const original = book.entries.find((e) => e.id === id);
+      if (!original) return;
+      up((b) => unexplainEntryInPlace(b, id));
+      if (showToast) {
+        showToast(`"${original.note || party.name || "Transaction"}" marked unexplained`, () => {
+          up((b) => undoUnexplain(b, original));
+        });
+      }
+    };
 
     return (
       <div style={{ padding: "4px 16px 90px" }}>
@@ -708,7 +717,7 @@ function OwedScreen({ book, up, openSheet }) {
                 <div style={{ fontSize: 10.5, color: C.muted, marginTop: 2 }}>{h.when}</div>
               </div>
               <div style={{ fontSize: 13.5, fontWeight: 700, marginRight: 6, fontVariantNumeric: "tabular-nums" }}>{h.signed >= 0 ? "+" : "−"}{inr(Math.abs(h.signed))}</div>
-              <div onClick={() => deleteEntry(h.id)} style={{ cursor: "pointer", flexShrink: 0, display: "flex" }}><Ic name="trash" size={14} color={C.faint} /></div>
+              <div onClick={() => deleteEntry(h.id)} style={{ cursor: "pointer", flexShrink: 0, display: "flex" }}><Ic name="undo" size={14} color={C.faint} /></div>
             </RowLine>
           ))}
         </Card>
@@ -937,13 +946,30 @@ function TransactionsScreen({ book, up, openSheet, selectMode, setSelectMode, sh
       showToast(`${removed.length > 1 ? removed.length + " transactions" : "Transaction"} deleted`, () => { up((b) => { b.entries.push(...removed); }); });
     }
   };
+  // Explained/Owed transactions are never actually deleted from here --
+  // swiping or bulk-acting on an explained row (category, owed person, or
+  // transfer alike) puts it back in Unexplained via unexplainEntryInPlace
+  // instead, so a real imported bank row never silently vanishes. Only the
+  // Unexplained tab's own rows (nothing recoded onto them yet) still permit
+  // an actual delete, e.g. for a genuine duplicate import.
   const unexplainOne = (e) => {
-    up((b) => { const idx = b.entries.findIndex((x) => x.id === e.id); if (idx >= 0) b.entries[idx] = { ...b.entries[idx], category: "Suspense" }; });
-    showToast(`"${e.merchant || e.category}" marked unexplained`, () => {
-      up((b) => { const idx = b.entries.findIndex((x) => x.id === e.id); if (idx >= 0) b.entries[idx] = { ...b.entries[idx], category: e.category }; });
+    up((b) => unexplainEntryInPlace(b, e.id));
+    showToast(`"${e.merchant || e.category || explainedRowInfo(book, e).title}" marked unexplained`, () => {
+      up((b) => undoUnexplain(b, e));
     });
   };
-  const swipeActionFor = (e) => (tab === "explained" && (e.type === "in" || e.type === "out")
+  const bulkUnexplain = () => {
+    const removed = rowsForTab.filter((e) => selected.has(e.id));
+    up((b) => { for (const e of removed) unexplainEntryInPlace(b, e.id); });
+    setSelected(new Set());
+    setSelectMode(false);
+    if (removed.length) {
+      showToast(`${removed.length > 1 ? removed.length + " transactions" : "Transaction"} marked unexplained`, () => {
+        up((b) => { for (const e of removed) undoUnexplain(b, e); });
+      });
+    }
+  };
+  const swipeActionFor = (e) => (tab === "explained"
     ? { label: "Unexplain", icon: "undo", color: C.accent, onTrigger: () => unexplainOne(e) }
     : { label: "Delete", icon: "trash", color: "#c33", onTrigger: () => deleteEntries([e.id]) });
 
@@ -1193,7 +1219,7 @@ function TransactionsScreen({ book, up, openSheet, selectMode, setSelectMode, sh
       {selectMode && selected.size > 0 && tab === "explained" && (
         <div style={{ position: "fixed", left: 16, right: 16, bottom: 82, zIndex: 26, ...glass(16), padding: "10px 14px", display: "flex", alignItems: "center", gap: 10 }}>
           <div style={{ flex: 1, minWidth: 0, fontSize: 12.5, fontWeight: 700 }}>{selected.size} selected</div>
-          <GhostBtn style={{ width: "auto", padding: "9px 16px" }} onClick={() => deleteEntries(selectedIds)}>Delete</GhostBtn>
+          <GhostBtn style={{ width: "auto", padding: "9px 16px" }} onClick={bulkUnexplain}>Unexplain</GhostBtn>
           {(lockedType === "in" || lockedType === "out") && <PrimaryBtn style={{ width: "auto", padding: "9px 18px" }} onClick={() => openCategorize(selectedIds, exitSelectMode)}>Recategorize ▾</PrimaryBtn>}
         </div>
       )}
@@ -2300,7 +2326,14 @@ function AccountsPage({ open, book, up, onBack }) {
   const addAccount = () => {
     const name = newName.trim();
     if (!name) return;
-    const opening = parseAmount(newOpening) || 0;
+    const parsedOpening = parseAmount(newOpening) || 0;
+    // A card's opening balance is always stored as the amount owed (a
+    // positive number, per accountsWithBalances) -- but "-15000" is how
+    // most people naturally describe existing card debt, and parseAmount
+    // now accepts that minus sign rather than silently rejecting it and
+    // resetting to 0. Normalize to the same magnitude either way so typing
+    // either "15000" or "-15000" for a card records the same outstanding debt.
+    const opening = newType === "card" ? Math.abs(parsedOpening) : parsedOpening;
     const dueDay = newType === "card" && newDueDay ? +newDueDay : undefined;
     up((b) => { b.accounts.push({ id: uid(), name, kind: newType, opening, dueDay }); });
     setNewName(""); setNewOpening(""); setNewDueDay("");
@@ -2360,7 +2393,7 @@ function AccountsPage({ open, book, up, onBack }) {
           <div style={{ padding: "10px 0 10px 11px", fontSize: 12, fontWeight: 600, color: C.muted }}>₹</div>
           <input style={{ flex: 1, boxSizing: "border-box", border: "none", padding: "10px 11px 10px 4px", fontFamily: F.sans, fontSize: 12, fontVariantNumeric: "tabular-nums", outline: "none" }} inputMode="decimal" placeholder="0" value={newOpening} onChange={(e) => setNewOpening(e.target.value)} />
         </div>
-        <div style={{ fontSize: 10, color: C.muted, marginBottom: 14 }}>{newType === "card" ? "Amount currently outstanding on this card." : "Balance on the day you started tracking this account in Cash Book."}</div>
+        <div style={{ fontSize: 10, color: C.muted, marginBottom: 14 }}>{newType === "card" ? "Amount currently outstanding on this card -- \"5000\" and \"-5000\" both mean the same 5,000 owed." : "Balance on the day you started tracking this account in Cash Book. A negative number means you were overdrawn."}</div>
         {newType === "card" && (
           <>
             <div style={{ fontSize: 9.5, fontWeight: 700, color: C.muted, textTransform: "uppercase", letterSpacing: ".04em", marginBottom: 5 }}>Payment due date</div>
@@ -2716,7 +2749,12 @@ function ViewTransactionSheet({ book, up, close, entryId }) {
   const isCodable = entry.type === "in" || entry.type === "out";
   const isApproval = isCodable && entry.pendingApproval;
   const isUnexplained = isCodable && !isApproval && !isExplained(entry);
-  const canUnexplain = isCodable && !isApproval && !isUnexplained;
+  // Party (owed) and transfer entries are always isExplained() (see
+  // engine.js) -- unexplaining one of those runs through the same
+  // unexplainEntryInPlace a transfer/owed row's swipe action uses, splitting
+  // a transfer back into its two original per-account legs rather than
+  // being limited to plain category entries.
+  const canUnexplain = !isApproval && isExplained(entry);
   const isBS = canUnexplain && book.bsCategories.includes(entry.category);
   const refund = canUnexplain && isRefund(book, entry);
   const description = entry.merchant || entry.note || "";
@@ -2763,16 +2801,12 @@ function ViewTransactionSheet({ book, up, close, entryId }) {
           </div>
         ))}
       </Card>
-      {!isCodable && (
-        <div style={{ fontSize: 10, color: C.faint, fontWeight: 600, marginTop: 10, lineHeight: 1.5 }}>Transfers and party entries aren't coded through Unexplained — their accounts and direction were fixed when they were saved.</div>
+      {entry.type === "transfer" && (
+        <div style={{ fontSize: 10, color: C.faint, fontWeight: 600, marginTop: 10, lineHeight: 1.5 }}>Unexplaining a transfer splits it back into its two original legs, one in each account, so both sides can be recategorized separately.</div>
       )}
       {canUnexplain && (
         <button onClick={() => {
-          up((b) => {
-            const idx = b.entries.findIndex((e) => e.id === entryId);
-            if (idx >= 0) b.entries[idx] = { ...b.entries[idx], category: "Suspense" };
-            return b;
-          });
+          up((b) => unexplainEntryInPlace(b, entryId));
           close();
         }} style={{ width: "100%", marginTop: 14, padding: "12px 0", borderRadius: 12, border: "none", background: "rgba(122,46,59,.08)", color: "#7a2e3b", fontWeight: 600, fontSize: 12.5, cursor: "pointer", fontFamily: F.sans }}>Mark as unexplained</button>
       )}
@@ -2863,6 +2897,41 @@ function recodeEntryAsTransfer(b, id, toAccountId) {
     note: base.note || "", merchant: base.merchant || "",
   });
   return match ? match.id : null;
+}
+
+// Reverses whatever recode turned this entry into an explained one, putting
+// it back in Unexplained instead of deleting it -- deleting a raw imported
+// bank row loses real money from the ledger permanently, while unexplaining
+// just asks for it to be recategorized. A party entry (owed) becomes a
+// plain Suspense in/out entry again, using its own dir; a transfer entry
+// (which represents both legs of the money movement in one row -- see
+// recodeEntryAsTransfer) splits back into the two separate Suspense legs it
+// was merged from, one per account, so both sides can be recategorized
+// independently and nothing about either account's ledger goes missing.
+// The second leg reuses a deterministic id (base id + ":leg2") rather than
+// a fresh uid() so a caller can undo this without having to track a
+// randomly generated id through a closure.
+function unexplainEntryInPlace(b, id) {
+  const idx = b.entries.findIndex((e) => e.id === id);
+  if (idx < 0) return;
+  const base = b.entries[idx];
+  if (base.type === "party") {
+    b.entries.splice(idx, 1);
+    b.entries.push({ id: base.id, date: base.date, amount: base.amount, type: base.dir, category: "Suspense", accountId: base.accountId, note: base.note || "", merchant: base.merchant || "" });
+  } else if (base.type === "transfer") {
+    b.entries.splice(idx, 1);
+    b.entries.push({ id: base.id, date: base.date, amount: base.amount, type: "out", category: "Suspense", accountId: base.fromAccountId, note: base.note || "", merchant: base.merchant || "" });
+    b.entries.push({ id: base.id + ":leg2", date: base.date, amount: base.amount, type: "in", category: "Suspense", accountId: base.toAccountId, note: base.note || "", merchant: base.merchant || "" });
+  } else {
+    b.entries[idx] = { ...base, category: "Suspense", pendingApproval: false };
+  }
+}
+// Pairs with unexplainEntryInPlace for a toast's Undo action -- removes
+// whatever it produced for `original.id` (one row, or the two split
+// transfer legs) and puts the original entry back exactly as it was.
+function undoUnexplain(b, original) {
+  b.entries = b.entries.filter((e) => e.id !== original.id && e.id !== original.id + ":leg2");
+  b.entries.push(original);
 }
 
 function CategorizeSheet({ book, up, close, entryIds, showToast, onApplied }) {
@@ -3564,7 +3633,7 @@ export default function App() {
       <div key={tab} style={{ position: "relative", zIndex: 2, minHeight: "100vh", paddingBottom: 70, animation: "fadeIn .2s ease" }}>
         {tab !== "home" && tab !== "reports" && tab !== "owed" && tab !== "tx" && <Header title={TABS.find((x) => x.id === tab).label} />}
         {tab === "home" && <HomeScreen book={book} go={go} openSheet={openSheet} notifCount={notifCount} balancesRevealed={balancesRevealed} setBalancesRevealed={setBalancesRevealed} />}
-        {tab === "owed" && <OwedScreen book={book} up={up} openSheet={openSheet} />}
+        {tab === "owed" && <OwedScreen book={book} up={up} openSheet={openSheet} showToast={showToast} />}
         {tab === "tx" && <TransactionsScreen book={book} up={up} openSheet={openSheet} selectMode={txSelectMode} setSelectMode={setTxSelectMode} showToast={showToast} initialTab={txJumpTab} clearInitialTab={() => setTxJumpTab(null)} />}
         {tab === "reports" && <ReportsScreen book={book} openSheet={openSheet} />}
         {tab === "setup" && <SetupScreen book={book} up={up} onLockNow={() => { setUnlocked(false); setBalancesRevealed(false); }} />}

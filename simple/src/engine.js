@@ -16,15 +16,23 @@ export function inr(n) {
   return (v < 0 ? "−" : "") + "₹" + shown;
 }
 
-// Ported verbatim from CashBook.jsx:311-323.
+// Ported near-verbatim from CashBook.jsx:311-323, extended with an optional
+// leading "-" -- an opening balance is the one amount field in the app
+// where a negative number is a real, meaningful input (an overdrawn bank
+// account, or someone typing a credit card's existing debt as "-5000"),
+// so the parser itself needs to accept it. Every other amount field in the
+// app already guards for a strictly positive result at its own call site,
+// so allowing a negative return here doesn't let a negative value slip
+// through anywhere it wasn't already rejected.
 export function parseAmount(s) {
   if (typeof s === "number") return toPaise(s);
   if (!s) return NaN;
   const t = String(s).replace(/[₹,\s]/g, "").toLowerCase();
-  const m = t.match(/^(\d+(?:\.\d+)?)(k|l|lac|lakh|lakhs|cr|crore)?$/);
+  const m = t.match(/^(-)?(\d+(?:\.\d+)?)(k|l|lac|lakh|lakhs|cr|crore)?$/);
   if (!m) return NaN;
-  const mult = { k: 1e3, l: 1e5, lac: 1e5, lakh: 1e5, lakhs: 1e5, cr: 1e7, crore: 1e7 }[m[2]] || 1;
-  return toPaise(parseFloat(m[1]) * mult);
+  const mult = { k: 1e3, l: 1e5, lac: 1e5, lakh: 1e5, lakhs: 1e5, cr: 1e7, crore: 1e7 }[m[3]] || 1;
+  const v = toPaise(parseFloat(m[2]) * mult);
+  return m[1] ? -v : v;
 }
 
 /* ─────────────────── calendar helpers (ported verbatim) ─────────────────── */
