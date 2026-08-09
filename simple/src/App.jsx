@@ -2578,14 +2578,28 @@ function NewTransactionSheet({ book, up, close, preset }) {
 
   const amt = parseAmount(amount) || 0;
   const transferInvalid = tab === "transfer" && fromAccountId === toAccountId;
-  const owedInvalid = tab === "owed" && !owedPartyId;
-  const splitActive = (tab === "expense" || tab === "income") && splitOn;
+  const splitActive = (tab === "expense" || tab === "income" || tab === "owed") && splitOn;
+  // A single party is only required when NOT splitting -- splitting the
+  // owed tab picks its people per split row instead of the one candidate
+  // list above the amount field.
+  const owedInvalid = tab === "owed" && !splitActive && !owedPartyId;
   const { valid: splitValid } = splitStatus(splits, amt);
 
   const save = () => {
     if (!amt || amt <= 0 || transferInvalid || owedInvalid) return;
     if (splitActive) {
       if (!splitValid) return;
+      if (tab === "owed") {
+        up((b) => {
+          for (const sp of splits) {
+            const spAmt = Math.round(parseAmount(sp.amount) || 0);
+            b.entries.push({ id: uid(), date, amount: spAmt, type: "party", partyId: sp.target.value, ...(owedNoAccount ? {} : { accountId: owedAccountId }), dir: owedMode === "receive" ? "out" : "in", note });
+          }
+          return b;
+        });
+        close();
+        return;
+      }
       const accountId = tab === "expense" ? expAccountId : incAccountId;
       const type = tab === "expense" ? "out" : "in";
       up((b) => {
@@ -2761,38 +2775,51 @@ function NewTransactionSheet({ book, up, close, preset }) {
       {tab === "owed" && (
         <div>
           <Seg value={owedMode} onChange={(v) => { setOwedMode(v); setOwedPartyId(""); setAmount(""); }} style={{ marginBottom: 14 }} options={[{ v: "receive", label: "You'll receive" }, { v: "pay", label: "You'll pay" }]} />
-          <div style={st.label}>{owedMode === "receive" ? "Who owes you" : "Who you owe"}</div>
-          <div style={{ border: `1px solid ${C.line}`, borderRadius: 12, overflow: "hidden", marginBottom: 14 }}>
-            {owedCandidates.map((p) => {
-              const selected = p.id === owedPartyId;
-              return (
-                <div key={p.id} onClick={() => { setOwedPartyId(p.id); if (p.balance) setAmount(String(Math.abs(p.balance))); }} style={{ display: "flex", alignItems: "center", gap: 9, padding: "11px 12px", cursor: "pointer", borderBottom: `1px solid ${C.line}`, background: selected ? C.accentSoft : "transparent" }}>
-                  <PartyAvatarCircle id={p.id} name={p.name} size={26} />
-                  <span style={{ fontSize: 12.5, flex: 1, minWidth: 0, fontWeight: selected ? 600 : 400, color: selected ? C.ink : C.soft }}>{p.name}</span>
-                  {p.balance !== 0 && <span style={{ fontSize: 12, fontWeight: 700, color: p.balance > 0 ? C.accent : C.ink, flexShrink: 0 }}>{inr(Math.abs(p.balance))}</span>}
-                </div>
-              );
-            })}
-            {addingOwedParty ? (
-              <div style={{ display: "flex", gap: 8, padding: "10px 12px" }}>
-                <input style={{ ...st.input, flex: 1, padding: "7px 10px", fontSize: 12 }} placeholder="Person's name" value={newOwedName} autoFocus onChange={(e) => setNewOwedName(e.target.value)} onKeyDown={(e) => e.key === "Enter" && addOwedParty()} />
-                <PrimaryBtn style={{ width: "auto", padding: "0 14px" }} onClick={addOwedParty}>Add</PrimaryBtn>
+          {/* Splitting picks its people per split row below instead of this
+              single-candidate list, e.g. a group dinner split three ways
+              rather than one whole amount to one person. */}
+          {!splitOn && (
+            <>
+              <div style={st.label}>{owedMode === "receive" ? "Who owes you" : "Who you owe"}</div>
+              <div style={{ border: `1px solid ${C.line}`, borderRadius: 12, overflow: "hidden", marginBottom: 14 }}>
+                {owedCandidates.map((p) => {
+                  const selected = p.id === owedPartyId;
+                  return (
+                    <div key={p.id} onClick={() => { setOwedPartyId(p.id); if (p.balance) setAmount(String(Math.abs(p.balance))); }} style={{ display: "flex", alignItems: "center", gap: 9, padding: "11px 12px", cursor: "pointer", borderBottom: `1px solid ${C.line}`, background: selected ? C.accentSoft : "transparent" }}>
+                      <PartyAvatarCircle id={p.id} name={p.name} size={26} />
+                      <span style={{ fontSize: 12.5, flex: 1, minWidth: 0, fontWeight: selected ? 600 : 400, color: selected ? C.ink : C.soft }}>{p.name}</span>
+                      {p.balance !== 0 && <span style={{ fontSize: 12, fontWeight: 700, color: p.balance > 0 ? C.accent : C.ink, flexShrink: 0 }}>{inr(Math.abs(p.balance))}</span>}
+                    </div>
+                  );
+                })}
+                {addingOwedParty ? (
+                  <div style={{ display: "flex", gap: 8, padding: "10px 12px" }}>
+                    <input style={{ ...st.input, flex: 1, padding: "7px 10px", fontSize: 12 }} placeholder="Person's name" value={newOwedName} autoFocus onChange={(e) => setNewOwedName(e.target.value)} onKeyDown={(e) => e.key === "Enter" && addOwedParty()} />
+                    <PrimaryBtn style={{ width: "auto", padding: "0 14px" }} onClick={addOwedParty}>Add</PrimaryBtn>
+                  </div>
+                ) : (
+                  <div onClick={() => setAddingOwedParty(true)} style={{ display: "flex", alignItems: "center", gap: 9, padding: "11px 12px", cursor: "pointer" }}>
+                    <div style={{ width: 26, height: 26, borderRadius: "50%", flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center", border: `1.5px dashed ${C.overlayBorder}`, color: C.muted, fontSize: 14, lineHeight: 1 }}>+</div>
+                    <span style={{ fontSize: 12.5, fontWeight: 600, color: C.accentText }}>New person</span>
+                  </div>
+                )}
               </div>
-            ) : (
-              <div onClick={() => setAddingOwedParty(true)} style={{ display: "flex", alignItems: "center", gap: 9, padding: "11px 12px", cursor: "pointer" }}>
-                <div style={{ width: 26, height: 26, borderRadius: "50%", flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center", border: `1.5px dashed ${C.overlayBorder}`, color: C.muted, fontSize: 14, lineHeight: 1 }}>+</div>
-                <span style={{ fontSize: 12.5, fontWeight: 600, color: C.accentText }}>New person</span>
-              </div>
-            )}
-          </div>
+            </>
+          )}
           <div style={{ textAlign: "center", margin: "16px 0" }}>
             <div style={{ fontSize: 10, color: C.muted, textTransform: "uppercase", marginBottom: 4 }}>{owedMode === "receive" ? "They'll owe you" : "You'll owe them"}</div>
             <span style={{ fontSize: 24, fontWeight: 700 }}>₹<input value={amount} onChange={(e) => setAmount(e.target.value)} placeholder="0" style={{ border: "none", outline: "none", fontFamily: F.sans, fontSize: 24, fontWeight: 700, width: 110, textAlign: "center", background: "none", color: C.ink }} /></span>
           </div>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, padding: "9px 12px", marginBottom: splitOn ? 12 : 14, borderRadius: 12, background: C.accentSoft }}>
+            <span style={{ fontSize: 12.5, fontWeight: 500 }}>Split this amount</span>
+            <Toggle value={splitOn} onChange={toggleSplitOn} reverse />
+          </div>
+          {splitOn && <SplitEditor book={book} up={up} totalAmount={amt} splits={splits} setSplits={setSplits} partyOnly />}
           {/* An IOU that never went through a real account -- cash handed over
               off-book, or just a debt to remember -- stays purely in the Owed
               ledger with no accountId at all, so it can never move a bank/cash
-              balance (see the `owedNoAccount` comment on save()). */}
+              balance (see the `owedNoAccount` comment on save()). Applies the
+              same way whether this is one person's debt or a split many ways. */}
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, padding: "9px 12px", marginBottom: owedNoAccount ? 12 : 14, borderRadius: 12, background: C.accentSoft }}>
             <div>
               <div style={{ fontSize: 12, fontWeight: 600 }}>Not linked to a bank account</div>
@@ -2927,12 +2954,22 @@ function categorizeGroups(book, sign, refundOn, search) {
   return groups.map((g) => ({ ...g, items: g.items.filter((c) => c.toLowerCase().includes(q)) })).filter((g) => g.items.length > 0);
 }
 
+// Divides `total` into `n` whole-rupee shares as evenly as possible --
+// e.g. 1000 into 3 is [334, 333, 333], not 333.33 repeating or a share left
+// unaccounted for. The leftover rupee(s) from flooring go to the first
+// few shares so they always sum back to exactly `total`.
+function evenSplitAmounts(total, n) {
+  if (n <= 0) return [];
+  const base = Math.floor(total / n);
+  const remainder = Math.round(total) - base * n;
+  return Array.from({ length: n }, (_, i) => base + (i < remainder ? 1 : 0));
+}
 // A fresh 2-row 50/50 split, the starting point whenever "Split this
 // amount" is switched on -- shared by CategorizeSheet (splitting an
 // existing transaction) and NewTransactionSheet (splitting a fresh one).
 const defaultSplitPair = (totalAmount) => {
-  const half = Math.round(totalAmount / 2);
-  return [{ amount: String(half), target: null, open: false }, { amount: String(totalAmount - half), target: null, open: false }];
+  const [a, b] = evenSplitAmounts(totalAmount, 2);
+  return [{ amount: String(a), target: null, open: false }, { amount: String(b), target: null, open: false }];
 };
 // Pure validity check for a split's rows against the amount they need to
 // add up to -- every row needs a target and a positive amount, and the
@@ -2952,14 +2989,27 @@ function splitStatus(splits, totalAmount) {
 // Deliberately has no Save button of its own -- CategorizeSheet renders one
 // inline (it has no other footer), NewTransactionSheet's is the sheet's
 // single fixed footer button instead.
-function SplitEditor({ book, up, totalAmount, splits, setSplits, signIn, refundOn }) {
+function SplitEditor({ book, up, totalAmount, splits, setSplits, signIn, refundOn, partyOnly }) {
   const [splitAddPartyIdx, setSplitAddPartyIdx] = useState(null);
   const [splitNewPartyName, setSplitNewPartyName] = useState("");
-  const splitGroups = categorizeGroups(book, signIn ? "in" : "out", refundOn, "");
+  const splitGroups = partyOnly ? [] : categorizeGroups(book, signIn ? "in" : "out", refundOn, "");
   const { remaining } = splitStatus(splits, totalAmount);
 
-  const addSplitRow = () => setSplits((s) => [...s, { amount: "", target: null, open: false }]);
-  const removeSplitRow = (i) => setSplits((s) => s.filter((_, idx) => idx !== i));
+  // Adding or removing a row re-divides the whole amount evenly across
+  // however many rows now exist, rather than leaving the new row at ₹0 (or
+  // the removed row's share just vanishing) for the user to rebalance by
+  // hand -- picking "+ Add another split" for a 3rd person should show a
+  // 3-way split, not a 2-way split plus one empty row. Each row's already
+  // chosen target is preserved; only the amounts reset.
+  const addSplitRow = () => setSplits((s) => {
+    const amounts = evenSplitAmounts(totalAmount, s.length + 1);
+    return [...s.map((sp, i) => ({ ...sp, amount: String(amounts[i]) })), { amount: String(amounts[s.length]), target: null, open: false }];
+  });
+  const removeSplitRow = (i) => setSplits((s) => {
+    const next = s.filter((_, idx) => idx !== i);
+    const amounts = evenSplitAmounts(totalAmount, next.length);
+    return next.map((sp, idx) => ({ ...sp, amount: String(amounts[idx]) }));
+  });
   const updateSplitAmount = (i, v) => setSplits((s) => s.map((sp, idx) => (idx === i ? { ...sp, amount: v } : sp)));
   const toggleSplitTargetOpen = (i) => { setSplitAddPartyIdx(null); setSplits((s) => s.map((sp, idx) => (idx === i ? { ...sp, open: !sp.open } : { ...sp, open: false }))); };
   const setSplitTarget = (i, target) => setSplits((s) => s.map((sp, idx) => (idx === i ? { ...sp, target, open: false } : sp)));
@@ -2985,15 +3035,17 @@ function SplitEditor({ book, up, totalAmount, splits, setSplits, signIn, refundO
               {splits.length > 1 && <div onClick={() => removeSplitRow(i)} style={{ cursor: "pointer", flexShrink: 0, display: "flex" }}><Ic name="close" size={13} color={C.faint} /></div>}
             </div>
             <div onClick={() => toggleSplitTargetOpen(i)} style={{ display: "inline-flex", alignItems: "center", fontSize: 10.5, fontWeight: 500, padding: "4px 10px", borderRadius: 999, cursor: "pointer", marginTop: 6, whiteSpace: "nowrap", background: sp.target ? C.accentSoft : C.overlayWash, color: sp.target ? C.accentText : C.muted }}>
-              {sp.target ? sp.target.label : "Choose category or person"} ▾
+              {sp.target ? sp.target.label : partyOnly ? "Choose person" : "Choose category or person"} ▾
             </div>
             {sp.open && (
               <div style={{ marginTop: 9, paddingTop: 9, borderTop: `1px solid ${C.line}` }}>
-                <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 6 }}>
-                  {splitGroups.map((g) => g.items.map((c) => (
-                    <button key={c} onClick={() => setSplitTarget(i, { kind: "category", value: c, label: c })} style={{ ...catChipStyle, fontSize: 10.5, padding: "5px 10px" }}>{c}</button>
-                  )))}
-                </div>
+                {!partyOnly && (
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 6 }}>
+                    {splitGroups.map((g) => g.items.map((c) => (
+                      <button key={c} onClick={() => setSplitTarget(i, { kind: "category", value: c, label: c })} style={{ ...catChipStyle, fontSize: 10.5, padding: "5px 10px" }}>{c}</button>
+                    )))}
+                  </div>
+                )}
                 <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
                   {book.parties.map((p) => (
                     <button key={p.id} onClick={() => setSplitTarget(i, { kind: "owed", value: p.id, label: p.name })} style={{ ...owedChipStyle, fontSize: 10.5, padding: "5px 10px" }}>{p.name}</button>
