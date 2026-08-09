@@ -2620,6 +2620,8 @@ function NewTransactionSheet({ book, up, close, preset }) {
           const spAmt = Math.round(parseAmount(sp.amount) || 0);
           if (sp.target.kind === "category") {
             b.entries.push({ id: uid(), date, amount: spAmt, type, category: sp.target.value, accountId, note });
+          } else if (sp.target.kind === "transfer") {
+            pushTransferLeg(b, uid(), { type, accountId, date, note }, sp.target.value, spAmt);
           } else {
             b.entries.push({ id: uid(), date, amount: spAmt, type: "party", partyId: sp.target.value, accountId, dir: type === "in" ? "in" : "out", note: note || "Split expense" });
           }
@@ -2731,7 +2733,7 @@ function NewTransactionSheet({ book, up, close, preset }) {
               <Toggle value={splitOn} onChange={toggleSplitOn} reverse />
             </div>
           </div>
-          {splitOn && <SplitEditor book={book} up={up} totalAmount={amt} splits={splits} setSplits={setSplits} signIn={false} refundOn={false} />}
+          {splitOn && <SplitEditor book={book} up={up} totalAmount={amt} splits={splits} setSplits={setSplits} signIn={false} refundOn={false} ownAccountId={expAccountId} />}
         </div>
       )}
 
@@ -2759,7 +2761,7 @@ function NewTransactionSheet({ book, up, close, preset }) {
               <Toggle value={splitOn} onChange={toggleSplitOn} reverse />
             </div>
           </div>
-          {splitOn && <SplitEditor book={book} up={up} totalAmount={amt} splits={splits} setSplits={setSplits} signIn={true} refundOn={incomeMode === "refund"} />}
+          {splitOn && <SplitEditor book={book} up={up} totalAmount={amt} splits={splits} setSplits={setSplits} signIn={true} refundOn={incomeMode === "refund"} ownAccountId={incAccountId} />}
         </div>
       )}
 
@@ -2957,6 +2959,7 @@ function ViewTransactionSheet({ book, up, close, entryId }) {
 // double-entry leg to stay correct.
 const catChipStyle = { display: "inline-flex", alignItems: "center", fontSize: 11.5, fontWeight: 500, padding: "7px 13px", borderRadius: 999, border: "none", cursor: "pointer", background: "rgba(17,17,17,.06)", color: "#444", fontFamily: F.sans, whiteSpace: "nowrap" };
 const owedChipStyle = { ...catChipStyle, background: "rgba(15,106,92,.08)", color: C.green };
+const transferChipStyle = { ...catChipStyle, background: C.accentSoft, color: C.accentText };
 
 function categorizeGroups(book, sign, refundOn, search) {
   const q = search.trim().toLowerCase();
@@ -3002,10 +3005,21 @@ function splitStatus(splits, totalAmount) {
 // Deliberately has no Save button of its own -- CategorizeSheet renders one
 // inline (it has no other footer), NewTransactionSheet's is the sheet's
 // single fixed footer button instead.
-function SplitEditor({ book, up, totalAmount, splits, setSplits, signIn, refundOn, partyOnly }) {
+function SplitEditor({ book, up, totalAmount, splits, setSplits, signIn, refundOn, partyOnly, ownAccountId }) {
   const [splitAddPartyIdx, setSplitAddPartyIdx] = useState(null);
   const [splitNewPartyName, setSplitNewPartyName] = useState("");
   const splitGroups = partyOnly ? [] : categorizeGroups(book, signIn ? "in" : "out", refundOn, "");
+  // A split row can send its own portion of the amount to another account
+  // as a Transfer instead of a category/person -- e.g. a card payment
+  // whose statement credit is a few rupees more than what left the bank
+  // (network cashback/rounding): split it into a transfer leg matching
+  // the bank's real amount plus a small income category for the rest,
+  // instead of the whole credit silently double-counting or the leftover
+  // going unrecorded. Excludes the entry's own account (a no-op
+  // self-transfer, same guard as the plain Transfer tab), and doesn't
+  // apply to the party-only Settle Owed split, where "transfer" isn't a
+  // meaningful target at all.
+  const transferAccountChoices = partyOnly ? [] : book.accounts.filter((a) => a.id !== ownAccountId);
   const { remaining } = splitStatus(splits, totalAmount);
 
   // Adding or removing a row re-divides the whole amount evenly across
@@ -3048,7 +3062,7 @@ function SplitEditor({ book, up, totalAmount, splits, setSplits, signIn, refundO
               {splits.length > 1 && <div onClick={() => removeSplitRow(i)} style={{ cursor: "pointer", flexShrink: 0, display: "flex" }}><Ic name="close" size={13} color={C.faint} /></div>}
             </div>
             <div onClick={() => toggleSplitTargetOpen(i)} style={{ display: "inline-flex", alignItems: "center", fontSize: 10.5, fontWeight: 500, padding: "4px 10px", borderRadius: 999, cursor: "pointer", marginTop: 6, whiteSpace: "nowrap", background: sp.target ? C.accentSoft : C.overlayWash, color: sp.target ? C.accentText : C.muted }}>
-              {sp.target ? sp.target.label : partyOnly ? "Choose person" : "Choose category or person"} ▾
+              {sp.target ? sp.target.label : partyOnly ? "Choose person" : "Choose category, person, or transfer"} ▾
             </div>
             {sp.open && (
               <div style={{ marginTop: 9, paddingTop: 9, borderTop: `1px solid ${C.line}` }}>
@@ -3057,6 +3071,13 @@ function SplitEditor({ book, up, totalAmount, splits, setSplits, signIn, refundO
                     {splitGroups.map((g) => g.items.map((c) => (
                       <button key={c} onClick={() => setSplitTarget(i, { kind: "category", value: c, label: c })} style={{ ...catChipStyle, fontSize: 10.5, padding: "5px 10px" }}>{c}</button>
                     )))}
+                  </div>
+                )}
+                {transferAccountChoices.length > 0 && (
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 6 }}>
+                    {transferAccountChoices.map((a) => (
+                      <button key={a.id} onClick={() => setSplitTarget(i, { kind: "transfer", value: a.id, label: `Transfer to ${a.name}` })} style={{ ...transferChipStyle, fontSize: 10.5, padding: "5px 10px" }}>Transfer to {a.name}</button>
+                    ))}
                   </div>
                 )}
                 <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
@@ -3121,31 +3142,44 @@ function findTransferMatch(b, base, toAccountId) {
   return best;
 }
 
-// Converts entry `id` into a single "transfer" entry between its own
-// account and `toAccountId`, merging away a matching opposite leg in
+// Posts a transfer leg of `amt` between `base`'s own account and
+// `toAccountId`, merging away a matching opposite leg already sitting in
 // `toAccountId` if one is found (see findTransferMatch) so the transfer
-// isn't counted twice. Returns the id of whatever got merged away, or
-// null if no match existed -- callers use that to tell the user which
-// happened.
-function recodeEntryAsTransfer(b, id, toAccountId) {
-  const idx = b.entries.findIndex((e) => e.id === id);
-  if (idx < 0) return null;
-  const base = b.entries[idx];
-  if (toAccountId === base.accountId) return null; // no-op self-transfer
-  const match = findTransferMatch(b, base, toAccountId);
-  b.entries.splice(idx, 1);
+// isn't counted twice -- shared by a whole-entry recode
+// (recodeEntryAsTransfer) and a Split row that only targets *part* of an
+// amount as a transfer (SplitEditor's "transfer" split kind), since both
+// need the exact same match-and-merge behavior, just at a different
+// amount than `base.amount`. `entryId` is the id the new transfer entry
+// gets -- recodeEntryAsTransfer keeps the original entry's id (nothing
+// else changes identity), while a split row gets a fresh one alongside
+// its sibling rows. Returns the id of whatever got merged away, or null.
+function pushTransferLeg(b, entryId, base, toAccountId, amt) {
+  const match = findTransferMatch(b, { ...base, amount: amt }, toAccountId);
   if (match) {
     const midx = b.entries.findIndex((e) => e.id === match.id);
     if (midx >= 0) b.entries.splice(midx, 1);
   }
   const signIn = base.type === "in";
   b.entries.push({
-    id: base.id, date: base.date, amount: base.amount, type: "transfer",
+    id: entryId, date: base.date, amount: amt, type: "transfer",
     fromAccountId: signIn ? toAccountId : base.accountId,
     toAccountId: signIn ? base.accountId : toAccountId,
     note: base.note || "", merchant: base.merchant || "",
   });
   return match ? match.id : null;
+}
+
+// Converts entry `id` into a single "transfer" entry between its own
+// account and `toAccountId` -- see pushTransferLeg for the match/merge
+// mechanics. Returns the id of whatever got merged away, or null if no
+// match existed -- callers use that to tell the user which happened.
+function recodeEntryAsTransfer(b, id, toAccountId) {
+  const idx = b.entries.findIndex((e) => e.id === id);
+  if (idx < 0) return null;
+  const base = b.entries[idx];
+  if (toAccountId === base.accountId) return null; // no-op self-transfer
+  b.entries.splice(idx, 1);
+  return pushTransferLeg(b, base.id, base, toAccountId, base.amount);
 }
 
 // Reverses whatever recode turned this entry into an explained one, putting
@@ -3284,6 +3318,8 @@ function CategorizeSheet({ book, up, close, entryIds, showToast, onApplied }) {
         const amt = Math.round(parseAmount(sp.amount) || 0);
         if (sp.target.kind === "category") {
           b.entries.push({ id: uid(), date: base.date, amount: amt, type: base.type, category: sp.target.value, accountId: base.accountId, note: base.note || "", merchant: base.merchant || "" });
+        } else if (sp.target.kind === "transfer") {
+          pushTransferLeg(b, uid(), base, sp.target.value, amt);
         } else {
           b.entries.push({ id: uid(), date: base.date, amount: amt, type: "party", partyId: sp.target.value, accountId: base.accountId, dir: signIn ? "in" : "out", note: base.note || "", merchant: base.merchant || "" });
         }
@@ -3326,7 +3362,7 @@ function CategorizeSheet({ book, up, close, entryIds, showToast, onApplied }) {
 
       {splitOn ? (
         <>
-          <SplitEditor book={book} up={up} totalAmount={splitTotal} splits={splits} setSplits={setSplits} signIn={signIn} refundOn={refundOn} />
+          <SplitEditor book={book} up={up} totalAmount={splitTotal} splits={splits} setSplits={setSplits} signIn={signIn} refundOn={refundOn} ownAccountId={splitRow.accountId} />
           <PrimaryBtn onClick={saveSplit} style={{ opacity: splitValid ? 1 : 0.5, cursor: splitValid ? "pointer" : "default" }}>Save Split</PrimaryBtn>
         </>
       ) : (
@@ -3408,6 +3444,13 @@ function RecordPaymentSheet({ book, up, close, presetPartyId }) {
   const [date, setDate] = useState(today());
   const [addingParty, setAddingParty] = useState(book.parties.length === 0);
   const [newName, setNewName] = useState("");
+  // Settling a debt in cash, by writing it off, or some other way that
+  // never touched a tracked account -- same "no-account IOU" mechanism as
+  // NewTransactionSheet's owedNoAccount (accountsWithBalances' applyLeg
+  // no-ops for an accountId that doesn't resolve to a real account), just
+  // reachable from the Settle up flow too, not only when first recording
+  // the debt.
+  const [noAccount, setNoAccount] = useState(false);
 
   const addParty = () => {
     const n = newName.trim();
@@ -3421,8 +3464,8 @@ function RecordPaymentSheet({ book, up, close, presetPartyId }) {
 
   const save = () => {
     const amt = parseAmount(amount);
-    if (!amt || !partyId || !accountId) return;
-    up((b) => { b.entries.push({ id: uid(), date, amount: amt, type: "party", partyId, accountId, dir, note: "" }); return b; });
+    if (!amt || !partyId || (!noAccount && !accountId)) return;
+    up((b) => { b.entries.push({ id: uid(), date, amount: amt, type: "party", partyId, ...(noAccount ? {} : { accountId }), dir, note: "" }); return b; });
     close();
   };
 
@@ -3447,8 +3490,24 @@ function RecordPaymentSheet({ book, up, close, presetPartyId }) {
       )}
       <div style={st.label}>Amount</div>
       <input style={{ ...st.input, fontSize: 15, fontWeight: 800 }} placeholder="Amount — 500, 2k, 1.2L" value={amount} onChange={(e) => setAmount(e.target.value)} />
-      <div style={st.label}>Account</div>
-      <AccountSelect book={book} value={accountId} onChange={setAccountId} />
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, padding: "9px 12px", margin: "10px 0", borderRadius: 12, background: C.accentSoft }}>
+        <div>
+          <div style={{ fontSize: 12, fontWeight: 600 }}>Not linked to a bank account</div>
+          <div style={{ fontSize: 10, color: C.muted, marginTop: 1 }}>Settled in cash, written off, etc. -- won't touch any bank or cash balance</div>
+        </div>
+        <Toggle value={noAccount} onChange={setNoAccount} reverse />
+      </div>
+      {noAccount ? (
+        <div style={{ fontSize: 10.5, color: C.muted, fontWeight: 600, marginBottom: 14, display: "flex", gap: 5, alignItems: "flex-start" }}>
+          <Ic name="wand" size={11} style={{ flexShrink: 0, marginTop: 1 }} />
+          <span>This settlement won't touch any bank -- only the Owed balance updates.</span>
+        </div>
+      ) : (
+        <>
+          <div style={st.label}>Account</div>
+          <AccountSelect book={book} value={accountId} onChange={setAccountId} />
+        </>
+      )}
       <div style={st.label}>Direction</div>
       <Seg value={dir} onChange={setDir} options={[{ v: "in", label: "They paid me" }, { v: "out", label: "I paid them" }]} />
       <div style={st.label}>Date</div>
