@@ -335,6 +335,14 @@ export function applyCodingRules(db) {
       // entry into, exactly like a real party-recode.
       e.suggestedParty = rule.partyId;
       e.pendingApproval = true;
+    } else if (rule.targetType === "transfer") {
+      // Never auto-merges on a plain sweep -- e.suggestedTransferAccount only
+      // gets turned into a real transfer (and a matching opposite-leg entry
+      // in that account merged away) once the Approval tab's approve action
+      // fires, so a wrong match can never silently delete a real imported row.
+      if (rule.toAccountId === e.accountId) continue;
+      e.suggestedTransferAccount = rule.toAccountId;
+      e.pendingApproval = true;
     } else {
       e.category = rule.head;
       e.pendingApproval = true;

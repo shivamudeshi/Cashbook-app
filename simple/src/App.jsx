@@ -944,19 +944,25 @@ function TransactionsScreen({ book, up, openSheet, selectMode, setSelectMode, sh
     : { label: "Delete", icon: "trash", color: "#c33", onTrigger: () => deleteEntries([e.id]) });
 
   // A rule-suggested party match (e.suggestedParty) approves into a real
-  // "party" entry, exactly like a manual Categorize-sheet recode -- a
-  // suggested category match just clears pendingApproval, since e.category
-  // is already set to the suggestion.
+  // "party" entry, exactly like a manual Categorize-sheet recode. A
+  // suggested transfer match (e.suggestedTransferAccount) approves into a
+  // real "transfer" entry, merging away the matching opposite leg in that
+  // account if one was found -- only on this explicit approve does that
+  // merge/delete ever happen, never on a plain sweep. A suggested category
+  // match just clears pendingApproval, since e.category is already set to
+  // the suggestion.
   const approveOne = (b, id) => {
     const idx = b.entries.findIndex((e) => e.id === id);
     if (idx < 0) return;
-    if (b.entries[idx].suggestedParty) { recodeEntryAsParty(b, id, b.entries[idx].suggestedParty); return; }
-    b.entries[idx] = { ...b.entries[idx], pendingApproval: false };
+    const e = b.entries[idx];
+    if (e.suggestedParty) { recodeEntryAsParty(b, id, e.suggestedParty); return; }
+    if (e.suggestedTransferAccount) { recodeEntryAsTransfer(b, id, e.suggestedTransferAccount); return; }
+    b.entries[idx] = { ...e, pendingApproval: false };
   };
   const rejectOne = (b, id) => {
     const idx = b.entries.findIndex((e) => e.id === id);
     if (idx < 0) return;
-    const { suggestedParty, ...rest } = b.entries[idx];
+    const { suggestedParty, suggestedTransferAccount, ...rest } = b.entries[idx];
     b.entries[idx] = { ...rest, category: "Suspense", pendingApproval: false, codingRejected: true };
   };
   const approveEntry = (id) => up((b) => { approveOne(b, id); });
@@ -1105,6 +1111,12 @@ function TransactionsScreen({ book, up, openSheet, selectMode, setSelectMode, sh
             const rowLocked = selectMode && !!lockedType && lockedType !== e.type && !checked;
             const info = tab === "explained" ? explainedRowInfo(book, e) : null;
             const match = tab === "unexplained" ? suggestHead(book, e.merchant || "") : null;
+            const transferMatch = tab === "approval" && e.suggestedTransferAccount ? findTransferMatch(book, e, e.suggestedTransferAccount) : null;
+            const approvalSuggestion = e.suggestedParty
+              ? `${partyName(e.suggestedParty)} (owed)`
+              : e.suggestedTransferAccount
+              ? `Transfer to ${accountName(e.suggestedTransferAccount)}${transferMatch ? " · matches an entry there" : ""}`
+              : e.category;
             return (
               <SwipeRow key={e.id} id={e.id} openId={openSwipeId} setOpenId={setOpenSwipeId} action={swipeActionFor(e)} disabled={selectMode} locked={rowLocked}
                 onClick={() => (selectMode ? toggleSelected(e.id) : openSheet("viewTx", { entryId: e.id }))}>
@@ -1123,7 +1135,7 @@ function TransactionsScreen({ book, up, openSheet, selectMode, setSelectMode, sh
                 </div>
                 <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 5 }}>
                   <div style={{ fontSize: 10, color: C.faint, minWidth: 0, overflow: "hidden", whiteSpace: "nowrap", textOverflow: "ellipsis", flex: 1 }}>
-                    {tab === "explained" ? info.sub : tab === "approval" ? `Suggested: ${e.suggestedParty ? `${partyName(e.suggestedParty)} (owed)` : e.category} · ${accountName(e.accountId)}` : (match !== "Suspense" ? `Auto-matched: ${match}` : "Needs a category") + " · " + accountName(e.accountId)}
+                    {tab === "explained" ? info.sub : tab === "approval" ? `Suggested: ${approvalSuggestion} · ${accountName(e.accountId)}` : (match !== "Suspense" ? `Auto-matched: ${match}` : "Needs a category") + " · " + accountName(e.accountId)}
                   </div>
                   {tab === "explained" && info.pill && (
                     <span style={{ display: "inline-flex", alignItems: "center", fontSize: 9.5, fontWeight: 500, padding: "2px 8px", borderRadius: 999, background: info.isBS ? "rgba(251,191,36,.18)" : "rgba(17,17,17,.06)", border: info.isBS ? "1px solid rgba(251,191,36,.4)" : "none", color: info.isBS ? C.amberText : "#444", flexShrink: 0, whiteSpace: "nowrap" }}>{info.pill}{info.isBS ? " · BS" : ""}</span>
@@ -1974,21 +1986,22 @@ function CategoryListPage({ open, title, help, cats, onDelete, onAdd, addPlaceho
 // still a picker constrained to real categories, not free text -- a
 // category name typed by hand that doesn't exist anywhere else would
 // silently orphan any row coded to it (missing from every other category
-// picker in the app). Same reasoning extends "Owed person" as a second real
-// target type, alongside Income/Expense/Balance Sheet category groups --
-// matching the same Category/Owed person split CategorizeSheet already
-// offers for manual recoding, rather than a flat unbifurcated list.
-// Transfer is deliberately not offered here yet -- seeing the same transfer
-// on both sides of the pair (once a rule fires on each account's own copy
-// of that transaction) needs its own real answer for how the two legs get
-// matched into one entry instead of double-counted, which hasn't been
-// designed yet.
+// picker in the app). Same reasoning extends "Owed person" and "Transfer"
+// as further real target types, alongside Income/Expense/Balance Sheet
+// category groups -- matching the same Category/Owed person/Transfer split
+// CategorizeSheet already offers for manual recoding, rather than a flat
+// unbifurcated list. A transfer match never merges/deletes anything on its
+// own sweep -- it only ever sets e.suggestedTransferAccount and waits in
+// the Approval tab, so a wrong guess can't silently corrupt real imported
+// transactions; the actual merge (see recodeEntryAsTransfer) only happens
+// once a human approves it there.
 function RulesPage({ open, book, up, onBack }) {
   const [adding, setAdding] = useState(false);
   const [match, setMatch] = useState("");
-  const [targetType, setTargetType] = useState("category"); // category | party
+  const [targetType, setTargetType] = useState("category"); // category | party | transfer
   const [head, setHead] = useState(book.categories.expense.find((c) => c !== "Suspense") || book.categories.income[0] || "");
   const [partyId, setPartyId] = useState(book.parties[0] ? book.parties[0].id : "");
+  const [toAccountId, setToAccountId] = useState(book.accounts[0] ? book.accounts[0].id : "");
   const [catSearch, setCatSearch] = useState("");
   const [addingParty, setAddingParty] = useState(false);
   const [newPartyName, setNewPartyName] = useState("");
@@ -2001,11 +2014,18 @@ function RulesPage({ open, book, up, onBack }) {
     .map((g) => ({ ...g, items: g.items.filter((c) => c.toLowerCase().includes(catSearch.trim().toLowerCase())) }))
     .filter((g) => g.items.length > 0);
 
+  const targetLabel = (r) =>
+    r.targetType === "party" ? `${(book.parties.find((p) => p.id === r.partyId) || {}).name || "Unknown"} (owed)`
+    : r.targetType === "transfer" ? `Transfer to ${(book.accounts.find((a) => a.id === r.toAccountId) || {}).name || "Unknown"}`
+    : r.head;
+
   const addRule = () => {
     if (!match.trim()) return;
     if (targetType === "party" && !partyId) return;
+    if (targetType === "transfer" && !toAccountId) return;
     up((b) => {
       if (targetType === "party") b.codingRules.push({ match: match.trim(), targetType: "party", partyId, enabled: true });
+      else if (targetType === "transfer") b.codingRules.push({ match: match.trim(), targetType: "transfer", toAccountId, enabled: true });
       else b.codingRules.push({ match: match.trim(), targetType: "category", head, enabled: true });
       applyCodingRules(b);
     });
@@ -2030,7 +2050,7 @@ function RulesPage({ open, book, up, onBack }) {
           <SettingsRow key={r.match + i} last={i === book.codingRules.length - 1} label={
             <div>
               <div style={{ fontSize: 12, fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>If contains "{r.match}"</div>
-              <div style={{ fontSize: 10.5, color: C.muted }}>→ {r.targetType === "party" ? `${(book.parties.find((p) => p.id === r.partyId) || {}).name || "Unknown"} (owed)` : r.head}</div>
+              <div style={{ fontSize: 10.5, color: C.muted }}>→ {targetLabel(r)}</div>
             </div>
           } right={
             <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
@@ -2047,8 +2067,8 @@ function RulesPage({ open, book, up, onBack }) {
           <div style={{ fontSize: 10.5, color: C.muted, marginBottom: 4 }}>If description contains</div>
           <input style={{ ...st.input, marginBottom: 12 }} placeholder="e.g. SWIGGY" value={match} onChange={(e) => setMatch(e.target.value)} autoFocus />
           <div style={{ fontSize: 10.5, color: C.muted, marginBottom: 6 }}>Categorize as</div>
-          <Seg value={targetType} onChange={setTargetType} style={{ marginBottom: 12 }} options={[{ v: "category", label: "Category" }, { v: "party", label: "Owed person" }]} />
-          {targetType === "category" ? (
+          <Seg value={targetType} onChange={setTargetType} style={{ marginBottom: 12 }} options={[{ v: "category", label: "Category" }, { v: "party", label: "Owed person" }, { v: "transfer", label: "Transfer" }]} />
+          {targetType === "category" && (
             <>
               <div style={{ display: "flex", alignItems: "center", gap: 7, padding: "8px 10px", border: `1px solid ${C.overlayBorder}`, borderRadius: 10, marginBottom: 8, background: "#fff" }}>
                 <Ic name="search" size={12} color={C.muted} />
@@ -2066,7 +2086,8 @@ function RulesPage({ open, book, up, onBack }) {
                 {catGroups.length === 0 && <div style={{ fontSize: 11, color: C.muted }}>No matching categories.</div>}
               </div>
             </>
-          ) : (
+          )}
+          {targetType === "party" && (
             <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 12 }}>
               {book.parties.map((p) => <button key={p.id} onClick={() => setPartyId(p.id)} style={txChipBtn(partyId === p.id)}>{p.name}</button>)}
               {addingParty ? (
@@ -2078,6 +2099,16 @@ function RulesPage({ open, book, up, onBack }) {
                 <button onClick={() => setAddingParty(true)} style={txChipBtn(false)}>+ New person</button>
               )}
             </div>
+          )}
+          {targetType === "transfer" && (
+            <>
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 10 }}>
+                {book.accounts.map((a) => <button key={a.id} onClick={() => setToAccountId(a.id)} style={txChipBtn(toAccountId === a.id)}>{a.name}</button>)}
+              </div>
+              <div style={{ fontSize: 10, color: C.muted, marginBottom: 12, lineHeight: 1.5 }}>
+                A match only ever gets suggested in the Approval tab — nothing merges automatically. If a matching entry already exists in {(book.accounts.find((a) => a.id === toAccountId) || {}).name || "the other account"}, approving will link the two into one transfer and remove the duplicate; otherwise it's saved as a one-sided transfer that links up once the other side is imported.
+              </div>
+            </>
           )}
           <PrimaryBtn onClick={addRule}>Save rule</PrimaryBtn>
         </Card>
@@ -2765,7 +2796,57 @@ function recodeEntryAsParty(b, id, partyId) {
   b.entries.push({ id: base.id, date: base.date, amount: base.amount, type: "party", partyId, accountId: base.accountId, dir, note: base.note || "", merchant: base.merchant || "" });
 }
 
-function CategorizeSheet({ book, up, close, entryIds }) {
+// Searches account `toAccountId` for the probable other leg of a bank
+// transfer -- opposite direction, same amount, still unexplained (never
+// touches something the user already categorized or rejected), within a
+// few days of `base`'s date. A "transfer" entry already applies to both
+// accounts' balances on its own (engine.js), so if the other leg's own
+// bank statement also got imported, leaving both rows in place would
+// double-count the same money.
+function findTransferMatch(b, base, toAccountId) {
+  const wantType = base.type === "in" ? "out" : "in";
+  const baseTime = new Date(base.date).getTime();
+  const DAY = 86400000;
+  let best = null, bestDiff = Infinity;
+  for (const e of b.entries) {
+    if (e.id === base.id || e.accountId !== toAccountId || e.type !== wantType) continue;
+    if (e.category !== "Suspense" || e.pendingApproval || e.codingRejected) continue;
+    if (e.amount !== base.amount) continue;
+    const diff = Math.abs(new Date(e.date).getTime() - baseTime);
+    if (diff > 3 * DAY) continue;
+    if (diff < bestDiff) { bestDiff = diff; best = e; }
+  }
+  return best;
+}
+
+// Converts entry `id` into a single "transfer" entry between its own
+// account and `toAccountId`, merging away a matching opposite leg in
+// `toAccountId` if one is found (see findTransferMatch) so the transfer
+// isn't counted twice. Returns the id of whatever got merged away, or
+// null if no match existed -- callers use that to tell the user which
+// happened.
+function recodeEntryAsTransfer(b, id, toAccountId) {
+  const idx = b.entries.findIndex((e) => e.id === id);
+  if (idx < 0) return null;
+  const base = b.entries[idx];
+  if (toAccountId === base.accountId) return null; // no-op self-transfer
+  const match = findTransferMatch(b, base, toAccountId);
+  b.entries.splice(idx, 1);
+  if (match) {
+    const midx = b.entries.findIndex((e) => e.id === match.id);
+    if (midx >= 0) b.entries.splice(midx, 1);
+  }
+  const signIn = base.type === "in";
+  b.entries.push({
+    id: base.id, date: base.date, amount: base.amount, type: "transfer",
+    fromAccountId: signIn ? toAccountId : base.accountId,
+    toAccountId: signIn ? base.accountId : toAccountId,
+    note: base.note || "", merchant: base.merchant || "",
+  });
+  return match ? match.id : null;
+}
+
+function CategorizeSheet({ book, up, close, entryIds, showToast }) {
   const entries = book.entries.filter((e) => entryIds.includes(e.id) && (e.type === "in" || e.type === "out"));
   if (entries.length === 0) return null;
   const isBulk = entries.length > 1;
@@ -2810,23 +2891,26 @@ function CategorizeSheet({ book, up, close, entryIds }) {
   };
   const applyTransfer = () => {
     if (!toAccountId) return;
+    let total = 0, merged = 0;
     up((b) => {
       for (const id of entryIds) {
-        const idx = b.entries.findIndex((e) => e.id === id);
-        if (idx < 0) continue;
-        const base = b.entries[idx];
-        if (toAccountId === base.accountId) continue; // would be a no-op self-transfer
-        b.entries.splice(idx, 1);
-        b.entries.push({
-          id: base.id, date: base.date, amount: base.amount, type: "transfer",
-          fromAccountId: signIn ? toAccountId : base.accountId,
-          toAccountId: signIn ? base.accountId : toAccountId,
-          note: base.note || "", merchant: base.merchant || "",
-        });
+        const e = b.entries.find((x) => x.id === id);
+        if (!e || toAccountId === e.accountId) continue;
+        total++;
+        if (recodeEntryAsTransfer(b, id, toAccountId)) merged++;
       }
       return b;
     });
     close();
+    if (showToast && total > 0) {
+      showToast(
+        merged === 0
+          ? "Saved as transfer — will link automatically once the other side is imported"
+          : merged === total
+          ? `Matched with existing transaction${merged > 1 ? "s" : ""} in the other account`
+          : `${merged} of ${total} matched with existing transactions there`
+      );
+    }
   };
 
   // Split -- single row only, real N-way splitting: any number of rows,
@@ -3468,7 +3552,7 @@ export default function App() {
       <Toast toast={toast} />
 
       {sheet && sheet.name === "newTx" && <NewTransactionSheet book={book} up={up} close={closeSheet} preset={sheet.ctx} />}
-      {sheet && sheet.name === "categorize" && <CategorizeSheet book={book} up={up} close={closeSheet} entryIds={sheet.ctx.entryIds} />}
+      {sheet && sheet.name === "categorize" && <CategorizeSheet book={book} up={up} close={closeSheet} entryIds={sheet.ctx.entryIds} showToast={showToast} />}
       {sheet && sheet.name === "viewTx" && <ViewTransactionSheet book={book} up={up} close={closeSheet} entryId={sheet.ctx.entryId} />}
       {sheet && sheet.name === "categoryDetail" && <CategoryDetailSheet book={book} close={closeSheet} title={sheet.ctx.title} entries={sheet.ctx.entries} />}
       {sheet && sheet.name === "recordPayment" && <RecordPaymentSheet book={book} up={up} close={closeSheet} presetPartyId={sheet.ctx.partyId} />}
