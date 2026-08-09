@@ -76,6 +76,12 @@ function Ic({ name, size = 16, color, style }) {
     trash: "M3 6h18M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2m3 0-1 14a1 1 0 0 1-1 1H7a1 1 0 0 1-1-1L5 6",
     edit: "M12 20h9M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z",
     undo: "M3 12a9 9 0 1 0 3-6.7M3 4v5h5",
+    arrowUp: "M12 19V5M5 12l7-7 7 7",
+    arrowDown: "M12 5v14M5 12l7 7 7-7",
+    grid2: "M4 4h7v7h-7z M13 13h7v7h-7z",
+    bolt: "M13 2 4 14h6l-1 8 9-12h-6z",
+    shield: "M12 3l7 3v6c0 5-3 8-7 9-4-1-7-4-7-9V6l7-3z",
+    cloud: "M7 17a4 4 0 0 1 0-8 5 5 0 0 1 9.6-1.5A4.5 4.5 0 0 1 17 17H7z",
   };
   return (
     <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color || "currentColor"} strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round" style={style}>
@@ -209,40 +215,6 @@ function AccountSelect({ book, value, onChange, accounts }) {
   return (
     <select style={st.input} value={value || ""} onChange={(e) => onChange(e.target.value)}>
       {list.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
-    </select>
-  );
-}
-
-// "+ New person..." reveals an inline add row instead of navigating away --
-// there is no dedicated Setup ▸ Parties screen (the approved mockup never
-// had one), so this is the only place a party can be created.
-function PartySelect({ book, up, value, onChange }) {
-  const [adding, setAdding] = useState(false);
-  const [name, setName] = useState("");
-  if (adding) {
-    return (
-      <div style={{ display: "flex", gap: 8 }}>
-        <input style={{ ...st.input, flex: 1 }} placeholder="Person's name" value={name} autoFocus
-          onChange={(e) => setName(e.target.value)}
-          onKeyDown={(e) => e.key === "Enter" && addNow()} />
-        <PrimaryBtn style={{ width: "auto", padding: "0 16px" }} onClick={addNow}>Add</PrimaryBtn>
-      </div>
-    );
-  }
-  function addNow() {
-    const n = name.trim();
-    if (!n) return;
-    const id = uid();
-    up((b) => { b.parties.push({ id, name: n }); return b; });
-    setAdding(false);
-    setName("");
-    onChange(id);
-  }
-  return (
-    <select style={st.input} value={value || ""} onChange={(e) => (e.target.value === "__new__" ? setAdding(true) : onChange(e.target.value))}>
-      <option value="">Select a person</option>
-      {book.parties.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
-      <option value="__new__">+ New person…</option>
     </select>
   );
 }
@@ -512,7 +484,7 @@ function HomeScreen({ book, go, openSheet, notifCount }) {
           <div style={{ fontSize: 14.5, fontWeight: 700, marginBottom: 8, padding: "0 2px" }}>Needs attention</div>
           <div style={{ display: "flex", flexDirection: "column", gap: 10, marginBottom: 18 }}>
             {unexplainedCount > 0 && (
-              <div onClick={() => go("tx")} style={{ ...glass(16), padding: "14px 16px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, cursor: "pointer" }}>
+              <div onClick={() => go("tx", "unexplained")} style={{ ...glass(16), padding: "14px 16px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, cursor: "pointer" }}>
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{ fontSize: 13.5, fontWeight: 700, marginBottom: 3, whiteSpace: "nowrap" }}>{unexplainedCount} unexplained transaction{unexplainedCount === 1 ? "" : "s"}</div>
                   <div style={{ fontSize: 11, color: C.soft }}>Missing a category</div>
@@ -521,7 +493,7 @@ function HomeScreen({ book, go, openSheet, notifCount }) {
               </div>
             )}
             {approvalCount > 0 && (
-              <div onClick={() => go("tx")} style={{ ...glass(16), padding: "14px 16px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, cursor: "pointer" }}>
+              <div onClick={() => go("tx", "approval")} style={{ ...glass(16), padding: "14px 16px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, cursor: "pointer" }}>
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{ fontSize: 13.5, fontWeight: 700, marginBottom: 3, whiteSpace: "nowrap" }}>{approvalCount} transaction{approvalCount === 1 ? "" : "s"} auto-matched</div>
                   <div style={{ fontSize: 11, color: C.soft }}>Confirm the suggested category</div>
@@ -827,8 +799,9 @@ const TX_DATE_OPTIONS = [["all", "Any time"], ["today", "Today"], ["week", "This
 const TX_SORT_OPTIONS = [["newest", "Newest first"], ["oldest", "Oldest first"], ["amount_high", "Amount: high to low"], ["amount_low", "Amount: low to high"]];
 const txChipBtn = (active) => ({ display: "inline-flex", alignItems: "center", fontSize: 10.5, fontWeight: 600, padding: "6px 11px", borderRadius: 999, border: "none", cursor: "pointer", whiteSpace: "nowrap", fontFamily: F.sans, background: active ? C.grad : C.overlayWash, color: active ? "#fff" : "#444" });
 
-function TransactionsScreen({ book, up, openSheet, selectMode, setSelectMode, showToast }) {
-  const [tab, setTabState] = useState("explained");
+function TransactionsScreen({ book, up, openSheet, selectMode, setSelectMode, showToast, initialTab, clearInitialTab }) {
+  const [tab, setTabState] = useState(initialTab || "explained");
+  useEffect(() => { if (initialTab && clearInitialTab) clearInitialTab(); }, []);
   const [selected, setSelected] = useState(() => new Set());
   const [search, setSearch] = useState("");
   const [sortBy, setSortBy] = useState("newest");
@@ -929,7 +902,17 @@ function TransactionsScreen({ book, up, openSheet, selectMode, setSelectMode, sh
   const bulkReject = () => { up((b) => { for (const id of selected) { const idx = b.entries.findIndex((e) => e.id === id); if (idx >= 0) b.entries[idx] = { ...b.entries[idx], category: "Suspense", pendingApproval: false, codingRejected: true }; } }); setSelected(new Set()); setSelectMode(false); };
   const openCategorize = (ids) => openSheet("categorize", { entryIds: ids });
 
-  const catGroups = [{ label: null, items: usedCategories.filter((c) => c.toLowerCase().includes(catSearch.trim().toLowerCase())) }];
+  // Income/Expense/Balance Sheet categories can collide in name across the
+  // three lists in principle, but never do in practice (CategorySelect's own
+  // grouping assumes the same disjointness) -- bucketing here just mirrors
+  // that split so a long combined list isn't one undifferentiated blob.
+  const catGroups = [
+    { label: "Income", items: usedCategories.filter((c) => book.categories.income.includes(c)) },
+    { label: "Expense", items: usedCategories.filter((c) => book.categories.expense.includes(c)) },
+    { label: "Balance Sheet", items: usedCategories.filter((c) => book.bsCategories.includes(c)) },
+  ]
+    .map((g) => ({ ...g, items: g.items.filter((c) => c.toLowerCase().includes(catSearch.trim().toLowerCase())) }))
+    .filter((g) => g.items.length > 0);
 
   return (
     <div style={{ padding: "4px 16px 90px" }}>
@@ -975,10 +958,13 @@ function TransactionsScreen({ book, up, openSheet, selectMode, setSelectMode, sh
 
       {filterOpen && (
         <div style={{ ...glass(14), marginBottom: 12, overflow: "hidden" }}>
-          <div style={{ display: "flex", gap: 6, padding: 10, flexWrap: "wrap" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 6, padding: 10, flexWrap: "wrap" }}>
             <button onClick={() => toggleDrill("account")} style={txChipBtn(drill === "account")}>Account: {acctFilter === "all" ? "All" : accountName(acctFilter)} {drill === "account" ? "▴" : "▾"}</button>
             <button onClick={() => toggleDrill("category")} style={txChipBtn(drill === "category")}>Category: {catFilter === "all" ? "All" : catFilter} {drill === "category" ? "▴" : "▾"}</button>
             <button onClick={() => toggleDrill("date")} style={txChipBtn(drill === "date")}>Date: {(TX_DATE_OPTIONS.find(([v]) => v === dateFilter) || [, "Any time"])[1]} {drill === "date" ? "▴" : "▾"}</button>
+            {activeFilterCount > 0 && (
+              <button onClick={() => { setAcctFilter("all"); setCatFilter("all"); setCatSearch(""); setDateFilter("all"); setDateFrom(""); setDateTo(""); setDrill(null); }} style={{ marginLeft: "auto", background: "none", border: "none", fontFamily: F.sans, fontSize: 10.5, fontWeight: 600, color: C.accentText, cursor: "pointer", padding: "6px 4px", whiteSpace: "nowrap" }}>Clear filters</button>
+            )}
           </div>
           {drill === "account" && (
             <div style={{ display: "flex", flexWrap: "wrap", gap: 6, padding: "4px 10px 12px", borderTop: `1px solid ${C.line}` }}>
@@ -993,8 +979,16 @@ function TransactionsScreen({ book, up, openSheet, selectMode, setSelectMode, sh
                 <input value={catSearch} onChange={(e) => setCatSearch(e.target.value)} placeholder="Search categories" style={{ flex: 1, minWidth: 0, border: "none", background: "none", fontFamily: F.sans, fontSize: 11, color: C.ink }} />
               </div>
               <button onClick={() => setCatFilter("all")} style={{ ...txChipBtn(catFilter === "all"), marginBottom: 6 }}>All categories</button>
-              <div style={{ maxHeight: 160, overflowY: "auto", display: "flex", flexWrap: "wrap", gap: 6 }}>
-                {catGroups[0].items.map((c) => <button key={c} onClick={() => setCatFilter(c)} style={txChipBtn(catFilter === c)}>{c}</button>)}
+              <div style={{ maxHeight: 200, overflowY: "auto" }}>
+                {catGroups.map((g) => (
+                  <div key={g.label} style={{ marginBottom: 8 }}>
+                    <div style={{ fontSize: 9, fontWeight: 700, color: C.muted, textTransform: "uppercase", letterSpacing: ".04em", marginBottom: 5 }}>{g.label}</div>
+                    <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                      {g.items.map((c) => <button key={c} onClick={() => setCatFilter(c)} style={txChipBtn(catFilter === c)}>{c}</button>)}
+                    </div>
+                  </div>
+                ))}
+                {catGroups.length === 0 && <div style={{ fontSize: 11, color: C.muted, padding: "4px 2px" }}>No matching categories.</div>}
               </div>
             </div>
           )}
@@ -1021,7 +1015,11 @@ function TransactionsScreen({ book, up, openSheet, selectMode, setSelectMode, sh
       )}
 
       {selectMode && rows.length > 0 && (
-        <div onClick={toggleSelectAll} style={{ display: "flex", alignItems: "center", gap: 10, padding: "4px 2px 10px", cursor: "pointer" }}>
+        // "Select all" needs at least one row picked first to know which
+        // sign to lock to -- otherwise it'd indiscriminately grab both money
+        // in and money out. Dimmed the same way a locked opposite-sign row
+        // is, rather than just silently doing nothing when tapped.
+        <div onClick={() => { if (selected.size > 0) toggleSelectAll(); }} style={{ display: "flex", alignItems: "center", gap: 10, padding: "4px 2px 10px", cursor: selected.size === 0 ? "not-allowed" : "pointer", opacity: selected.size === 0 ? 0.45 : 1 }}>
           <div style={{ width: 18, height: 18, borderRadius: 6, flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center", background: allSelected ? C.grad : "transparent", border: allSelected ? "none" : `1.5px solid ${C.overlayBorder}` }}>
             {allSelected && <Ic name="check" size={11} color="#fff" />}
           </div>
@@ -1699,17 +1697,6 @@ function ReportsScreen({ book, openSheet }) {
 }
 
 /* ══════════════════════════ SETUP ══════════════════════════ */
-function SetupRow({ title, sub, onClick, last }) {
-  return (
-    <RowLine onClick={onClick} last={last}>
-      <div style={{ flex: 1 }}>
-        <div style={{ fontSize: 13.5, fontWeight: 700 }}>{title}</div>
-        <div style={{ fontSize: 10.5, color: C.muted, fontWeight: 600, marginTop: 1 }}>{sub}</div>
-      </div>
-      <div style={{ color: C.muted, fontSize: 15 }}>›</div>
-    </RowLine>
-  );
-}
 function DashedBtn({ children, onClick }) {
   return <button onClick={onClick} style={{ width: "100%", padding: "11px 0", borderRadius: 13, border: `1.5px dashed ${C.accent}`, color: C.accentText, fontWeight: 700, fontSize: 12, fontFamily: F.sans, background: "none", cursor: "pointer" }}>{children}</button>;
 }
@@ -1724,22 +1711,62 @@ function AddInline({ placeholder, onAdd }) {
   );
 }
 
+// iOS-style grouped sections -- a profile row up top, then SETUP / SECURITY /
+// DATA groups, each row a soft-tint colored icon chip with a trailing status
+// pill, matching the colored-chip + section-header language already used
+// elsewhere in the app (Reports categories, Transactions filter groups).
+function SetupSection({ title, items }) {
+  return (
+    <>
+      <div style={{ fontSize: 10.5, fontWeight: 700, color: C.muted, textTransform: "uppercase", letterSpacing: ".05em", padding: "0 4px 7px", marginTop: 18 }}>{title}</div>
+      <Card style={{ padding: "0 16px" }}>
+        {items.map((it, i) => (
+          <RowLine key={it.key} onClick={it.onClick} last={i === items.length - 1}>
+            <div style={{ width: 30, height: 30, borderRadius: 9, background: alpha(it.color, 0.1), display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, marginRight: 10 }}>
+              <Ic name={it.icon} size={14} color={it.color} />
+            </div>
+            <div style={{ flex: 1, minWidth: 0, fontSize: 13, fontWeight: 600, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{it.label}</div>
+            <div style={{ fontSize: 10, fontWeight: 600, color: C.muted, marginRight: 6, whiteSpace: "nowrap", flexShrink: 0 }}>{it.meta}</div>
+            <div style={{ color: C.faint, fontSize: 15, flexShrink: 0 }}>›</div>
+          </RowLine>
+        ))}
+      </Card>
+    </>
+  );
+}
+
 function SetupScreen({ book, openSheet, openAccountsPage }) {
+  const setupItems = [
+    { key: "accounts", icon: "card", color: C.accent, label: "Accounts", meta: `${book.accounts.length} account${book.accounts.length === 1 ? "" : "s"}`, onClick: openAccountsPage },
+    { key: "income", icon: "arrowUp", color: C.green, label: "Income Categories", meta: `${book.categories.income.length} categor${book.categories.income.length === 1 ? "y" : "ies"}`, onClick: () => openSheet("setupIncomeCategories") },
+    { key: "expense", icon: "arrowDown", color: "#7a2e3b", label: "Expense Categories", meta: `${book.categories.expense.filter((c) => c !== "Suspense").length} categories`, onClick: () => openSheet("setupCategories") },
+    { key: "bs", icon: "grid2", color: "#555555", label: "Balance Sheet Categories", meta: `${book.bsCategories.length} categor${book.bsCategories.length === 1 ? "y" : "ies"}`, onClick: () => openSheet("setupBsCategories") },
+    { key: "rules", icon: "bolt", color: C.amberText, label: "Auto-coding Rules", meta: `${book.codingRules.length} rule${book.codingRules.length === 1 ? "" : "s"}`, onClick: () => openSheet("setupRules") },
+  ];
+  const securityItems = [
+    { key: "lock", icon: "shield", color: C.accent, label: "Security & App Lock", meta: book.prefs.lock.on ? "PIN on" : "PIN off", onClick: () => openSheet("setupPrefs") },
+  ];
+  const dataItems = [
+    { key: "import", icon: "upload", color: C.green, label: "Import & OCR", meta: "PDFs & photos", onClick: () => openSheet("import") },
+    { key: "backup", icon: "cloud", color: C.green, label: "Backup & Restore", meta: "Export / import", onClick: () => openSheet("setupPrefs") },
+  ];
+
   return (
     <div style={{ padding: "4px 16px 90px" }}>
-      <Card style={{ padding: "2px 16px", marginBottom: 14 }}>
-        <SetupRow title="Profile" sub={book.prefs.name || "Add your name"} onClick={() => openSheet("setupProfile")} last />
-      </Card>
-      <Card style={{ padding: "2px 16px" }}>
-        <SetupRow title="Accounts" sub={`${book.accounts.length} account${book.accounts.length === 1 ? "" : "s"}`} onClick={openAccountsPage} />
-        <SetupRow title="Categories" sub={`${book.categories.expense.filter((c) => c !== "Suspense").length} categories`} onClick={() => openSheet("setupCategories")} />
-        <SetupRow title="Income Categories" sub={`${book.categories.income.length} categor${book.categories.income.length === 1 ? "y" : "ies"}`} onClick={() => openSheet("setupIncomeCategories")} />
-        <SetupRow title="Balance Sheet Categories" sub={`${book.bsCategories.length} categor${book.bsCategories.length === 1 ? "y" : "ies"}`} onClick={() => openSheet("setupBsCategories")} />
-        <SetupRow title="Auto-coding Rules" sub={`${book.codingRules.length} rules`} onClick={() => openSheet("setupRules")} />
-        <SetupRow title="Import & OCR" sub="Upload PDFs or photos" onClick={() => openSheet("import")} />
-        <SetupRow title="Security & App Lock" sub={book.prefs.lock.on ? "PIN lock is on" : "PIN lock is off"} onClick={() => openSheet("setupPrefs")} />
-        <SetupRow title="Backup & Restore" sub="Export or import your data" onClick={() => openSheet("setupPrefs")} last />
-      </Card>
+      <div onClick={() => openSheet("setupProfile")} style={{ ...glass(16), padding: "14px 16px", display: "flex", alignItems: "center", gap: 12, cursor: "pointer" }}>
+        <div style={{ width: 42, height: 42, borderRadius: "50%", background: C.grad, color: "#fff", fontWeight: 700, fontSize: 16, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+          {(book.prefs.name || "").trim().charAt(0).toUpperCase() || "?"}
+        </div>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ fontSize: 14, fontWeight: 700, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{book.prefs.name || "Add your name"}</div>
+          <div style={{ fontSize: 10.5, color: C.muted }}>Tap to edit profile</div>
+        </div>
+        <div style={{ color: C.faint, fontSize: 15, flexShrink: 0 }}>›</div>
+      </div>
+
+      <SetupSection title="Setup" items={setupItems} />
+      <SetupSection title="Security" items={securityItems} />
+      <SetupSection title="Data" items={dataItems} />
     </div>
   );
 }
@@ -2008,6 +2035,8 @@ function NewTransactionSheet({ book, up, close, preset }) {
   const [expAccountId, setExpAccountId] = useState(firstAccountId);
   const [splitOn, setSplitOn] = useState(false);
   const [splitPartyId, setSplitPartyId] = useState(book.parties[0] ? book.parties[0].id : "");
+  const [addingSplitParty, setAddingSplitParty] = useState(false);
+  const [newSplitPartyName, setNewSplitPartyName] = useState("");
 
   const [incomeMode, setIncomeMode] = useState("income"); // income | refund
   const [incCategory, setIncCategory] = useState(book.categories.income[0] || "");
@@ -2066,6 +2095,16 @@ function NewTransactionSheet({ book, up, close, preset }) {
       return b;
     });
     close();
+  };
+
+  const addSplitParty = () => {
+    const n = newSplitPartyName.trim();
+    if (!n) return;
+    const id = uid();
+    up((b) => { b.parties.push({ id, name: n }); return b; });
+    setSplitPartyId(id);
+    setAddingSplitParty(false);
+    setNewSplitPartyName("");
   };
 
   const addOwedParty = () => {
@@ -2147,7 +2186,19 @@ function NewTransactionSheet({ book, up, close, preset }) {
             </div>
             {splitOn && (
               <div style={{ marginTop: 12, paddingTop: 12, borderTop: `1px solid ${C.line}` }}>
-                <PartySelect book={book} up={up} value={splitPartyId} onChange={setSplitPartyId} />
+                <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                  {book.parties.map((p) => (
+                    <button key={p.id} onClick={() => setSplitPartyId(p.id)} style={txChipBtn(p.id === splitPartyId)}>{p.name}</button>
+                  ))}
+                  {addingSplitParty ? (
+                    <div style={{ display: "flex", gap: 6 }}>
+                      <input value={newSplitPartyName} autoFocus onChange={(e) => setNewSplitPartyName(e.target.value)} onKeyDown={(e) => e.key === "Enter" && addSplitParty()} placeholder="Person's name" style={{ ...st.input, padding: "5px 9px", fontSize: 10.5, width: 120 }} />
+                      <button onClick={addSplitParty} style={{ ...txChipBtn(false), border: "none" }}>Add</button>
+                    </div>
+                  ) : (
+                    <button onClick={() => setAddingSplitParty(true)} style={txChipBtn(false)}>+ New person</button>
+                  )}
+                </div>
                 {splitPartyId && amt > 0 && (
                   <div style={{ fontSize: 11.5, color: C.accent, fontWeight: 600, marginTop: 8 }}>
                     {(book.parties.find((p) => p.id === splitPartyId) || {}).name} owes you {inr(Math.round(amt / 2))}
@@ -2844,7 +2895,7 @@ function LockScreen({ pin, onUnlock, onForgot }) {
 
 const GLOBAL_CSS = `
 * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
-html, body { margin: 0; padding: 0; overflow-x: hidden; overscroll-behavior-x: none; touch-action: manipulation; -webkit-touch-callout: none; -webkit-user-select: none; user-select: none; }
+html, body { margin: 0; padding: 0; overflow-x: hidden; overscroll-behavior: none; touch-action: manipulation; -webkit-touch-callout: none; -webkit-user-select: none; user-select: none; }
 ::-webkit-scrollbar { display: none; }
 input, select, textarea { -webkit-user-select: text; user-select: text; }
 @keyframes cbShake { 0%,100% { transform: translateX(0); } 20%,60% { transform: translateX(-8px); } 40%,80% { transform: translateX(8px); } }
@@ -2875,6 +2926,7 @@ export default function App() {
   const [sheet, setSheet] = useState(null); // { name, ctx }
   const [accountsPageOpen, setAccountsPageOpen] = useState(false);
   const [txSelectMode, setTxSelectMode] = useState(false);
+  const [txJumpTab, setTxJumpTab] = useState(null);
   const [toast, setToast] = useState(null); // { message, undo }
   const toastTimerRef = useRef(null);
   // Whether THIS session still needs a PIN. Only decided once, right after
@@ -2919,7 +2971,11 @@ export default function App() {
 
   const openSheet = (name, ctx) => setSheet({ name, ctx: ctx || {} });
   const closeSheet = () => setSheet(null);
-  const go = (t) => setTab(t);
+  // Home's "Needs attention" cards jump straight into the matching
+  // Transactions sub-tab (Unexplained vs Approval) instead of always landing
+  // on Explained -- txJumpTab is a one-shot hint consumed by
+  // TransactionsScreen's initial tab, not synced back on every switch.
+  const go = (t, txTab) => { setTab(t); if (txTab) setTxJumpTab(txTab); };
   const dismissToast = () => { if (toastTimerRef.current) { clearTimeout(toastTimerRef.current); toastTimerRef.current = null; } setToast(null); };
   const showToast = (message, undoFn) => {
     if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
@@ -2965,7 +3021,7 @@ export default function App() {
         {tab !== "home" && tab !== "reports" && tab !== "owed" && tab !== "tx" && <Header title={TABS.find((x) => x.id === tab).label} />}
         {tab === "home" && <HomeScreen book={book} go={go} openSheet={openSheet} notifCount={notifCount} />}
         {tab === "owed" && <OwedScreen book={book} up={up} openSheet={openSheet} />}
-        {tab === "tx" && <TransactionsScreen book={book} up={up} openSheet={openSheet} selectMode={txSelectMode} setSelectMode={setTxSelectMode} showToast={showToast} />}
+        {tab === "tx" && <TransactionsScreen book={book} up={up} openSheet={openSheet} selectMode={txSelectMode} setSelectMode={setTxSelectMode} showToast={showToast} initialTab={txJumpTab} clearInitialTab={() => setTxJumpTab(null)} />}
         {tab === "reports" && <ReportsScreen book={book} openSheet={openSheet} />}
         {tab === "setup" && <SetupScreen book={book} openSheet={openSheet} openAccountsPage={() => setAccountsPageOpen(true)} />}
       </div>
