@@ -100,7 +100,7 @@ function GhostBtn({ children, style, ...rest }) {
   return <button {...rest} style={{ padding: "12px 0", borderRadius: 14, border: C.borderSoft, background: C.glassSoft, color: C.ink, fontWeight: 700, fontSize: 13, fontFamily: F.sans, cursor: "pointer", ...style }}>{children}</button>;
 }
 function RoundBtn({ onClick, children, style }) {
-  return <div onClick={onClick} style={{ width: 30, height: 30, borderRadius: "50%", background: C.glassSoft, border: C.overlayBorder ? `1px solid ${C.overlayBorder}` : undefined, display: "flex", alignItems: "center", justifyContent: "center", color: C.soft, flexShrink: 0, cursor: "pointer", ...style }}>{children}</div>;
+  return <div className="tap" onClick={onClick} style={{ width: 30, height: 30, borderRadius: "50%", background: C.glassSoft, border: C.overlayBorder ? `1px solid ${C.overlayBorder}` : undefined, display: "flex", alignItems: "center", justifyContent: "center", color: C.soft, flexShrink: 0, cursor: "pointer", ...style }}>{children}</div>;
 }
 function Seg({ value, onChange, options, wrap4, style }) {
   return (
@@ -131,8 +131,8 @@ function Toggle({ value, onChange, reverse }) {
 function Sheet({ open, onClose, title, children }) {
   if (!open) return null;
   return (
-    <div onClick={onClose} style={{ position: "fixed", inset: 0, zIndex: 200, display: "flex", alignItems: "flex-end", justifyContent: "center", background: C.dimBg, backdropFilter: "blur(4px)" }}>
-      <div onClick={(e) => e.stopPropagation()} style={{ width: "100%", maxWidth: 480, maxHeight: "88vh", overflowY: "auto", boxSizing: "border-box", background: C.sheetBg, border: C.border, borderTop: `1px solid ${C.overlayStrong}`, borderRadius: "24px 24px 0 0", padding: "10px 18px 28px", fontFamily: F.sans, color: C.ink }}>
+    <div onClick={onClose} style={{ position: "fixed", inset: 0, zIndex: 200, display: "flex", alignItems: "flex-end", justifyContent: "center", background: C.dimBg, backdropFilter: "blur(4px)", animation: "fadeIn .18s ease" }}>
+      <div onClick={(e) => e.stopPropagation()} style={{ width: "100%", maxWidth: 480, maxHeight: "88vh", overflowY: "auto", boxSizing: "border-box", background: C.sheetBg, border: C.border, borderTop: `1px solid ${C.overlayStrong}`, borderRadius: "24px 24px 0 0", padding: "10px 18px 28px", fontFamily: F.sans, color: C.ink, animation: "sheetUp .22s cubic-bezier(.2,.8,.2,1)" }}>
         <div style={{ width: 40, height: 4, borderRadius: 999, background: C.overlayStrong, margin: "0 auto 12px" }} />
         <div style={{ display: "flex", alignItems: "center", marginBottom: 4 }}>
           <RoundBtn onClick={onClose}><Ic name="close" size={13} /></RoundBtn>
@@ -152,8 +152,8 @@ function Sheet({ open, onClose, title, children }) {
 function Modal({ open, onClose, title, width, children }) {
   if (!open) return null;
   return (
-    <div onClick={onClose} style={{ position: "fixed", inset: 0, zIndex: 200, display: "flex", alignItems: "center", justifyContent: "center", background: C.dimBg, backdropFilter: "blur(10px) saturate(140%)", WebkitBackdropFilter: "blur(10px) saturate(140%)" }}>
-      <div onClick={(e) => e.stopPropagation()} style={{ width: width || 280, maxWidth: "calc(100vw - 40px)", boxSizing: "border-box", background: "#fff", borderRadius: 20, padding: 20, boxShadow: "0 12px 30px rgba(17,17,17,.2)", fontFamily: F.sans, color: C.ink }}>
+    <div onClick={onClose} style={{ position: "fixed", inset: 0, zIndex: 200, display: "flex", alignItems: "center", justifyContent: "center", background: C.dimBg, backdropFilter: "blur(10px) saturate(140%)", WebkitBackdropFilter: "blur(10px) saturate(140%)", animation: "fadeIn .18s ease" }}>
+      <div onClick={(e) => e.stopPropagation()} style={{ width: width || 280, maxWidth: "calc(100vw - 40px)", boxSizing: "border-box", background: "#fff", borderRadius: 20, padding: 20, boxShadow: "0 12px 30px rgba(17,17,17,.2)", fontFamily: F.sans, color: C.ink, animation: "popIn .18s cubic-bezier(.2,.8,.2,1)" }}>
         {title && <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 14, textAlign: "center" }}>{title}</div>}
         {children}
       </div>
@@ -168,7 +168,7 @@ function Modal({ open, onClose, title, width, children }) {
 function Toast({ toast }) {
   if (!toast) return null;
   return (
-    <div className="no-print" style={{ position: "fixed", left: 16, right: 16, bottom: 82, zIndex: 300, ...glass(14), padding: "12px 16px", display: "flex", alignItems: "center", gap: 12 }}>
+    <div className="no-print" style={{ position: "fixed", left: 16, right: 16, bottom: 82, zIndex: 300, ...glass(14), padding: "12px 16px", display: "flex", alignItems: "center", gap: 12, animation: "toastIn .22s ease" }}>
       <div style={{ flex: 1, minWidth: 0, fontSize: 12.5, fontWeight: 600 }}>{toast.message}</div>
       {toast.undo && <button onClick={toast.undo} style={{ fontSize: 12, fontWeight: 800, color: C.accentText, background: "none", border: "none", cursor: "pointer", fontFamily: F.sans, flexShrink: 0 }}>Undo</button>}
     </div>
@@ -182,7 +182,7 @@ function Toast({ toast }) {
 function PageOverlay({ open, onBack, title, children }) {
   if (!open) return null;
   return (
-    <div style={{ position: "fixed", inset: 0, zIndex: 190, background: C.bg, overflowY: "auto", fontFamily: F.sans, color: C.ink }}>
+    <div style={{ position: "fixed", inset: 0, zIndex: 190, background: C.bg, overflowY: "auto", fontFamily: F.sans, color: C.ink, animation: "fadeIn .2s ease" }}>
       <div style={{ padding: "16px 16px 90px" }}>
         <div onClick={onBack} style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 18, cursor: "pointer" }}>
           <Ic name="back" size={16} color={C.ink} />
@@ -237,7 +237,7 @@ function Header({ title, actions }) {
 }
 function BellBtn({ onClick, notifCount }) {
   return (
-    <div onClick={onClick} style={{ width: 44, height: 44, borderRadius: "50%", position: "relative", overflow: "hidden", cursor: "pointer", flexShrink: 0 }}>
+    <div className="tap" onClick={onClick} style={{ width: 44, height: 44, borderRadius: "50%", position: "relative", overflow: "hidden", cursor: "pointer", flexShrink: 0 }}>
       <div style={{ position: "absolute", inset: 0, backdropFilter: "blur(12px) saturate(140%)", WebkitBackdropFilter: "blur(12px) saturate(140%)", background: C.glassSoft }} />
       <div style={{ position: "absolute", inset: 0, borderRadius: "50%", border: `1px solid ${C.overlayBorder}` }} />
       <div style={{ position: "relative", zIndex: 1, height: "100%", display: "flex", alignItems: "center", justifyContent: "center" }}>
@@ -248,10 +248,10 @@ function BellBtn({ onClick, notifCount }) {
   );
 }
 function Card({ children, style, onClick }) {
-  return <div onClick={onClick} style={{ ...glass(18), padding: 16, ...style }}>{children}</div>;
+  return <div className={onClick ? "tap" : undefined} onClick={onClick} style={{ ...glass(18), padding: 16, ...style }}>{children}</div>;
 }
 function RowLine({ children, onClick, last }) {
-  return <div onClick={onClick} style={{ display: "flex", alignItems: "center", padding: "12px 0", borderTop: last ? "none" : `1px solid ${C.line}`, cursor: onClick ? "pointer" : "default" }}>{children}</div>;
+  return <div className={onClick ? "tap" : undefined} onClick={onClick} style={{ display: "flex", alignItems: "center", padding: "12px 0", borderTop: last ? "none" : `1px solid ${C.line}`, cursor: onClick ? "pointer" : "default" }}>{children}</div>;
 }
 
 // A standalone card row that reveals a colored action (Delete / Unexplain)
@@ -457,7 +457,7 @@ function HomeScreen({ book, go, openSheet, notifCount, balancesRevealed, setBala
         <div style={{ ...glass(16), padding: "22px 18px", textAlign: "center", marginBottom: 18 }}>
           <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 4 }}>No accounts yet</div>
           <div style={{ fontSize: 11.5, color: C.muted, marginBottom: 14 }}>Add a bank or credit card account to see your money here.</div>
-          <div onClick={() => go("setup")} style={{ display: "inline-block", background: C.accent, color: "#fff", borderRadius: 10, padding: "9px 16px", fontSize: 12, fontWeight: 600, cursor: "pointer" }}>Add account</div>
+          <div className="tap" onClick={() => go("setup")} style={{ display: "inline-block", background: C.accent, color: "#fff", borderRadius: 10, padding: "9px 16px", fontSize: 12, fontWeight: 600, cursor: "pointer" }}>Add account</div>
         </div>
       ) : (
         <>
@@ -469,7 +469,7 @@ function HomeScreen({ book, go, openSheet, notifCount, balancesRevealed, setBala
                   <Ic name={masked ? "eye" : "eyeOff"} size={15} color={C.soft} />
                 </div>
               )}
-              <div onClick={() => openSheet("breakdown")} style={{ fontSize: 11.5, fontWeight: 500, color: C.ink, cursor: "pointer", whiteSpace: "nowrap" }}>Detailed breakdown ›</div>
+              <div className="tap" onClick={() => openSheet("breakdown")} style={{ fontSize: 11.5, fontWeight: 500, color: C.ink, cursor: "pointer", whiteSpace: "nowrap" }}>Detailed breakdown ›</div>
             </div>
           </div>
           <HeroCarousel accounts={accounts} openSheet={openSheet} masked={masked} />
@@ -485,9 +485,9 @@ function HomeScreen({ book, go, openSheet, notifCount, balancesRevealed, setBala
         <>
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8, padding: "0 2px" }}>
             <div style={{ fontSize: 14.5, fontWeight: 700 }}>Owed</div>
-            <div onClick={() => go("owed")} style={{ fontSize: 11.5, fontWeight: 500, color: C.ink, cursor: "pointer" }}>See all ›</div>
+            <div className="tap" onClick={() => go("owed")} style={{ fontSize: 11.5, fontWeight: 500, color: C.ink, cursor: "pointer" }}>See all ›</div>
           </div>
-          <div onClick={() => go("owed")} style={{ background: "#fff", borderRadius: 16, padding: "4px 14px", marginBottom: 18, cursor: "pointer" }}>
+          <div className="tap" onClick={() => go("owed")} style={{ background: "#fff", borderRadius: 16, padding: "4px 14px", marginBottom: 18, cursor: "pointer" }}>
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "11px 0", borderBottom: `1px solid ${C.line}` }}><span style={{ fontSize: 12, color: C.muted }}>You'll get</span><span style={{ fontSize: 13.5, fontWeight: 700, color: C.accent, fontVariantNumeric: "tabular-nums" }}>{inr(owed.debtors)}</span></div>
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "11px 0" }}><span style={{ fontSize: 12, color: C.muted }}>You owe</span><span style={{ fontSize: 13.5, fontWeight: 700, fontVariantNumeric: "tabular-nums" }}>{inr(owed.creditors)}</span></div>
           </div>
@@ -499,7 +499,7 @@ function HomeScreen({ book, go, openSheet, notifCount, balancesRevealed, setBala
           <div style={{ fontSize: 14.5, fontWeight: 700, marginBottom: 8, padding: "0 2px" }}>Needs attention</div>
           <div style={{ display: "flex", flexDirection: "column", gap: 10, marginBottom: 18 }}>
             {unexplainedCount > 0 && (
-              <div onClick={() => go("tx", "unexplained")} style={{ ...glass(16), padding: "14px 16px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, cursor: "pointer" }}>
+              <div className="tap" onClick={() => go("tx", "unexplained")} style={{ ...glass(16), padding: "14px 16px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, cursor: "pointer" }}>
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{ fontSize: 13.5, fontWeight: 700, marginBottom: 3, whiteSpace: "nowrap" }}>{unexplainedCount} unexplained transaction{unexplainedCount === 1 ? "" : "s"}</div>
                   <div style={{ fontSize: 11, color: C.soft }}>Missing a category</div>
@@ -508,7 +508,7 @@ function HomeScreen({ book, go, openSheet, notifCount, balancesRevealed, setBala
               </div>
             )}
             {approvalCount > 0 && (
-              <div onClick={() => go("tx", "approval")} style={{ ...glass(16), padding: "14px 16px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, cursor: "pointer" }}>
+              <div className="tap" onClick={() => go("tx", "approval")} style={{ ...glass(16), padding: "14px 16px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, cursor: "pointer" }}>
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{ fontSize: 13.5, fontWeight: 700, marginBottom: 3, whiteSpace: "nowrap" }}>{approvalCount} transaction{approvalCount === 1 ? "" : "s"} auto-matched</div>
                   <div style={{ fontSize: 11, color: C.soft }}>Confirm the suggested category</div>
@@ -1768,7 +1768,7 @@ function Switch({ value, onChange }) {
 // real Settings screen state inside the combined mockup file was found).
 function SettingsRow({ label, meta, onClick, last, right }) {
   return (
-    <div onClick={onClick} style={{ display: "flex", alignItems: "center", gap: 10, padding: "13px 14px", borderBottom: last ? "none" : `1px solid ${C.line}`, cursor: onClick ? "pointer" : "default" }}>
+    <div className={onClick ? "tap" : undefined} onClick={onClick} style={{ display: "flex", alignItems: "center", gap: 10, padding: "13px 14px", borderBottom: last ? "none" : `1px solid ${C.line}`, cursor: onClick ? "pointer" : "default" }}>
       <span style={{ flex: 1, minWidth: 0, fontSize: 12.5, fontWeight: 500 }}>{label}</span>
       {meta != null && <span style={{ fontSize: 9.5, color: C.muted, flexShrink: 0 }}>{meta}</span>}
       {right}
@@ -1784,8 +1784,8 @@ function SettingsRow({ label, meta, onClick, last, right }) {
 function ConfirmModal({ open, title, body, confirmLabel, onCancel, onConfirm }) {
   if (!open) return null;
   return (
-    <div onClick={onCancel} style={{ position: "fixed", inset: 0, zIndex: 210, background: C.dimBg, backdropFilter: "blur(10px) saturate(140%)", WebkitBackdropFilter: "blur(10px) saturate(140%)", display: "flex", alignItems: "center", justifyContent: "center" }}>
-      <div onClick={(e) => e.stopPropagation()} style={{ width: 270, background: "#fff", borderRadius: 18, padding: 20, boxShadow: "0 12px 30px rgba(17,17,17,.2)", fontFamily: F.sans }}>
+    <div onClick={onCancel} style={{ position: "fixed", inset: 0, zIndex: 210, background: C.dimBg, backdropFilter: "blur(10px) saturate(140%)", WebkitBackdropFilter: "blur(10px) saturate(140%)", display: "flex", alignItems: "center", justifyContent: "center", animation: "fadeIn .18s ease" }}>
+      <div onClick={(e) => e.stopPropagation()} style={{ width: 270, background: "#fff", borderRadius: 18, padding: 20, boxShadow: "0 12px 30px rgba(17,17,17,.2)", fontFamily: F.sans, animation: "popIn .18s cubic-bezier(.2,.8,.2,1)" }}>
         <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 6, textAlign: "center" }}>{title}</div>
         <div style={{ fontSize: 11.5, color: C.muted, textAlign: "center", marginBottom: 18 }}>{body}</div>
         <div style={{ display: "flex", gap: 8 }}>
@@ -1829,7 +1829,7 @@ function SetupScreen({ book, up, onLockNow }) {
   return (
     <>
       <div style={{ padding: "4px 16px 90px" }}>
-        <div onClick={() => setView("profile")} style={{ ...glass(16), padding: "14px 16px", display: "flex", alignItems: "center", gap: 12, cursor: "pointer" }}>
+        <div className="tap" onClick={() => setView("profile")} style={{ ...glass(16), padding: "14px 16px", display: "flex", alignItems: "center", gap: 12, cursor: "pointer" }}>
           <div style={{ width: 42, height: 42, borderRadius: "50%", background: C.grad, color: "#fff", fontWeight: 700, fontSize: 16, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
             {(book.prefs.name || "").trim().charAt(0).toUpperCase() || "?"}
           </div>
@@ -2074,8 +2074,8 @@ function SecurityPage({ open, book, up, onBack, onLockNow }) {
       )}
 
       {changeOpen && (
-        <div onClick={() => setChangeOpen(false)} style={{ position: "fixed", inset: 0, zIndex: 210, background: C.dimBg, backdropFilter: "blur(10px) saturate(140%)", WebkitBackdropFilter: "blur(10px) saturate(140%)", display: "flex", alignItems: "center", justifyContent: "center" }}>
-          <div onClick={(e) => e.stopPropagation()} style={{ width: 270, background: "#fff", borderRadius: 18, padding: 20, boxShadow: "0 12px 30px rgba(17,17,17,.2)", fontFamily: F.sans }}>
+        <div onClick={() => setChangeOpen(false)} style={{ position: "fixed", inset: 0, zIndex: 210, background: C.dimBg, backdropFilter: "blur(10px) saturate(140%)", WebkitBackdropFilter: "blur(10px) saturate(140%)", display: "flex", alignItems: "center", justifyContent: "center", animation: "fadeIn .18s ease" }}>
+          <div onClick={(e) => e.stopPropagation()} style={{ width: 270, background: "#fff", borderRadius: 18, padding: 20, boxShadow: "0 12px 30px rgba(17,17,17,.2)", fontFamily: F.sans, animation: "popIn .18s cubic-bezier(.2,.8,.2,1)" }}>
             <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 12, textAlign: "center" }}>{book.prefs.lock.pin ? "Change passcode" : "Set passcode"}</div>
             <div style={{ fontSize: 9.5, fontWeight: 700, color: C.muted, textTransform: "uppercase", letterSpacing: ".04em", marginBottom: 5 }}>New passcode</div>
             <input type="tel" maxLength={4} inputMode="numeric" value={p1} onChange={(e) => setP1(e.target.value.replace(/\D/g, "").slice(0, 4))} placeholder="4 digits" style={{ ...st.input, marginBottom: 10, letterSpacing: ".3em" }} autoFocus />
@@ -2405,8 +2405,8 @@ function NewTransactionSheet({ book, up, close, preset }) {
   // middle content area scrolling, so the popup itself never resizes no
   // matter which tab is open.
   return (
-    <div onClick={close} style={{ position: "fixed", inset: 0, zIndex: 200, display: "flex", alignItems: "flex-end", justifyContent: "center", background: C.dimBg, backdropFilter: "blur(4px)" }}>
-      <div onClick={(e) => e.stopPropagation()} style={{ width: "100%", maxWidth: 480, height: "72vh", maxHeight: 620, boxSizing: "border-box", background: C.sheetBg, border: C.border, borderTop: `1px solid ${C.overlayStrong}`, borderRadius: "24px 24px 0 0", display: "flex", flexDirection: "column", fontFamily: F.sans, color: C.ink }}>
+    <div onClick={close} style={{ position: "fixed", inset: 0, zIndex: 200, display: "flex", alignItems: "flex-end", justifyContent: "center", background: C.dimBg, backdropFilter: "blur(4px)", animation: "fadeIn .18s ease" }}>
+      <div onClick={(e) => e.stopPropagation()} style={{ width: "100%", maxWidth: 480, height: "72vh", maxHeight: 620, boxSizing: "border-box", background: C.sheetBg, border: C.border, borderTop: `1px solid ${C.overlayStrong}`, borderRadius: "24px 24px 0 0", display: "flex", flexDirection: "column", fontFamily: F.sans, color: C.ink, animation: "sheetUp .22s cubic-bezier(.2,.8,.2,1)" }}>
         <div style={{ padding: "10px 18px 0", flexShrink: 0 }}>
           <div style={{ width: 40, height: 4, borderRadius: 999, background: C.overlayStrong, margin: "0 auto 12px" }} />
           <div style={{ display: "flex", alignItems: "center", marginBottom: 12 }}>
@@ -3120,7 +3120,7 @@ function LockScreen({ pin, onUnlock, onForgot }) {
   const KEYS = ["1", "2", "3", "4", "5", "6", "7", "8", "9", "", "0", "del"];
 
   return (
-    <div style={{ position: "fixed", inset: 0, zIndex: 300, background: C.bg, color: C.ink, fontFamily: F.sans, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: 24 }}>
+    <div style={{ position: "fixed", inset: 0, zIndex: 300, background: C.bg, color: C.ink, fontFamily: F.sans, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: 24, animation: "fadeIn .25s ease" }}>
       <div style={{ position: "fixed", inset: 0, background: C.bgGradient, zIndex: 0 }} />
       <div style={{ position: "relative", zIndex: 2, display: "flex", flexDirection: "column", alignItems: "center", width: "100%", maxWidth: 300 }}>
         <div style={{ width: 52, height: 52, borderRadius: 16, background: C.grad, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 22, fontWeight: 800, color: "#fff", boxShadow: `0 14px 28px -8px ${C.accentDeep}`, marginBottom: 16 }}>₹</div>
@@ -3154,6 +3154,25 @@ html, body { margin: 0; padding: 0; overflow-x: hidden; overscroll-behavior: non
 ::-webkit-scrollbar { display: none; }
 input, select, textarea { -webkit-user-select: text; user-select: text; }
 @keyframes cbShake { 0%,100% { transform: translateX(0); } 20%,60% { transform: translateX(-8px); } 40%,80% { transform: translateX(8px); } }
+
+/* Tap-scale + entrance animations, matching the approved handoff's own
+   motion vocabulary exactly (its style-active="transform: scale(0.98)" on
+   nearly every tappable row/button, and its fadeIn/popIn/sheetUp/toastIn
+   keyframes for screens, modals, sheets, and toasts). button covers every
+   plain <button> in the app for free; .tap is applied individually to the
+   handful of div-based "fake button" primitives (RoundBtn, Card, RowLine,
+   SettingsRow, nav tabs) that can't be reached by a tag selector alone. */
+button { transition: transform .12s ease; }
+button:active { transform: scale(.96); }
+.tap { transition: transform .12s ease; }
+.tap:active { transform: scale(.97); }
+@keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+@keyframes popIn { from { opacity: 0; transform: scale(.94); } to { opacity: 1; transform: scale(1); } }
+@keyframes sheetUp { from { opacity: 0; transform: translateY(24px); } to { opacity: 1; transform: translateY(0); } }
+@keyframes toastIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; }
+}
 
 /* Export PDF: the app's own phone-width chrome (nav, header, period picker,
    export pills) is irrelevant on paper, so it's hidden entirely in favor of
@@ -3305,7 +3324,7 @@ export default function App() {
     <div className="app-root" style={{ position: "relative", minHeight: "100vh", background: C.bg, color: C.ink, fontFamily: F.sans, overflowX: "hidden" }}>
       <style>{GLOBAL_CSS}</style>
       <div className="no-print" style={{ position: "fixed", inset: 0, background: C.bgGradient, zIndex: 0 }} />
-      <div style={{ position: "relative", zIndex: 2, minHeight: "100vh", paddingBottom: 70 }}>
+      <div key={tab} style={{ position: "relative", zIndex: 2, minHeight: "100vh", paddingBottom: 70, animation: "fadeIn .2s ease" }}>
         {tab !== "home" && tab !== "reports" && tab !== "owed" && tab !== "tx" && <Header title={TABS.find((x) => x.id === tab).label} />}
         {tab === "home" && <HomeScreen book={book} go={go} openSheet={openSheet} notifCount={notifCount} balancesRevealed={balancesRevealed} setBalancesRevealed={setBalancesRevealed} />}
         {tab === "owed" && <OwedScreen book={book} up={up} openSheet={openSheet} />}
