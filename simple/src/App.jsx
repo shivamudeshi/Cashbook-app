@@ -919,11 +919,24 @@ function TransactionsScreen({ book, up, openSheet, selectMode, setSelectMode, sh
     if (sortBy === "amount_low") return a.amount - b.amount;
     return b.date.localeCompare(a.date); // newest
   });
+  // Grouping by date only makes sense when the list is actually sorted by
+  // date -- this loop only merges *consecutive* same-date rows, so under an
+  // amount sort (which scatters dates) the same date would land in several
+  // separate, non-adjacent group objects, all keyed by that same date below.
+  // React then can't tell those groups apart on reconciliation, so after any
+  // list mutation (categorize/approve/delete) it could patch the wrong DOM
+  // node with the wrong row's content instead of adding/removing correctly.
+  // Amount sorts render as a single flat, unheaded group instead.
+  const dateSorted = sortBy === "newest" || sortBy === "oldest";
   const groups = [];
-  for (const e of rows) {
-    const last = groups[groups.length - 1];
-    if (last && last.date === e.date) last.rows.push(e);
-    else groups.push({ date: e.date, label: shortDateLabel(e.date), rows: [e] });
+  if (dateSorted) {
+    for (const e of rows) {
+      const last = groups[groups.length - 1];
+      if (last && last.date === e.date) last.rows.push(e);
+      else groups.push({ date: e.date, label: shortDateLabel(e.date), rows: [e] });
+    }
+  } else if (rows.length) {
+    groups.push({ date: null, label: null, rows });
   }
   const activeFilterCount = (acctFilter !== "all" ? 1 : 0) + (catFilter !== "all" ? 1 : 0) + (dateFilter !== "all" ? 1 : 0);
 
@@ -1144,9 +1157,9 @@ function TransactionsScreen({ book, up, openSheet, selectMode, setSelectMode, sh
         </div>
       )}
 
-      {groups.map((g) => (
-        <div key={g.date}>
-          <div style={{ fontSize: 10.5, fontWeight: 700, color: C.muted, textTransform: "uppercase", letterSpacing: ".04em", padding: "10px 2px 6px" }}>{g.label}</div>
+      {groups.map((g, gi) => (
+        <div key={g.date ?? "flat" + gi}>
+          {g.label && <div style={{ fontSize: 10.5, fontWeight: 700, color: C.muted, textTransform: "uppercase", letterSpacing: ".04em", padding: "10px 2px 6px" }}>{g.label}</div>}
           {g.rows.map((e) => {
             const checked = selected.has(e.id);
             const rowLocked = selectMode && !!lockedType && lockedType !== e.type && !checked;
