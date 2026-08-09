@@ -2103,18 +2103,36 @@ function NewTransactionSheet({ book, up, close, preset }) {
     </div>
   );
 
+  // A fixed-footprint popup instead of the shared Sheet's auto-height
+  // behavior -- Sheet grows/shrinks to fit whatever's inside it, so
+  // switching tabs here (each with a very different amount of content)
+  // made the popup visibly jump in size. The mockup's own Add Transaction
+  // popup is the same way: a constant-height container with only its
+  // middle content area scrolling, so the popup itself never resizes no
+  // matter which tab is open.
   return (
-    <Sheet open title="Add transaction" onClose={close}>
-      <Seg value={tab} onChange={setTab} style={{ marginBottom: 14 }} options={[
-        { v: "expense", label: "Expense" }, { v: "income", label: "Income" },
-        { v: "transfer", label: "Transfer" }, { v: "owed", label: "Settle owed" },
-      ]} />
+    <div onClick={close} style={{ position: "fixed", inset: 0, zIndex: 200, display: "flex", alignItems: "flex-end", justifyContent: "center", background: C.dimBg, backdropFilter: "blur(4px)" }}>
+      <div onClick={(e) => e.stopPropagation()} style={{ width: "100%", maxWidth: 480, height: "72vh", maxHeight: 620, boxSizing: "border-box", background: C.sheetBg, border: C.border, borderTop: `1px solid ${C.overlayStrong}`, borderRadius: "24px 24px 0 0", display: "flex", flexDirection: "column", fontFamily: F.sans, color: C.ink }}>
+        <div style={{ padding: "10px 18px 0", flexShrink: 0 }}>
+          <div style={{ width: 40, height: 4, borderRadius: 999, background: C.overlayStrong, margin: "0 auto 12px" }} />
+          <div style={{ display: "flex", alignItems: "center", marginBottom: 12 }}>
+            <RoundBtn onClick={close}><Ic name="close" size={13} /></RoundBtn>
+            <div style={{ flex: 1, textAlign: "center", fontSize: 16, fontWeight: 800 }}>Add transaction</div>
+            <div style={{ width: 30, flexShrink: 0 }} />
+          </div>
+          <Seg value={tab} onChange={setTab} style={{ marginBottom: 14 }} options={[
+            { v: "expense", label: "Expense" }, { v: "income", label: "Income" },
+            { v: "transfer", label: "Transfer" }, { v: "owed", label: "Settle owed" },
+          ]} />
 
-      {tab !== "owed" && (
-        <div style={{ textAlign: "center", marginBottom: 16 }}>
-          <span style={{ fontSize: 28, fontWeight: 700 }}>₹<input value={amount} onChange={(e) => setAmount(e.target.value)} placeholder="0" style={{ border: "none", outline: "none", fontFamily: F.sans, fontSize: 28, fontWeight: 700, width: 150, textAlign: "center", background: "none", color: C.ink }} /></span>
+          {tab !== "owed" && (
+            <div style={{ textAlign: "center", marginBottom: 16 }}>
+              <span style={{ fontSize: 28, fontWeight: 700 }}>₹<input value={amount} onChange={(e) => setAmount(e.target.value)} placeholder="0" style={{ border: "none", outline: "none", fontFamily: F.sans, fontSize: 28, fontWeight: 700, width: 150, textAlign: "center", background: "none", color: C.ink }} /></span>
+            </div>
+          )}
         </div>
-      )}
+
+        <div style={{ flex: 1, minHeight: 0, overflowY: "auto", padding: "0 18px 14px" }}>
 
       {tab === "expense" && (
         <div>
@@ -2222,8 +2240,13 @@ function NewTransactionSheet({ book, up, close, preset }) {
         </div>
       )}
 
-      <PrimaryBtn style={{ marginTop: 16 }} onClick={save}>{saveLabel}</PrimaryBtn>
-    </Sheet>
+        </div>
+
+        <div style={{ padding: "12px 18px 20px", flexShrink: 0, borderTop: `1px solid ${C.line}` }}>
+          <PrimaryBtn onClick={save}>{saveLabel}</PrimaryBtn>
+        </div>
+      </div>
+    </div>
   );
 }
 
