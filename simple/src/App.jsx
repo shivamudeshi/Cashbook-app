@@ -1815,7 +1815,13 @@ const NOTIF_PREF_DEFS = [
 // button in Transactions.
 function SetupScreen({ book, up, onLockNow }) {
   const [view, setView] = useState("list");
+  const [resetOpen, setResetOpen] = useState(false);
   const back = () => setView("list");
+  const resetApp = () => {
+    up((b) => { for (const k of Object.keys(b)) delete b[k]; Object.assign(b, defaultBook()); });
+    setResetOpen(false);
+    setView("list");
+  };
 
   const expenseCats = book.categories.expense.filter((c) => c !== "Suspense");
   const notifOnCount = NOTIF_PREF_DEFS.filter((n) => (book.prefs.notifPrefs || {})[n.key] !== false).length;
@@ -1855,9 +1861,14 @@ function SetupScreen({ book, up, onLockNow }) {
 
         <div style={{ fontSize: 10, fontWeight: 700, color: C.muted, textTransform: "uppercase", letterSpacing: ".05em", padding: "0 2px 6px", marginTop: 18 }}>Data</div>
         <Card style={{ padding: "0 14px" }}>
-          <SettingsRow label="Backup & Restore" last onClick={() => setView("backup")} />
+          <SettingsRow label="Backup & Restore" onClick={() => setView("backup")} />
+          <SettingsRow label={<span style={{ color: "#c33" }}>Reset app</span>} last onClick={() => setResetOpen(true)} />
         </Card>
       </div>
+
+      <ConfirmModal open={resetOpen} title="Reset Cash Book?"
+        body="This permanently erases every account, transaction, category, and rule stored on this device, and restores the default categories and auto-coding rules. This can't be undone."
+        confirmLabel="Reset" onCancel={() => setResetOpen(false)} onConfirm={resetApp} />
 
       <ProfilePage open={view === "profile"} book={book} up={up} onBack={back} />
       <AccountsPage open={view === "accounts"} book={book} up={up} onBack={back} />
