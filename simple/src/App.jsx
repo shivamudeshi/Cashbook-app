@@ -843,6 +843,10 @@ const TX_TAB_DEFS = [["explained", "Explained"], ["unexplained", "Unexplained"],
 const TX_DATE_OPTIONS = [["all", "Any time"], ["today", "Today"], ["week", "This week"], ["month", "This month"], ["custom", "Custom range"]];
 const TX_SORT_OPTIONS = [["newest", "Newest first"], ["oldest", "Oldest first"], ["amount_high", "Amount: high to low"], ["amount_low", "Amount: low to high"]];
 const txChipBtn = (active) => ({ display: "inline-flex", alignItems: "center", fontSize: 10.5, fontWeight: 600, padding: "6px 11px", borderRadius: 999, border: "none", cursor: "pointer", whiteSpace: "nowrap", fontFamily: F.sans, background: active ? C.grad : C.overlayWash, color: active ? "#fff" : "#444" });
+// Approval-tab row actions -- a real 36px-tall tap target with a label, not
+// just an icon, since the old 22px unlabeled circles were reported too small
+// and fiddly to hit reliably.
+const approvalActionBtnStyle = (color, bg) => ({ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", gap: 5, height: 36, borderRadius: 11, border: "none", background: bg, color, fontWeight: 700, fontSize: 11.5, fontFamily: F.sans, cursor: "pointer" });
 
 function TransactionsScreen({ book, up, openSheet, selectMode, setSelectMode, showToast, initialTab, clearInitialTab }) {
   const [tab, setTabState] = useState(initialTab || "explained");
@@ -969,7 +973,13 @@ function TransactionsScreen({ book, up, openSheet, selectMode, setSelectMode, sh
   const rejectEntry = (id) => up((b) => { rejectOne(b, id); });
   const bulkApprove = () => { up((b) => { for (const id of selected) approveOne(b, id); }); setSelected(new Set()); setSelectMode(false); };
   const bulkReject = () => { up((b) => { for (const id of selected) rejectOne(b, id); }); setSelected(new Set()); setSelectMode(false); };
-  const openCategorize = (ids) => openSheet("categorize", { entryIds: ids });
+  const openCategorize = (ids, onApplied) => openSheet("categorize", { entryIds: ids, onApplied });
+  // Bulk actions exit select mode themselves (bulkApprove/bulkReject/deleteEntries
+  // all clear it), but the Categorize sheet is opened and closed asynchronously --
+  // this callback fires only once the sheet actually applies a change (not on a
+  // plain cancel), so the selection UI clears right after the bulk categorize
+  // completes instead of lingering with nothing left to act on.
+  const exitSelectMode = () => { setSelectMode(false); setSelected(new Set()); };
 
   // Income/Expense/Other-movement/Transfer are separate filter *types*, not
   // one flat "Category" drill grouped internally -- a transaction only ever
@@ -1140,17 +1150,26 @@ function TransactionsScreen({ book, up, openSheet, selectMode, setSelectMode, sh
                   {tab === "explained" && info.pill && (
                     <span style={{ display: "inline-flex", alignItems: "center", fontSize: 9.5, fontWeight: 500, padding: "2px 8px", borderRadius: 999, background: info.isBS ? "rgba(251,191,36,.18)" : "rgba(17,17,17,.06)", border: info.isBS ? "1px solid rgba(251,191,36,.4)" : "none", color: info.isBS ? C.amberText : "#444", flexShrink: 0, whiteSpace: "nowrap" }}>{info.pill}{info.isBS ? " · BS" : ""}</span>
                   )}
-                  {!selectMode && tab === "approval" && (
-                    <div style={{ display: "flex", gap: 6, flexShrink: 0 }}>
-                      <div onClick={(ev) => { ev.stopPropagation(); rejectEntry(e.id); }} style={{ width: 22, height: 22, borderRadius: "50%", background: "rgba(122,46,59,.1)", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer" }}><Ic name="close" size={10} color="#7a2e3b" /></div>
-                      <div onClick={(ev) => { ev.stopPropagation(); openCategorize([e.id]); }} style={{ width: 22, height: 22, borderRadius: "50%", background: C.accentSoft, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer" }}><Ic name="edit" size={10} color={C.accent} /></div>
-                      <div onClick={(ev) => { ev.stopPropagation(); approveEntry(e.id); }} style={{ width: 22, height: 22, borderRadius: "50%", background: "rgba(15,106,92,.12)", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer" }}><Ic name="check" size={11} color={C.green} /></div>
-                    </div>
-                  )}
                   {!selectMode && tab === "unexplained" && (
                     <div onClick={(ev) => { ev.stopPropagation(); openCategorize([e.id]); }} style={{ display: "inline-flex", alignItems: "center", fontSize: 9.5, fontWeight: 600, padding: "3px 9px", borderRadius: 999, background: C.accent, color: "#fff", cursor: "pointer", flexShrink: 0, whiteSpace: "nowrap" }}>Categorize</div>
                   )}
                 </div>
+                {/* Full-width, 36px-tall action row -- real thumb-sized targets
+                    instead of the cramped 22px circles this used to be, since
+                    those were reported too small/fiddly to tap reliably. */}
+                {!selectMode && tab === "approval" && (
+                  <div style={{ display: "flex", gap: 7, marginTop: 8 }}>
+                    <button onClick={(ev) => { ev.stopPropagation(); rejectEntry(e.id); }} style={approvalActionBtnStyle("#7a2e3b", "rgba(122,46,59,.1)")}>
+                      <Ic name="close" size={13} color="#7a2e3b" />Reject
+                    </button>
+                    <button onClick={(ev) => { ev.stopPropagation(); openCategorize([e.id]); }} style={approvalActionBtnStyle(C.accent, C.accentSoft)}>
+                      <Ic name="edit" size={13} color={C.accent} />Edit
+                    </button>
+                    <button onClick={(ev) => { ev.stopPropagation(); approveEntry(e.id); }} style={approvalActionBtnStyle(C.green, "rgba(15,106,92,.14)")}>
+                      <Ic name="check" size={14} color={C.green} />Approve
+                    </button>
+                  </div>
+                )}
               </SwipeRow>
             );
           })}
@@ -1168,14 +1187,14 @@ function TransactionsScreen({ book, up, openSheet, selectMode, setSelectMode, sh
         <div style={{ position: "fixed", left: 16, right: 16, bottom: 82, zIndex: 26, ...glass(16), padding: "10px 14px", display: "flex", alignItems: "center", gap: 10 }}>
           <div style={{ flex: 1, minWidth: 0, fontSize: 12.5, fontWeight: 700 }}>{selected.size} selected</div>
           <GhostBtn style={{ width: "auto", padding: "9px 16px" }} onClick={() => deleteEntries(selectedIds)}>Delete</GhostBtn>
-          <PrimaryBtn style={{ width: "auto", padding: "9px 18px" }} onClick={() => openCategorize(selectedIds)}>Categorize ▾</PrimaryBtn>
+          <PrimaryBtn style={{ width: "auto", padding: "9px 18px" }} onClick={() => openCategorize(selectedIds, exitSelectMode)}>Categorize ▾</PrimaryBtn>
         </div>
       )}
       {selectMode && selected.size > 0 && tab === "explained" && (
         <div style={{ position: "fixed", left: 16, right: 16, bottom: 82, zIndex: 26, ...glass(16), padding: "10px 14px", display: "flex", alignItems: "center", gap: 10 }}>
           <div style={{ flex: 1, minWidth: 0, fontSize: 12.5, fontWeight: 700 }}>{selected.size} selected</div>
           <GhostBtn style={{ width: "auto", padding: "9px 16px" }} onClick={() => deleteEntries(selectedIds)}>Delete</GhostBtn>
-          {(lockedType === "in" || lockedType === "out") && <PrimaryBtn style={{ width: "auto", padding: "9px 18px" }} onClick={() => openCategorize(selectedIds)}>Recategorize ▾</PrimaryBtn>}
+          {(lockedType === "in" || lockedType === "out") && <PrimaryBtn style={{ width: "auto", padding: "9px 18px" }} onClick={() => openCategorize(selectedIds, exitSelectMode)}>Recategorize ▾</PrimaryBtn>}
         </div>
       )}
     </div>
@@ -2846,7 +2865,7 @@ function recodeEntryAsTransfer(b, id, toAccountId) {
   return match ? match.id : null;
 }
 
-function CategorizeSheet({ book, up, close, entryIds, showToast }) {
+function CategorizeSheet({ book, up, close, entryIds, showToast, onApplied }) {
   const entries = book.entries.filter((e) => entryIds.includes(e.id) && (e.type === "in" || e.type === "out"));
   if (entries.length === 0) return null;
   const isBulk = entries.length > 1;
@@ -2877,10 +2896,12 @@ function CategorizeSheet({ book, up, close, entryIds, showToast }) {
       return b;
     });
     close();
+    if (onApplied) onApplied();
   };
   const applyParty = (partyId) => {
     up((b) => { for (const id of entryIds) recodeEntryAsParty(b, id, partyId); return b; });
     close();
+    if (onApplied) onApplied();
   };
   const addPartyAndApply = () => {
     const n = newPartyName.trim();
@@ -2888,6 +2909,7 @@ function CategorizeSheet({ book, up, close, entryIds, showToast }) {
     const id = uid();
     up((b) => { b.parties.push({ id, name: n }); for (const eid of entryIds) recodeEntryAsParty(b, eid, id); return b; });
     close();
+    if (onApplied) onApplied();
   };
   const applyTransfer = () => {
     if (!toAccountId) return;
@@ -2902,6 +2924,7 @@ function CategorizeSheet({ book, up, close, entryIds, showToast }) {
       return b;
     });
     close();
+    if (onApplied) onApplied();
     if (showToast && total > 0) {
       showToast(
         merged === 0
@@ -2961,6 +2984,7 @@ function CategorizeSheet({ book, up, close, entryIds, showToast }) {
       return b;
     });
     close();
+    if (onApplied) onApplied();
   };
 
   return (
@@ -3552,7 +3576,7 @@ export default function App() {
       <Toast toast={toast} />
 
       {sheet && sheet.name === "newTx" && <NewTransactionSheet book={book} up={up} close={closeSheet} preset={sheet.ctx} />}
-      {sheet && sheet.name === "categorize" && <CategorizeSheet book={book} up={up} close={closeSheet} entryIds={sheet.ctx.entryIds} showToast={showToast} />}
+      {sheet && sheet.name === "categorize" && <CategorizeSheet book={book} up={up} close={closeSheet} entryIds={sheet.ctx.entryIds} showToast={showToast} onApplied={sheet.ctx.onApplied} />}
       {sheet && sheet.name === "viewTx" && <ViewTransactionSheet book={book} up={up} close={closeSheet} entryId={sheet.ctx.entryId} />}
       {sheet && sheet.name === "categoryDetail" && <CategoryDetailSheet book={book} close={closeSheet} title={sheet.ctx.title} entries={sheet.ctx.entries} />}
       {sheet && sheet.name === "recordPayment" && <RecordPaymentSheet book={book} up={up} close={closeSheet} presetPartyId={sheet.ctx.partyId} />}
