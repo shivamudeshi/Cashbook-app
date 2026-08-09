@@ -274,14 +274,27 @@ function SwipeRow({ id, openId, setOpenId, action, disabled, locked, onClick, ch
 
   const onPointerDown = (e) => {
     if (disabled) return;
-    drag.current = { startX: e.clientX, moved: false };
+    drag.current = { startX: e.clientX, startY: e.clientY, moved: false, axis: null };
   };
   const onPointerMove = (e) => {
     if (disabled || !drag.current) return;
+    const dxAbs = Math.abs(e.clientX - drag.current.startX);
+    const dyAbs = Math.abs(e.clientY - drag.current.startY);
+    // Undecided gestures don't touch dx at all -- only once there's been
+    // enough movement to tell direction does this either commit to the
+    // horizontal swipe or bail out entirely, so a vertical scroll attempt
+    // starting on a row never fights the browser's own native scrolling
+    // (touch-action: pan-y below already tells it to take over, but this
+    // keeps this component's own state from flickering mid-gesture too).
+    if (!drag.current.axis) {
+      if (dxAbs < 6 && dyAbs < 6) return;
+      if (dyAbs > dxAbs) { drag.current = null; return; }
+      drag.current.axis = "x";
+    }
     const base = isOpen ? SWIPE_OPEN_DX : 0;
     let next = base + (e.clientX - drag.current.startX);
     next = Math.max(SWIPE_OPEN_DX, Math.min(0, next));
-    if (Math.abs(e.clientX - drag.current.startX) > 6) drag.current.moved = true;
+    if (dxAbs > 6) drag.current.moved = true;
     setDx(next);
   };
   const endDrag = () => {
@@ -3150,7 +3163,7 @@ function LockScreen({ pin, onUnlock, onForgot }) {
 
 const GLOBAL_CSS = `
 * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
-html, body { margin: 0; padding: 0; overflow-x: hidden; overscroll-behavior-y: contain; touch-action: manipulation; -webkit-touch-callout: none; -webkit-user-select: none; user-select: none; }
+html, body { margin: 0; padding: 0; overflow-x: hidden; touch-action: manipulation; -webkit-touch-callout: none; -webkit-user-select: none; user-select: none; }
 ::-webkit-scrollbar { display: none; }
 input, select, textarea { -webkit-user-select: text; user-select: text; }
 @keyframes cbShake { 0%,100% { transform: translateX(0); } 20%,60% { transform: translateX(-8px); } 40%,80% { transform: translateX(8px); } }
@@ -3270,6 +3283,30 @@ export default function App() {
   };
 
   useEffect(() => { if (tab !== "tx") setTxSelectMode(false); }, [tab]);
+
+  // Blocks pull-to-refresh without touching normal scroll at all -- an
+  // earlier attempt used the CSS overscroll-behavior property, but that
+  // turned out to suppress real touch-scroll delegation on some Android
+  // WebView/PWA builds (broke scrolling the Transactions list entirely).
+  // This only calls preventDefault for the one specific gesture that's
+  // actually the browser's pull-to-refresh trigger: dragging down while
+  // already at the very top of the page. Every other touchmove -- which
+  // covers all in-page scrolling, at any scroll position -- is left alone.
+  useEffect(() => {
+    let startY = null;
+    const onTouchStart = (e) => { startY = e.touches[0] ? e.touches[0].clientY : null; };
+    const onTouchMove = (e) => {
+      if (startY == null || !e.touches[0]) return;
+      const dy = e.touches[0].clientY - startY;
+      if (window.scrollY <= 0 && dy > 0) e.preventDefault();
+    };
+    document.addEventListener("touchstart", onTouchStart, { passive: true });
+    document.addEventListener("touchmove", onTouchMove, { passive: false });
+    return () => {
+      document.removeEventListener("touchstart", onTouchStart);
+      document.removeEventListener("touchmove", onTouchMove);
+    };
+  }, []);
 
   // Auto-lock (Setup ▸ Security): re-locking on a timer only makes sense
   // relative to the app actually leaving the foreground -- there's no other
