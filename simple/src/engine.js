@@ -288,9 +288,23 @@ export function suggestHead(db, note) {
   const low = norm(note);
   for (const r of db.codingRules || []) {
     if (r.enabled === false) continue;
+    if (r.targetType && r.targetType !== "category") continue;
     if (r.match && low.includes(norm(r.match))) return r.head;
   }
   return "Suspense";
+}
+// Same matching as suggestHead, but returns the whole rule (so callers can
+// see targetType/partyId for a party-coded suggestion, not just a category
+// string) -- rather than duplicating the string-based suggestHead's many
+// existing display call sites, this is only used by applyCodingRules.
+function matchRule(db, note) {
+  const norm = (s) => (s || "").toLowerCase().replace(/\s+/g, "");
+  const low = norm(note);
+  for (const r of db.codingRules || []) {
+    if (r.enabled === false) continue;
+    if (r.match && low.includes(norm(r.match))) return r;
+  }
+  return null;
 }
 export function keywordOf(note) {
   const words = (note || "").toLowerCase().match(/[a-z]{4,}/g) || [];
@@ -312,7 +326,26 @@ export function keywordOf(note) {
 export function applyCodingRules(db) {
   for (const e of db.entries) {
     if ((e.type !== "in" && e.type !== "out") || e.category !== "Suspense" || e.pendingApproval || e.codingRejected) continue;
-    const matched = suggestHead(db, e.merchant || "");
-    if (matched !== "Suspense") { e.category = matched; e.pendingApproval = true; }
+    const rule = matchRule(db, e.merchant || "");
+    if (!rule) continue;
+    if (rule.targetType === "party") {
+      // Stays type "in"/"out" with category "Suspense" (so it's still
+      // excluded from balances/reports) until approved -- e.suggestedParty
+      // is what the Approval tab shows and what approveEntry() converts the
+      // entry into, exactly like a real party-recode.
+      e.suggestedParty = rule.partyId;
+      e.pendingApproval = true;
+    } else if (rule.targetType === "transfer") {
+      // Never auto-merges on a plain sweep -- e.suggestedTransferAccount only
+      // gets turned into a real transfer (and a matching opposite-leg entry
+      // in that account merged away) once the Approval tab's approve action
+      // fires, so a wrong match can never silently delete a real imported row.
+      if (rule.toAccountId === e.accountId) continue;
+      e.suggestedTransferAccount = rule.toAccountId;
+      e.pendingApproval = true;
+    } else {
+      e.category = rule.head;
+      e.pendingApproval = true;
+    }
   }
 }
