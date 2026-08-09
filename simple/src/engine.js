@@ -287,6 +287,7 @@ export function suggestHead(db, note) {
   const norm = (s) => (s || "").toLowerCase().replace(/\s+/g, "");
   const low = norm(note);
   for (const r of db.codingRules || []) {
+    if (r.enabled === false) continue;
     if (r.match && low.includes(norm(r.match))) return r.head;
   }
   return "Suspense";

@@ -82,6 +82,8 @@ function Ic({ name, size = 16, color, style }) {
     bolt: "M13 2 4 14h6l-1 8 9-12h-6z",
     shield: "M12 3l7 3v6c0 5-3 8-7 9-4-1-7-4-7-9V6l7-3z",
     cloud: "M7 17a4 4 0 0 1 0-8 5 5 0 0 1 9.6-1.5A4.5 4.5 0 0 1 17 17H7z",
+    eye: "M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7Z M12 12m-3 0a3 3 0 1 0 6 0a3 3 0 1 0 -6 0",
+    eyeOff: "M17.94 17.94A10.94 10.94 0 0 1 12 19c-6.5 0-10-7-10-7a18.4 18.4 0 0 1 4.22-5.15M9.9 4.24A10.94 10.94 0 0 1 12 4c6.5 0 10 7 10 7a18.5 18.5 0 0 1-2.16 3.19M14.12 14.12a3 3 0 1 1-4.24-4.24 M2 2l20 20",
   };
   return (
     <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color || "currentColor"} strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round" style={style}>
@@ -173,16 +175,21 @@ function Toast({ toast }) {
   );
 }
 
+// Full-page slide-over, used for every Setup sub-screen -- a left-aligned
+// back chevron + title that scrolls with the content, matching the approved
+// handoff's Settings screen exactly (no round back-button, no centered/
+// sticky header bar).
 function PageOverlay({ open, onBack, title, children }) {
   if (!open) return null;
   return (
     <div style={{ position: "fixed", inset: 0, zIndex: 190, background: C.bg, overflowY: "auto", fontFamily: F.sans, color: C.ink }}>
-      <div style={{ position: "relative", zIndex: 2, display: "flex", alignItems: "center", padding: "16px 18px 8px", background: C.headerBg, backdropFilter: "blur(20px)" }}>
-        <RoundBtn onClick={onBack}><Ic name="back" size={14} /></RoundBtn>
-        <div style={{ flex: 1, textAlign: "center", fontSize: 16, fontWeight: 800 }}>{title}</div>
-        <div style={{ width: 30, flexShrink: 0 }} />
+      <div style={{ padding: "16px 16px 90px" }}>
+        <div onClick={onBack} style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 18, cursor: "pointer" }}>
+          <Ic name="back" size={16} color={C.ink} />
+          <div style={{ fontSize: 15, fontWeight: 700 }}>{title}</div>
+        </div>
+        {children}
       </div>
-      <div style={{ padding: "12px 16px 60px" }}>{children}</div>
     </div>
   );
 }
@@ -328,7 +335,7 @@ function greeting() {
 
 const HERO_COLORS = ["#1d3a8f", "#4c68b3", "#142a68", "#7a2e3b", "#0f6a5c", "#a6741c"];
 
-function HeroCarousel({ accounts, openSheet }) {
+function HeroCarousel({ accounts, openSheet, masked }) {
   const [idx, setIdx] = useState(0);
   const n = accounts.length;
   const clamped = Math.min(idx, n - 1);
@@ -345,7 +352,7 @@ function HeroCarousel({ accounts, openSheet }) {
                   {a.kind === "card" && <span style={{ fontSize: 9, fontWeight: 700, background: "rgba(255,255,255,.2)", borderRadius: 999, padding: "3px 8px" }}>{a.dueDay ? `Due ${a.dueDay}${dueOrdinal(a.dueDay)}` : "Card"}</span>}
                 </div>
                 <div>
-                  <div style={{ fontSize: 25, fontWeight: 700, fontVariantNumeric: "tabular-nums" }}>{inr(Math.abs(a.balance))}</div>
+                  <div style={{ fontSize: 25, fontWeight: 700, fontVariantNumeric: "tabular-nums" }}>{masked ? "••••" : inr(Math.abs(a.balance))}</div>
                   <div style={{ fontSize: 10, marginTop: 3, opacity: .82 }}>{a.kind === "bank" ? "Available balance" : "Outstanding"}</div>
                 </div>
               </div>
@@ -392,7 +399,7 @@ function BreakdownSheet({ book, close }) {
   );
 }
 
-function HomeScreen({ book, go, openSheet, notifCount }) {
+function HomeScreen({ book, go, openSheet, notifCount, balancesRevealed, setBalancesRevealed }) {
   const t = today();
   const monthStart = t.slice(0, 8) + "01";
   const pl = computePL(book, monthStart, t);
@@ -400,6 +407,7 @@ function HomeScreen({ book, go, openSheet, notifCount }) {
   const owed = owedAsOf(book, t);
   const unexplainedCount = book.entries.filter((e) => (e.type === "in" || e.type === "out") && !isExplained(e)).length;
   const approvalCount = book.entries.filter((e) => (e.type === "in" || e.type === "out") && e.pendingApproval).length;
+  const masked = !!book.prefs.hideBalances && !balancesRevealed;
 
   const maxInOut = Math.max(pl.totalIncome, pl.totalExpense, 1);
   const savedPct = pl.totalIncome > 0 ? Math.round((pl.net / pl.totalIncome) * 100) : 0;
@@ -455,9 +463,16 @@ function HomeScreen({ book, go, openSheet, notifCount }) {
         <>
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8, padding: "0 2px", gap: 8 }}>
             <div style={{ fontSize: 14.5, fontWeight: 700, whiteSpace: "nowrap" }}>Your money</div>
-            <div onClick={() => openSheet("breakdown")} style={{ fontSize: 11.5, fontWeight: 500, color: C.ink, cursor: "pointer", whiteSpace: "nowrap" }}>Detailed breakdown ›</div>
+            <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+              {book.prefs.hideBalances && (
+                <div onClick={() => setBalancesRevealed((v) => !v)} style={{ cursor: "pointer", display: "flex", flexShrink: 0 }}>
+                  <Ic name={masked ? "eye" : "eyeOff"} size={15} color={C.soft} />
+                </div>
+              )}
+              <div onClick={() => openSheet("breakdown")} style={{ fontSize: 11.5, fontWeight: 500, color: C.ink, cursor: "pointer", whiteSpace: "nowrap" }}>Detailed breakdown ›</div>
+            </div>
           </div>
-          <HeroCarousel accounts={accounts} openSheet={openSheet} />
+          <HeroCarousel accounts={accounts} openSheet={openSheet} masked={masked} />
         </>
       )}
 
@@ -524,22 +539,32 @@ function nextDueDate(dueDay, todayStr) {
   return dd;
 }
 
-// What the notification bell surfaces: unexplained transactions and credit
-// card payments due within a week -- the things in this app that actually
-// need the user's attention, as opposed to routine day-to-day activity.
+// What the notification bell surfaces: unexplained transactions,
+// auto-matched transactions awaiting approval, and credit card payments due
+// within a week -- the things in this app that actually need the user's
+// attention, as opposed to routine day-to-day activity. Each bucket can be
+// turned off from Setup ▸ Notifications (book.prefs.notifPrefs).
 function notificationsFor(book) {
   const t = today();
   const list = [];
-  const unexplainedCount = book.entries.filter((e) => (e.type === "in" || e.type === "out") && !isExplained(e)).length;
-  if (unexplainedCount > 0) {
-    list.push({ id: "unexplained", title: `${unexplainedCount} unexplained transaction${unexplainedCount === 1 ? "" : "s"}`, sub: "Tap to review and code them", tab: "tx" });
+  const prefs = book.prefs.notifPrefs || {};
+  const codable = book.entries.filter((e) => e.type === "in" || e.type === "out");
+  const unexplainedCount = codable.filter((e) => !e.pendingApproval && !isExplained(e)).length;
+  if (prefs.unexplained !== false && unexplainedCount > 0) {
+    list.push({ id: "unexplained", title: `${unexplainedCount} unexplained transaction${unexplainedCount === 1 ? "" : "s"}`, sub: "Tap to review and code them", tab: "tx", txTab: "unexplained" });
   }
-  for (const a of book.accounts) {
-    if (a.kind !== "card" || !a.dueDay) continue;
-    const due = nextDueDate(a.dueDay, t);
-    const days = Math.round((due - new Date(t + "T00:00:00")) / 86400000);
-    if (days >= 0 && days <= 7) {
-      list.push({ id: "due-" + a.id, title: `${a.name} payment due ${days === 0 ? "today" : days === 1 ? "tomorrow" : `in ${days} days`}`, sub: `Due on the ${a.dueDay}${dueOrdinal(a.dueDay)}`, tab: "home" });
+  const approvalCount = codable.filter((e) => e.pendingApproval).length;
+  if (prefs.approval !== false && approvalCount > 0) {
+    list.push({ id: "approval", title: `${approvalCount} transaction${approvalCount === 1 ? "" : "s"} auto-matched`, sub: "Tap to confirm the suggested category", tab: "tx", txTab: "approval" });
+  }
+  if (prefs.paymentDue !== false) {
+    for (const a of book.accounts) {
+      if (a.kind !== "card" || !a.dueDay) continue;
+      const due = nextDueDate(a.dueDay, t);
+      const days = Math.round((due - new Date(t + "T00:00:00")) / 86400000);
+      if (days >= 0 && days <= 7) {
+        list.push({ id: "due-" + a.id, title: `${a.name} payment due ${days === 0 ? "today" : days === 1 ? "tomorrow" : `in ${days} days`}`, sub: `Due on the ${a.dueDay}${dueOrdinal(a.dueDay)}`, tab: "home" });
+      }
     }
   }
   return list;
@@ -550,17 +575,24 @@ function NotificationsSheet({ book, go, close }) {
   return (
     <Modal open title="Notifications" onClose={close}>
       {items.length === 0 && <div style={{ padding: "10px 0 16px", fontSize: 12.5, color: C.muted, textAlign: "center" }}>You're all caught up — nothing needs your attention.</div>}
-      {items.map((n, i) => (
-        <div key={n.id} onClick={() => { go(n.tab); close(); }} style={{ display: "flex", gap: 10, alignItems: "center", padding: "10px 0", borderBottom: i === items.length - 1 ? "none" : `1px solid ${C.line}`, cursor: "pointer" }}>
-          <div style={{ width: 32, height: 32, borderRadius: 9, background: n.id.startsWith("due-") ? C.overlayWash : C.accentSoft, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
-            <Ic name={n.id.startsWith("due-") ? "card" : "swap"} size={15} color={n.id.startsWith("due-") ? C.ink : C.accent} />
+      {items.map((n, i) => {
+        const isDue = n.id.startsWith("due-");
+        const isApproval = n.id === "approval";
+        const icon = isDue ? "card" : isApproval ? "check" : "swap";
+        const color = isDue ? C.ink : isApproval ? C.amberText : C.accent;
+        const bg = isDue ? C.overlayWash : isApproval ? "rgba(166,116,28,.12)" : C.accentSoft;
+        return (
+        <div key={n.id} onClick={() => { go(n.tab, n.txTab); close(); }} style={{ display: "flex", gap: 10, alignItems: "center", padding: "10px 0", borderBottom: i === items.length - 1 ? "none" : `1px solid ${C.line}`, cursor: "pointer" }}>
+          <div style={{ width: 32, height: 32, borderRadius: 9, background: bg, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+            <Ic name={icon} size={15} color={color} />
           </div>
           <div style={{ flex: 1, minWidth: 0 }}>
             <div style={{ fontSize: 12.5, fontWeight: 500 }}>{n.title}</div>
             <div style={{ fontSize: 10, color: C.muted, marginTop: 2 }}>{n.sub}</div>
           </div>
         </div>
-      ))}
+        );
+      })}
       <PrimaryBtn style={{ marginTop: 10, padding: "10px 0", fontSize: 12.5 }} onClick={close}>Close</PrimaryBtn>
     </Modal>
   );
@@ -838,7 +870,8 @@ function TransactionsScreen({ book, up, openSheet, selectMode, setSelectMode, sh
   };
   const matches = (e) => {
     if (acctFilter !== "all" && e.accountId !== acctFilter && e.fromAccountId !== acctFilter && e.toAccountId !== acctFilter) return false;
-    if (catFilter !== "all" && e.category !== catFilter) return false;
+    if (catFilter === "__transfer__") { if (e.type !== "transfer") return false; }
+    else if (catFilter !== "all" && e.category !== catFilter) return false;
     if (!withinDate(e)) return false;
     const needle = search.trim().toLowerCase();
     if (needle) {
@@ -902,17 +935,18 @@ function TransactionsScreen({ book, up, openSheet, selectMode, setSelectMode, sh
   const bulkReject = () => { up((b) => { for (const id of selected) { const idx = b.entries.findIndex((e) => e.id === id); if (idx >= 0) b.entries[idx] = { ...b.entries[idx], category: "Suspense", pendingApproval: false, codingRejected: true }; } }); setSelected(new Set()); setSelectMode(false); };
   const openCategorize = (ids) => openSheet("categorize", { entryIds: ids });
 
-  // Income/Expense/Balance Sheet categories can collide in name across the
-  // three lists in principle, but never do in practice (CategorySelect's own
-  // grouping assumes the same disjointness) -- bucketing here just mirrors
-  // that split so a long combined list isn't one undifferentiated blob.
-  const catGroups = [
-    { label: "Income", items: usedCategories.filter((c) => book.categories.income.includes(c)) },
-    { label: "Expense", items: usedCategories.filter((c) => book.categories.expense.includes(c)) },
-    { label: "Balance Sheet", items: usedCategories.filter((c) => book.bsCategories.includes(c)) },
-  ]
-    .map((g) => ({ ...g, items: g.items.filter((c) => c.toLowerCase().includes(catSearch.trim().toLowerCase())) }))
-    .filter((g) => g.items.length > 0);
+  // Income/Expense/Other-movement/Transfer are separate filter *types*, not
+  // one flat "Category" drill grouped internally -- a transaction only ever
+  // belongs to one of these, so they're mutually exclusive filter buttons
+  // rather than nested sub-groups of a single chip.
+  const needleFor = (list) => list.filter((c) => c.toLowerCase().includes(catSearch.trim().toLowerCase()));
+  const usedIncomeCats = needleFor(usedCategories.filter((c) => book.categories.income.includes(c)));
+  const usedExpenseCats = needleFor(usedCategories.filter((c) => book.categories.expense.includes(c)));
+  const usedOtherCats = needleFor(usedCategories.filter((c) => book.bsCategories.includes(c)));
+  const catFilterType = catFilter === "all" || catFilter === "__transfer__" ? null
+    : book.categories.income.includes(catFilter) ? "income"
+    : book.categories.expense.includes(catFilter) ? "expense"
+    : book.bsCategories.includes(catFilter) ? "other" : null;
 
   return (
     <div style={{ padding: "4px 16px 90px" }}>
@@ -960,7 +994,10 @@ function TransactionsScreen({ book, up, openSheet, selectMode, setSelectMode, sh
         <div style={{ ...glass(14), marginBottom: 12, overflow: "hidden" }}>
           <div style={{ display: "flex", alignItems: "center", gap: 6, padding: 10, flexWrap: "wrap" }}>
             <button onClick={() => toggleDrill("account")} style={txChipBtn(drill === "account")}>Account: {acctFilter === "all" ? "All" : accountName(acctFilter)} {drill === "account" ? "▴" : "▾"}</button>
-            <button onClick={() => toggleDrill("category")} style={txChipBtn(drill === "category")}>Category: {catFilter === "all" ? "All" : catFilter} {drill === "category" ? "▴" : "▾"}</button>
+            <button onClick={() => toggleDrill("income")} style={txChipBtn(drill === "income")}>Income: {catFilterType === "income" ? catFilter : "All"} {drill === "income" ? "▴" : "▾"}</button>
+            <button onClick={() => toggleDrill("expense")} style={txChipBtn(drill === "expense")}>Expense: {catFilterType === "expense" ? catFilter : "All"} {drill === "expense" ? "▴" : "▾"}</button>
+            <button onClick={() => toggleDrill("other")} style={txChipBtn(drill === "other")}>Other: {catFilterType === "other" ? catFilter : "All"} {drill === "other" ? "▴" : "▾"}</button>
+            <button onClick={() => setCatFilter(catFilter === "__transfer__" ? "all" : "__transfer__")} style={txChipBtn(catFilter === "__transfer__")}>Transfer</button>
             <button onClick={() => toggleDrill("date")} style={txChipBtn(drill === "date")}>Date: {(TX_DATE_OPTIONS.find(([v]) => v === dateFilter) || [, "Any time"])[1]} {drill === "date" ? "▴" : "▾"}</button>
             {activeFilterCount > 0 && (
               <button onClick={() => { setAcctFilter("all"); setCatFilter("all"); setCatSearch(""); setDateFilter("all"); setDateFrom(""); setDateTo(""); setDrill(null); }} style={{ marginLeft: "auto", background: "none", border: "none", fontFamily: F.sans, fontSize: 10.5, fontWeight: 600, color: C.accentText, cursor: "pointer", padding: "6px 4px", whiteSpace: "nowrap" }}>Clear filters</button>
@@ -972,26 +1009,23 @@ function TransactionsScreen({ book, up, openSheet, selectMode, setSelectMode, sh
               {book.accounts.map((a) => <button key={a.id} onClick={() => setAcctFilter(a.id)} style={{ ...txChipBtn(acctFilter === a.id), marginTop: 8 }}>{a.name}</button>)}
             </div>
           )}
-          {drill === "category" && (
-            <div style={{ padding: "10px 10px 12px", borderTop: `1px solid ${C.line}` }}>
-              <div style={{ display: "flex", alignItems: "center", gap: 7, padding: "8px 10px", border: `1px solid ${C.overlayBorder}`, borderRadius: 10, marginBottom: 8, background: "#fff" }}>
-                <Ic name="search" size={12} color={C.muted} />
-                <input value={catSearch} onChange={(e) => setCatSearch(e.target.value)} placeholder="Search categories" style={{ flex: 1, minWidth: 0, border: "none", background: "none", fontFamily: F.sans, fontSize: 11, color: C.ink }} />
+          {(drill === "income" || drill === "expense" || drill === "other") && (() => {
+            const cats = drill === "income" ? usedIncomeCats : drill === "expense" ? usedExpenseCats : usedOtherCats;
+            const label = drill === "income" ? "income categories" : drill === "expense" ? "expense categories" : "other movement categories";
+            return (
+              <div style={{ padding: "10px 10px 12px", borderTop: `1px solid ${C.line}` }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 7, padding: "8px 10px", border: `1px solid ${C.overlayBorder}`, borderRadius: 10, marginBottom: 8, background: "#fff" }}>
+                  <Ic name="search" size={12} color={C.muted} />
+                  <input value={catSearch} onChange={(e) => setCatSearch(e.target.value)} placeholder={`Search ${label}`} style={{ flex: 1, minWidth: 0, border: "none", background: "none", fontFamily: F.sans, fontSize: 11, color: C.ink }} />
+                </div>
+                <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                  <button onClick={() => setCatFilter("all")} style={txChipBtn(catFilterType !== drill)}>All {label}</button>
+                  {cats.map((c) => <button key={c} onClick={() => setCatFilter(c)} style={txChipBtn(catFilter === c)}>{c}</button>)}
+                </div>
+                {cats.length === 0 && <div style={{ fontSize: 11, color: C.muted, padding: "8px 2px 0" }}>No matching categories.</div>}
               </div>
-              <button onClick={() => setCatFilter("all")} style={{ ...txChipBtn(catFilter === "all"), marginBottom: 6 }}>All categories</button>
-              <div style={{ maxHeight: 200, overflowY: "auto" }}>
-                {catGroups.map((g) => (
-                  <div key={g.label} style={{ marginBottom: 8 }}>
-                    <div style={{ fontSize: 9, fontWeight: 700, color: C.muted, textTransform: "uppercase", letterSpacing: ".04em", marginBottom: 5 }}>{g.label}</div>
-                    <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
-                      {g.items.map((c) => <button key={c} onClick={() => setCatFilter(c)} style={txChipBtn(catFilter === c)}>{c}</button>)}
-                    </div>
-                  </div>
-                ))}
-                {catGroups.length === 0 && <div style={{ fontSize: 11, color: C.muted, padding: "4px 2px" }}>No matching categories.</div>}
-              </div>
-            </div>
-          )}
+            );
+          })()}
           {drill === "date" && (
             <div style={{ padding: "10px 10px 12px", borderTop: `1px solid ${C.line}` }}>
               <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 8 }}>
@@ -1715,59 +1749,141 @@ function AddInline({ placeholder, onAdd }) {
 // DATA groups, each row a soft-tint colored icon chip with a trailing status
 // pill, matching the colored-chip + section-header language already used
 // elsewhere in the app (Reports categories, Transactions filter groups).
-function SetupSection({ title, items }) {
+// A compact iOS-style switch for the dense settings-list toggles (Passcode,
+// Hide balances, per-rule enable, notification prefs) -- distinct from the
+// segmented Off/On <Toggle> used in form contexts (Add Transaction, Code
+// Transaction), which would be far too large repeated down a settings list.
+function Switch({ value, onChange }) {
   return (
-    <>
-      <div style={{ fontSize: 10.5, fontWeight: 700, color: C.muted, textTransform: "uppercase", letterSpacing: ".05em", padding: "0 4px 7px", marginTop: 18 }}>{title}</div>
-      <Card style={{ padding: "0 16px" }}>
-        {items.map((it, i) => (
-          <RowLine key={it.key} onClick={it.onClick} last={i === items.length - 1}>
-            <div style={{ width: 30, height: 30, borderRadius: 9, background: alpha(it.color, 0.1), display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, marginRight: 10 }}>
-              <Ic name={it.icon} size={14} color={it.color} />
-            </div>
-            <div style={{ flex: 1, minWidth: 0, fontSize: 13, fontWeight: 600, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{it.label}</div>
-            <div style={{ fontSize: 10, fontWeight: 600, color: C.muted, marginRight: 6, whiteSpace: "nowrap", flexShrink: 0 }}>{it.meta}</div>
-            <div style={{ color: C.faint, fontSize: 15, flexShrink: 0 }}>›</div>
-          </RowLine>
-        ))}
-      </Card>
-    </>
+    <div onClick={() => onChange(!value)} style={{ width: 38, height: 22, borderRadius: 999, background: value ? C.accent : "rgba(17,17,17,.15)", position: "relative", cursor: "pointer", flexShrink: 0, transition: "background .15s ease" }}>
+      <div style={{ position: "absolute", top: 2, left: value ? 18 : 2, width: 18, height: 18, borderRadius: "50%", background: "#fff", boxShadow: "0 1px 3px rgba(17,17,17,.3)", transition: "left .15s ease" }} />
+    </div>
   );
 }
 
-function SetupScreen({ book, openSheet, openAccountsPage }) {
-  const setupItems = [
-    { key: "accounts", icon: "card", color: C.accent, label: "Accounts", meta: `${book.accounts.length} account${book.accounts.length === 1 ? "" : "s"}`, onClick: openAccountsPage },
-    { key: "income", icon: "arrowUp", color: C.green, label: "Income Categories", meta: `${book.categories.income.length} categor${book.categories.income.length === 1 ? "y" : "ies"}`, onClick: () => openSheet("setupIncomeCategories") },
-    { key: "expense", icon: "arrowDown", color: "#7a2e3b", label: "Expense Categories", meta: `${book.categories.expense.filter((c) => c !== "Suspense").length} categories`, onClick: () => openSheet("setupCategories") },
-    { key: "bs", icon: "grid2", color: "#555555", label: "Balance Sheet Categories", meta: `${book.bsCategories.length} categor${book.bsCategories.length === 1 ? "y" : "ies"}`, onClick: () => openSheet("setupBsCategories") },
-    { key: "rules", icon: "bolt", color: C.amberText, label: "Auto-coding Rules", meta: `${book.codingRules.length} rule${book.codingRules.length === 1 ? "" : "s"}`, onClick: () => openSheet("setupRules") },
-  ];
-  const securityItems = [
-    { key: "lock", icon: "shield", color: C.accent, label: "Security & App Lock", meta: book.prefs.lock.on ? "PIN on" : "PIN off", onClick: () => openSheet("setupPrefs") },
-  ];
-  const dataItems = [
-    { key: "import", icon: "upload", color: C.green, label: "Import & OCR", meta: "PDFs & photos", onClick: () => openSheet("import") },
-    { key: "backup", icon: "cloud", color: C.green, label: "Backup & Restore", meta: "Export / import", onClick: () => openSheet("setupPrefs") },
-  ];
+// A plain settings-list row -- label, optional meta text or right-side
+// control, and a chevron if it navigates -- with a bottom-border divider on
+// every row but the last. Matches the approved handoff's actual Settings
+// screen exactly: no icon chips (this app's own earlier guess, before the
+// real Settings screen state inside the combined mockup file was found).
+function SettingsRow({ label, meta, onClick, last, right }) {
+  return (
+    <div onClick={onClick} style={{ display: "flex", alignItems: "center", gap: 10, padding: "13px 14px", borderBottom: last ? "none" : `1px solid ${C.line}`, cursor: onClick ? "pointer" : "default" }}>
+      <span style={{ flex: 1, minWidth: 0, fontSize: 12.5, fontWeight: 500 }}>{label}</span>
+      {meta != null && <span style={{ fontSize: 9.5, color: C.muted, flexShrink: 0 }}>{meta}</span>}
+      {right}
+      {onClick && !right && <div style={{ color: C.faint, fontSize: 15, flexShrink: 0 }}>›</div>}
+    </div>
+  );
+}
+
+// A small styled confirm dialog matching the mockup's own delete-account and
+// log-out popups -- used here for deleting an account, which is the one
+// Setup action destructive enough (it also deletes every transaction on
+// that account) to warrant more than a plain native confirm().
+function ConfirmModal({ open, title, body, confirmLabel, onCancel, onConfirm }) {
+  if (!open) return null;
+  return (
+    <div onClick={onCancel} style={{ position: "fixed", inset: 0, zIndex: 210, background: C.dimBg, backdropFilter: "blur(10px) saturate(140%)", WebkitBackdropFilter: "blur(10px) saturate(140%)", display: "flex", alignItems: "center", justifyContent: "center" }}>
+      <div onClick={(e) => e.stopPropagation()} style={{ width: 270, background: "#fff", borderRadius: 18, padding: 20, boxShadow: "0 12px 30px rgba(17,17,17,.2)", fontFamily: F.sans }}>
+        <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 6, textAlign: "center" }}>{title}</div>
+        <div style={{ fontSize: 11.5, color: C.muted, textAlign: "center", marginBottom: 18 }}>{body}</div>
+        <div style={{ display: "flex", gap: 8 }}>
+          <button onClick={onCancel} style={{ flex: 1, padding: "10px 0", border: `1px solid ${C.overlayBorder}`, borderRadius: 10, background: "none", color: C.ink, fontFamily: F.sans, fontWeight: 600, fontSize: 12.5, cursor: "pointer" }}>Cancel</button>
+          <button onClick={onConfirm} style={{ flex: 1, padding: "10px 0", border: "none", borderRadius: 10, background: "#c33", color: "#fff", fontFamily: F.sans, fontWeight: 700, fontSize: 12.5, cursor: "pointer" }}>{confirmLabel || "Delete"}</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+const NOTIF_PREF_DEFS = [
+  { key: "paymentDue", label: "Payment due reminders", desc: "Before a credit card payment is due" },
+  { key: "unexplained", label: "Unexplained transactions", desc: "When a bank transaction needs a category" },
+  { key: "approval", label: "Awaiting approval", desc: "When an auto-categorized transaction needs review" },
+];
+
+// Single-view-state Setup screen, matching the approved handoff's actual
+// Settings screen exactly (found inside Cash Book Home.dc.html's own
+// 'settings' state -- a fuller and more authoritative source than the
+// separate static "Settings Screen Options" exploration file this screen
+// was first built from). Currency and Financial-period preferences, and the
+// Sessions/Log-out block, are in that mockup but assume a cloud-backed
+// multi-currency, accrual-accounting, multi-device product this app simply
+// isn't -- none of that exists anywhere in engine.js, so they're dropped
+// rather than faked, same as dropping the mockup's non-functional "Merge"
+// button in Transactions.
+function SetupScreen({ book, up, onLockNow }) {
+  const [view, setView] = useState("list");
+  const back = () => setView("list");
+
+  const expenseCats = book.categories.expense.filter((c) => c !== "Suspense");
+  const notifOnCount = NOTIF_PREF_DEFS.filter((n) => (book.prefs.notifPrefs || {})[n.key] !== false).length;
 
   return (
-    <div style={{ padding: "4px 16px 90px" }}>
-      <div onClick={() => openSheet("setupProfile")} style={{ ...glass(16), padding: "14px 16px", display: "flex", alignItems: "center", gap: 12, cursor: "pointer" }}>
-        <div style={{ width: 42, height: 42, borderRadius: "50%", background: C.grad, color: "#fff", fontWeight: 700, fontSize: 16, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
-          {(book.prefs.name || "").trim().charAt(0).toUpperCase() || "?"}
+    <>
+      <div style={{ padding: "4px 16px 90px" }}>
+        <div onClick={() => setView("profile")} style={{ ...glass(16), padding: "14px 16px", display: "flex", alignItems: "center", gap: 12, cursor: "pointer" }}>
+          <div style={{ width: 42, height: 42, borderRadius: "50%", background: C.grad, color: "#fff", fontWeight: 700, fontSize: 16, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+            {(book.prefs.name || "").trim().charAt(0).toUpperCase() || "?"}
+          </div>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ fontSize: 14, fontWeight: 700, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{book.prefs.name || "Add your name"}</div>
+            <div style={{ fontSize: 10.5, color: C.muted }}>Tap to edit profile</div>
+          </div>
+          <div style={{ color: C.faint, fontSize: 15, flexShrink: 0 }}>›</div>
         </div>
-        <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={{ fontSize: 14, fontWeight: 700, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{book.prefs.name || "Add your name"}</div>
-          <div style={{ fontSize: 10.5, color: C.muted }}>Tap to edit profile</div>
-        </div>
-        <div style={{ color: C.faint, fontSize: 15, flexShrink: 0 }}>›</div>
+
+        <div style={{ fontSize: 10, fontWeight: 700, color: C.muted, textTransform: "uppercase", letterSpacing: ".05em", padding: "0 2px 6px", marginTop: 18 }}>Setup</div>
+        <Card style={{ padding: "0 14px" }}>
+          <SettingsRow label="Accounts" meta={`${book.accounts.length}`} onClick={() => setView("accounts")} />
+          <SettingsRow label="Income categories" meta={`${book.categories.income.length}`} onClick={() => setView("income")} />
+          <SettingsRow label="Expense categories" meta={`${expenseCats.length}`} onClick={() => setView("expense")} />
+          <SettingsRow label="Balance Sheet categories" meta={`${book.bsCategories.length}`} onClick={() => setView("other")} />
+          <SettingsRow label="Auto-coding rules" meta={`${book.codingRules.length}`} last onClick={() => setView("rules")} />
+        </Card>
+
+        <div style={{ fontSize: 10, fontWeight: 700, color: C.muted, textTransform: "uppercase", letterSpacing: ".05em", padding: "0 2px 6px", marginTop: 18 }}>Preferences</div>
+        <Card style={{ padding: "0 14px" }}>
+          <SettingsRow label="Notifications" meta={`${notifOnCount} on`} last onClick={() => setView("notifications")} />
+        </Card>
+
+        <div style={{ fontSize: 10, fontWeight: 700, color: C.muted, textTransform: "uppercase", letterSpacing: ".05em", padding: "0 2px 6px", marginTop: 18 }}>Security</div>
+        <Card style={{ padding: "0 14px" }}>
+          <SettingsRow label="Passcode & security" last onClick={() => setView("security")} />
+        </Card>
+
+        <div style={{ fontSize: 10, fontWeight: 700, color: C.muted, textTransform: "uppercase", letterSpacing: ".05em", padding: "0 2px 6px", marginTop: 18 }}>Data</div>
+        <Card style={{ padding: "0 14px" }}>
+          <SettingsRow label="Backup & Restore" last onClick={() => setView("backup")} />
+        </Card>
       </div>
 
-      <SetupSection title="Setup" items={setupItems} />
-      <SetupSection title="Security" items={securityItems} />
-      <SetupSection title="Data" items={dataItems} />
-    </div>
+      <ProfilePage open={view === "profile"} book={book} up={up} onBack={back} />
+      <AccountsPage open={view === "accounts"} book={book} up={up} onBack={back} />
+      <CategoryListPage open={view === "income"} title="Income categories" onBack={back}
+        help="Where money-in transactions get coded — these count toward P&amp;L too."
+        cats={book.categories.income}
+        onDelete={(c) => { if (confirmCategoryDelete(book, c)) up((b) => { b.categories.income = b.categories.income.filter((x) => x !== c); }); }}
+        onAdd={(name) => up((b) => { if (!b.categories.income.includes(name)) b.categories.income.push(name); })}
+        addPlaceholder="New category name" />
+      <CategoryListPage open={view === "expense"} title="Expense categories" onBack={back}
+        help="Your everyday expense categories — these count toward P&amp;L."
+        cats={expenseCats}
+        onDelete={(c) => { if (confirmCategoryDelete(book, c)) up((b) => { b.categories.expense = b.categories.expense.filter((x) => x !== c); }); }}
+        onAdd={(name) => up((b) => { if (!b.categories.expense.includes(name)) b.categories.expense.splice(b.categories.expense.length - 1, 0, name); })}
+        addPlaceholder="New category name" />
+      <CategoryListPage open={view === "other"} title="Balance Sheet categories" onBack={back}
+        help="A separate list, on purpose — these are real cash movements (EMI principal, lending, etc.) that always show in Cash Flow but never count as P&amp;L income or expense."
+        cats={book.bsCategories}
+        onDelete={(c) => { if (confirmCategoryDelete(book, c, "It'll also disappear from Cash Flow's Balance Sheet section for new activity. ")) up((b) => { b.bsCategories = b.bsCategories.filter((x) => x !== c); }); }}
+        onAdd={(name) => up((b) => { if (!b.bsCategories.includes(name)) b.bsCategories.push(name); })}
+        addPlaceholder="e.g. Car Loan EMI" />
+      <RulesPage open={view === "rules"} book={book} up={up} onBack={back} />
+      <NotificationsPrefsPage open={view === "notifications"} book={book} up={up} onBack={back} />
+      <SecurityPage open={view === "security"} book={book} up={up} onBack={back} onLockNow={onLockNow} />
+      <BackupPage open={view === "backup"} book={book} up={up} onBack={back} />
+    </>
   );
 }
 
@@ -1787,192 +1903,320 @@ function confirmCategoryDelete(book, category, extra) {
   );
 }
 
-function SetupCategoriesSheet({ book, up, close }) {
-  const cats = book.categories.expense.filter((c) => c !== "Suspense");
+// Shared shape for Income / Expense / Balance Sheet categories -- a plain
+// name+delete list with an inline add row below, matching the mockup
+// exactly (the mockup itself never confirms a delete since it isn't backed
+// by real data; onDelete callers here still route through
+// confirmCategoryDelete, which is a real correctness guard, not decoration).
+function CategoryListPage({ open, title, help, cats, onDelete, onAdd, addPlaceholder, onBack }) {
   return (
-    <Sheet open title="Categories" onClose={close}>
-      <div style={{ fontSize: 10, color: C.muted, fontWeight: 600, marginBottom: 10 }}>Your everyday expense categories — these count toward P&amp;L.</div>
-      <Card style={{ padding: "2px 16px", marginBottom: 14 }}>
+    <PageOverlay open={open} onBack={onBack} title={title}>
+      {help && <div style={{ fontSize: 11, color: C.muted, marginBottom: 14 }} dangerouslySetInnerHTML={{ __html: help }} />}
+      <Card style={{ padding: "0 14px", marginBottom: 14 }}>
         {cats.map((c, i) => (
-          <RowLine key={c} last={i === cats.length - 1}>
-            <div style={{ flex: 1, fontSize: 13.5, fontWeight: 700 }}>{c}</div>
-            <RoundBtn onClick={() => {
-              if (!confirmCategoryDelete(book, c)) return;
-              up((b) => { b.categories.expense = b.categories.expense.filter((x) => x !== c); return b; });
-            }}><Ic name="close" size={12} /></RoundBtn>
-          </RowLine>
+          <SettingsRow key={c} label={c} last={i === cats.length - 1} right={
+            <div onClick={() => onDelete(c)} style={{ cursor: "pointer", padding: 4, display: "flex" }}><Ic name="trash" size={14} color="#c33" /></div>
+          } />
         ))}
-        {cats.length === 0 && <div style={{ padding: "12px 0", fontSize: 12.5, color: C.muted }}>No categories yet.</div>}
+        {cats.length === 0 && <div style={{ padding: "12px 0", fontSize: 12, color: C.muted }}>None yet.</div>}
       </Card>
-      <AddInline placeholder="New category name" onAdd={(name) => up((b) => { if (!b.categories.expense.includes(name)) b.categories.expense.splice(b.categories.expense.length - 1, 0, name); return b; })} />
-    </Sheet>
+      <Card style={{ padding: "12px 14px", display: "flex", gap: 8 }}>
+        <AddInline placeholder={addPlaceholder} onAdd={onAdd} />
+      </Card>
+    </PageOverlay>
   );
 }
 
-function SetupIncomeCategoriesSheet({ book, up, close }) {
-  const cats = book.categories.income;
-  return (
-    <Sheet open title="Income Categories" onClose={close}>
-      <div style={{ fontSize: 10, color: C.muted, fontWeight: 600, marginBottom: 10 }}>Where money-in transactions get coded — these count toward P&amp;L too.</div>
-      <Card style={{ padding: "2px 16px", marginBottom: 14 }}>
-        {cats.map((c, i) => (
-          <RowLine key={c} last={i === cats.length - 1}>
-            <div style={{ flex: 1, fontSize: 13.5, fontWeight: 700 }}>{c}</div>
-            <RoundBtn onClick={() => {
-              if (!confirmCategoryDelete(book, c)) return;
-              up((b) => { b.categories.income = b.categories.income.filter((x) => x !== c); return b; });
-            }}><Ic name="close" size={12} /></RoundBtn>
-          </RowLine>
-        ))}
-        {cats.length === 0 && <div style={{ padding: "12px 0", fontSize: 12.5, color: C.muted }}>No income categories yet.</div>}
-      </Card>
-      <AddInline placeholder="New income category name" onAdd={(name) => up((b) => { if (!b.categories.income.includes(name)) b.categories.income.push(name); return b; })} />
-    </Sheet>
-  );
-}
-
-function SetupBsCategoriesSheet({ book, up, close }) {
-  return (
-    <Sheet open title="Balance Sheet Categories" onClose={close}>
-      <div style={{ fontSize: 10, color: C.muted, fontWeight: 600, marginBottom: 10 }}>A separate list, on purpose — these are real cash movements (EMI principal, lending, etc.) that always show in Cash Flow but never count as P&amp;L income or expense.</div>
-      <Card style={{ padding: "2px 16px", marginBottom: 14 }}>
-        {book.bsCategories.map((c, i) => (
-          <RowLine key={c} last={i === book.bsCategories.length - 1}>
-            <div style={{ flex: 1, fontSize: 13.5, fontWeight: 700 }}>{c}</div>
-            <RoundBtn onClick={() => {
-              if (!confirmCategoryDelete(book, c, "It'll also disappear from Cash Flow's Balance Sheet section for new activity. ")) return;
-              up((b) => { b.bsCategories = b.bsCategories.filter((x) => x !== c); return b; });
-            }}><Ic name="close" size={12} /></RoundBtn>
-          </RowLine>
-        ))}
-        {book.bsCategories.length === 0 && <div style={{ padding: "12px 0", fontSize: 12.5, color: C.muted }}>No Balance Sheet categories yet.</div>}
-      </Card>
-      <AddInline placeholder="e.g. Car Loan EMI" onAdd={(name) => up((b) => { if (!b.bsCategories.includes(name)) b.bsCategories.push(name); return b; })} />
-    </Sheet>
-  );
-}
-
-function SetupRulesSheet({ book, up, close }) {
-  return (
-    <Sheet open title="Auto-coding Rules" onClose={close}>
-      <div style={{ fontSize: 10, color: C.muted, fontWeight: 600, marginBottom: 10 }}>New imports matching these get pre-filled automatically — e.g. any "Zepto" transaction suggests Groceries.</div>
-      <Card style={{ padding: "2px 16px", marginBottom: 14 }}>
-        {book.codingRules.map((r, i) => (
-          <RowLine key={r.match + i} last={i === book.codingRules.length - 1}>
-            <div style={{ flex: 1, fontSize: 13, fontWeight: 700, textTransform: "capitalize" }}>{r.match}</div>
-            <div style={{ color: C.accentText, fontSize: 12.5, fontWeight: 700, marginRight: 8 }}>→ {r.head}</div>
-            <RoundBtn onClick={() => up((b) => { b.codingRules = b.codingRules.filter((x) => x !== r); return b; })}><Ic name="close" size={12} /></RoundBtn>
-          </RowLine>
-        ))}
-      </Card>
-      <RuleAdd book={book} up={up} />
-    </Sheet>
-  );
-}
-function RuleAdd({ book, up }) {
+// Auto-coding rules: each rule can be individually enabled/disabled (a real
+// switch backed by engine.js's suggestHead skipping r.enabled === false),
+// not just deleted. The rule's target category is still a picker constrained
+// to real categories, not the mockup's free-text field -- a category name
+// typed by hand that doesn't exist anywhere else would silently orphan any
+// row coded to it (missing from every other category picker in the app).
+function RulesPage({ open, book, up, onBack }) {
+  const [adding, setAdding] = useState(false);
   const [match, setMatch] = useState("");
-  const [head, setHead] = useState(book.categories.expense[0] || "");
+  const [head, setHead] = useState(book.categories.expense.find((c) => c !== "Suspense") || book.categories.income[0] || "");
   const allCats = [...book.categories.expense.filter((c) => c !== "Suspense"), ...book.categories.income];
+  const addRule = () => {
+    if (!match.trim()) return;
+    up((b) => { b.codingRules.push({ match: match.trim(), head, enabled: true }); applyCodingRules(b); });
+    setMatch("");
+    setAdding(false);
+  };
   return (
-    <div>
-      <div style={{ display: "flex", gap: 8 }}>
-        <input style={{ ...st.input, flex: 1 }} placeholder="Merchant keyword" value={match} onChange={(e) => setMatch(e.target.value)} />
-        <select style={{ ...st.input, flex: "0 0 40%" }} value={head} onChange={(e) => setHead(e.target.value)}>
-          {allCats.map((c) => <option key={c} value={c}>{c}</option>)}
-        </select>
+    <PageOverlay open={open} onBack={onBack} title="Auto-coding rules">
+      <div style={{ fontSize: 11, color: C.muted, marginBottom: 12 }}>Automatically categorize transactions whose description matches a rule.</div>
+      <Card style={{ padding: "0 14px", marginBottom: 12 }}>
+        {book.codingRules.map((r, i) => (
+          <SettingsRow key={r.match + i} last={i === book.codingRules.length - 1} label={
+            <div>
+              <div style={{ fontSize: 12, fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>If contains "{r.match}"</div>
+              <div style={{ fontSize: 10.5, color: C.muted }}>→ {r.head}</div>
+            </div>
+          } right={
+            <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+              <Switch value={r.enabled !== false} onChange={(on) => up((b) => { b.codingRules.find((x) => x.match === r.match && x.head === r.head).enabled = on; })} />
+              <div onClick={() => up((b) => { b.codingRules = b.codingRules.filter((x) => x !== r); })} style={{ cursor: "pointer", padding: 4, display: "flex" }}><Ic name="trash" size={13} color="#c33" /></div>
+            </div>
+          } />
+        ))}
+        {book.codingRules.length === 0 && <div style={{ padding: "12px 0", fontSize: 12, color: C.muted }}>No rules yet.</div>}
+      </Card>
+      <DashedBtn onClick={() => setAdding((v) => !v)}>+ Add rule</DashedBtn>
+      {adding && (
+        <Card style={{ padding: "14px 16px", marginTop: 10 }}>
+          <div style={{ fontSize: 10.5, color: C.muted, marginBottom: 4 }}>If description contains</div>
+          <input style={{ ...st.input, marginBottom: 10 }} placeholder="e.g. SWIGGY" value={match} onChange={(e) => setMatch(e.target.value)} autoFocus />
+          <div style={{ fontSize: 10.5, color: C.muted, marginBottom: 4 }}>Categorize as</div>
+          <select style={{ ...st.input, marginBottom: 10 }} value={head} onChange={(e) => setHead(e.target.value)}>
+            {allCats.map((c) => <option key={c} value={c}>{c}</option>)}
+          </select>
+          <PrimaryBtn onClick={addRule}>Save rule</PrimaryBtn>
+        </Card>
+      )}
+    </PageOverlay>
+  );
+}
+
+function NotificationsPrefsPage({ open, book, up, onBack }) {
+  const prefs = book.prefs.notifPrefs || {};
+  return (
+    <PageOverlay open={open} onBack={onBack} title="Notifications">
+      <Card style={{ padding: "0 14px" }}>
+        {NOTIF_PREF_DEFS.map((n, i) => (
+          <SettingsRow key={n.key} last={i === NOTIF_PREF_DEFS.length - 1} label={
+            <div>
+              <div style={{ fontSize: 12.5, fontWeight: 600 }}>{n.label}</div>
+              <div style={{ fontSize: 10.5, color: C.muted, marginTop: 2 }}>{n.desc}</div>
+            </div>
+          } right={<Switch value={prefs[n.key] !== false} onChange={(on) => up((b) => { b.prefs.notifPrefs = { ...(b.prefs.notifPrefs || {}), [n.key]: on }; })} />} />
+        ))}
+      </Card>
+    </PageOverlay>
+  );
+}
+
+function ProfilePage({ open, book, up, onBack }) {
+  const [name, setName] = useState(book.prefs.name || "");
+  useEffect(() => { if (open) setName(book.prefs.name || ""); }, [open]);
+  return (
+    <PageOverlay open={open} onBack={onBack} title="Profile">
+      <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 8, marginBottom: 20 }}>
+        <div style={{ width: 64, height: 64, borderRadius: "50%", background: C.grad, color: "#fff", fontWeight: 700, fontSize: 24, display: "flex", alignItems: "center", justifyContent: "center" }}>
+          {(name || "").trim().charAt(0).toUpperCase() || "?"}
+        </div>
       </div>
-      <PrimaryBtn style={{ marginTop: 8 }} onClick={() => {
-        if (!match.trim()) return;
-        up((b) => { b.codingRules.push({ match: match.trim(), head }); applyCodingRules(b); return b; });
-        setMatch("");
-      }}>Add Rule</PrimaryBtn>
+      <Card style={{ padding: "14px 16px", marginBottom: 14 }}>
+        <div style={{ fontSize: 10.5, color: C.muted, marginBottom: 4 }}>Name</div>
+        <input style={{ width: "100%", boxSizing: "border-box", border: "none", background: "none", fontFamily: F.sans, fontSize: 13, fontWeight: 600, padding: 0, color: C.ink, outline: "none" }} placeholder="e.g. Asha" value={name} onChange={(e) => setName(e.target.value)} autoFocus />
+      </Card>
+      <div style={{ fontSize: 10, color: C.muted, fontWeight: 600, marginBottom: 12 }}>Shown on Home. Never leaves this device.</div>
+      <PrimaryBtn onClick={() => { up((b) => { b.prefs.name = name.trim(); }); onBack(); }}>Save</PrimaryBtn>
+    </PageOverlay>
+  );
+}
+
+const AUTO_LOCK_OPTIONS = [
+  ["immediate", "Immediately"],
+  ["1min", "After 1 min"],
+  ["5min", "After 5 min"],
+];
+
+function SecurityPage({ open, book, up, onBack, onLockNow }) {
+  const [changeOpen, setChangeOpen] = useState(false);
+  const [p1, setP1] = useState("");
+  const [p2, setP2] = useState("");
+  const [err, setErr] = useState("");
+  const passcodeOn = book.prefs.lock.on;
+
+  const openChange = () => { setP1(""); setP2(""); setErr(""); setChangeOpen(true); };
+  const saveChange = () => {
+    if (p1.length !== 4) { setErr("Enter a 4-digit passcode"); return; }
+    if (p1 !== p2) { setErr("Passcodes don't match"); return; }
+    up((b) => { b.prefs.lock.pin = p1; b.prefs.lock.on = true; });
+    setChangeOpen(false);
+  };
+
+  return (
+    <PageOverlay open={open} onBack={onBack} title="Security">
+      <Card style={{ padding: "0 14px", marginBottom: 14 }}>
+        <SettingsRow label="Passcode" right={<Switch value={passcodeOn} onChange={(on) => {
+          if (on && !book.prefs.lock.pin) { openChange(); return; }
+          up((b) => { b.prefs.lock.on = on; });
+        }} />} />
+        {passcodeOn && <SettingsRow label="Change passcode" onClick={openChange} />}
+        <SettingsRow last label="Hide balances until unlocked" right={<Switch value={!!book.prefs.hideBalances} onChange={(on) => up((b) => { b.prefs.hideBalances = on; })} />} />
+      </Card>
+
+      {passcodeOn && (
+        <>
+          <div style={{ fontSize: 10, fontWeight: 700, color: C.muted, textTransform: "uppercase", letterSpacing: ".05em", padding: "0 2px 6px" }}>Auto-lock</div>
+          <div style={{ display: "flex", background: "rgba(17,17,17,.06)", borderRadius: 10, padding: 3, marginBottom: 10 }}>
+            {AUTO_LOCK_OPTIONS.map(([v, label]) => {
+              const active = (book.prefs.autoLockOption || "1min") === v;
+              return <div key={v} onClick={() => up((b) => { b.prefs.autoLockOption = v; })} style={{ flex: 1, textAlign: "center", padding: "7px 0", borderRadius: 8, fontSize: 11, fontWeight: 600, cursor: "pointer", background: active ? C.accent : "transparent", color: active ? "#fff" : "#777" }}>{label}</div>;
+            })}
+          </div>
+          <div onClick={onLockNow} style={{ textAlign: "center", fontSize: 11.5, fontWeight: 600, color: C.accentText, padding: "6px 0 14px", cursor: "pointer" }}>Lock Cash Book now</div>
+        </>
+      )}
+
+      {changeOpen && (
+        <div onClick={() => setChangeOpen(false)} style={{ position: "fixed", inset: 0, zIndex: 210, background: C.dimBg, backdropFilter: "blur(10px) saturate(140%)", WebkitBackdropFilter: "blur(10px) saturate(140%)", display: "flex", alignItems: "center", justifyContent: "center" }}>
+          <div onClick={(e) => e.stopPropagation()} style={{ width: 270, background: "#fff", borderRadius: 18, padding: 20, boxShadow: "0 12px 30px rgba(17,17,17,.2)", fontFamily: F.sans }}>
+            <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 12, textAlign: "center" }}>{book.prefs.lock.pin ? "Change passcode" : "Set passcode"}</div>
+            <div style={{ fontSize: 9.5, fontWeight: 700, color: C.muted, textTransform: "uppercase", letterSpacing: ".04em", marginBottom: 5 }}>New passcode</div>
+            <input type="tel" maxLength={4} inputMode="numeric" value={p1} onChange={(e) => setP1(e.target.value.replace(/\D/g, "").slice(0, 4))} placeholder="4 digits" style={{ ...st.input, marginBottom: 10, letterSpacing: ".3em" }} autoFocus />
+            <div style={{ fontSize: 9.5, fontWeight: 700, color: C.muted, textTransform: "uppercase", letterSpacing: ".04em", marginBottom: 5 }}>Confirm passcode</div>
+            <input type="tel" maxLength={4} inputMode="numeric" value={p2} onChange={(e) => setP2(e.target.value.replace(/\D/g, "").slice(0, 4))} placeholder="4 digits" style={{ ...st.input, marginBottom: 8, letterSpacing: ".3em" }} />
+            {err && <div style={{ fontSize: 11, color: "#c33", marginBottom: 10 }}>{err}</div>}
+            <div style={{ display: "flex", gap: 8, marginTop: 4 }}>
+              <button onClick={() => setChangeOpen(false)} style={{ flex: 1, padding: "10px 0", border: `1px solid ${C.overlayBorder}`, borderRadius: 10, background: "none", color: C.ink, fontFamily: F.sans, fontWeight: 600, fontSize: 12.5, cursor: "pointer" }}>Cancel</button>
+              <button onClick={saveChange} style={{ flex: 1, padding: "10px 0", border: "none", borderRadius: 10, background: C.accent, color: "#fff", fontFamily: F.sans, fontWeight: 700, fontSize: 12.5, cursor: "pointer" }}>Save</button>
+            </div>
+          </div>
+        </div>
+      )}
+    </PageOverlay>
+  );
+}
+
+function BackupPage({ open, book, up, onBack }) {
+  const [flash, setFlash] = useState(null); // "backup" | "restore" | null
+  const fileRef = useRef(null);
+
+  const backupNow = () => {
+    const blob = new Blob([JSON.stringify(book, null, 2)], { type: "application/json" });
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = `cashbook-simple-backup-${today()}.json`;
+    a.click();
+    URL.revokeObjectURL(a.href);
+    up((b) => { b.prefs.lastBackup = new Date().toISOString(); });
+    setFlash("backup");
+    setTimeout(() => setFlash(null), 1600);
+  };
+
+  const restore = (file) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      let parsed;
+      try { parsed = JSON.parse(reader.result); } catch { window.alert("That file isn't a valid Cash Book backup."); return; }
+      if (!parsed || !Array.isArray(parsed.entries) || !Array.isArray(parsed.accounts)) { window.alert("That file isn't a valid Cash Book backup."); return; }
+      if (!window.confirm("Restoring replaces everything currently in Cash Book with this backup. This can't be undone. Continue?")) return;
+      up((b) => { for (const k of Object.keys(b)) delete b[k]; Object.assign(b, parsed); });
+      setFlash("restore");
+      setTimeout(() => setFlash(null), 1600);
+    };
+    reader.readAsText(file);
+  };
+
+  return (
+    <PageOverlay open={open} onBack={onBack} title="Backup & Restore">
+      <Card style={{ padding: "14px 16px", marginBottom: 14 }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+          <span style={{ fontSize: 12.5, fontWeight: 600 }}>Last backup</span>
+          <span style={{ fontSize: 11.5, color: C.muted }}>{book.prefs.lastBackup ? new Date(book.prefs.lastBackup).toLocaleString() : "Never"}</span>
+        </div>
+      </Card>
+      <div style={{ display: "flex", gap: 8 }}>
+        <PrimaryBtn style={{ flex: 1 }} onClick={backupNow}>{flash === "backup" ? "Backed up ✓" : "Back up now"}</PrimaryBtn>
+        <GhostBtn style={{ flex: 1 }} onClick={() => fileRef.current && fileRef.current.click()}>{flash === "restore" ? "Restored ✓" : "Restore"}</GhostBtn>
+      </div>
+      <input ref={fileRef} type="file" accept="application/json" style={{ display: "none" }} onChange={(e) => { const f = e.target.files[0]; if (f) restore(f); e.target.value = ""; }} />
+    </PageOverlay>
+  );
+}
+
+function AccountsPage({ open, book, up, onBack }) {
+  const [newType, setNewType] = useState("bank");
+  const [newName, setNewName] = useState("");
+  const [newOpening, setNewOpening] = useState("");
+  const [newDueDay, setNewDueDay] = useState("");
+  const [confirmDelete, setConfirmDelete] = useState(null); // { id, name, count } | null
+
+  const withBal = accountsWithBalances(book, today());
+  const bankRows = withBal.filter((a) => a.kind !== "card");
+  const cardRows = withBal.filter((a) => a.kind === "card");
+
+  const addAccount = () => {
+    const name = newName.trim();
+    if (!name) return;
+    const opening = parseAmount(newOpening) || 0;
+    const dueDay = newType === "card" && newDueDay ? +newDueDay : undefined;
+    up((b) => { b.accounts.push({ id: uid(), name, kind: newType, opening, dueDay }); });
+    setNewName(""); setNewOpening(""); setNewDueDay("");
+  };
+
+  const requestDelete = (a) => {
+    const count = book.entries.filter((e) => e.accountId === a.id || e.fromAccountId === a.id || e.toAccountId === a.id).length;
+    setConfirmDelete({ id: a.id, name: a.name, count });
+  };
+  const doDelete = () => {
+    const { id } = confirmDelete;
+    up((b) => { b.accounts = b.accounts.filter((x) => x.id !== id); b.entries = b.entries.filter((e) => e.accountId !== id && e.fromAccountId !== id && e.toAccountId !== id); });
+    setConfirmDelete(null);
+  };
+
+  const AccountRow = (a, i, arr, isCredit) => (
+    <div key={a.id} style={{ display: "flex", alignItems: "center", gap: 11, padding: "12px 14px", borderBottom: i < arr.length - 1 ? `1px solid ${C.line}` : "none" }}>
+      <div style={{ width: 34, height: 34, borderRadius: 10, background: isCredit ? "rgba(122,46,59,.10)" : "rgba(29,58,143,.08)", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+        <Ic name="card" size={15} color={isCredit ? "#7a2e3b" : C.accent} />
+      </div>
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{ fontSize: 12.5, fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{a.name}</div>
+        <div style={{ fontSize: 10, color: C.muted }}>{isCredit ? "Credit card" : "Bank account"}{isCredit && a.dueDay ? ` · Due on the ${a.dueDay}${dueOrdinal(a.dueDay)}` : ""}</div>
+      </div>
+      <div style={{ fontSize: 12.5, fontWeight: 700, fontVariantNumeric: "tabular-nums", color: isCredit ? "#7a2e3b" : C.green, marginRight: 2 }}>{isCredit && a.balance > 0 ? "−" : ""}{inr(Math.abs(a.balance))}</div>
+      <div onClick={() => requestDelete(a)} style={{ cursor: "pointer", padding: 4, color: "#bbb", display: "flex" }}><Ic name="trash" size={13} color="#bbb" /></div>
     </div>
   );
-}
 
-function ProfileSheet({ book, up, close }) {
-  const [name, setName] = useState(book.prefs.name || "");
-  return (
-    <Sheet open title="Profile" onClose={close}>
-      <div style={st.label}>Your name</div>
-      <input style={st.input} placeholder="e.g. Asha" value={name} onChange={(e) => setName(e.target.value)} autoFocus />
-      <div style={{ fontSize: 10, color: C.muted, fontWeight: 600, marginTop: 8 }}>Shown on Home. Never leaves this device.</div>
-      <PrimaryBtn style={{ marginTop: 16 }} onClick={() => { up((b) => { b.prefs.name = name.trim(); return b; }); close(); }}>Save</PrimaryBtn>
-    </Sheet>
-  );
-}
-
-function SetupPrefsSheet({ book, up, close }) {
-  const [pin, setPin] = useState(book.prefs.lock.pin || "");
-  return (
-    <Sheet open title="Preferences" onClose={close}>
-      <Card style={{ padding: "16px 18px", marginBottom: 12 }}>
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-          <div style={{ fontSize: 13.5, fontWeight: 700 }}>Security &amp; App Lock</div>
-          <Toggle value={book.prefs.lock.on} onChange={(on) => up((b) => { b.prefs.lock.on = on; return b; })} />
-        </div>
-        <div style={{ fontSize: 10, color: C.muted, fontWeight: 600, marginTop: 6 }}>4-digit PIN required to open the app.</div>
-        {book.prefs.lock.on && (
-          <input style={{ ...st.input, marginTop: 10 }} placeholder="4-digit PIN" maxLength={4} inputMode="numeric" value={pin}
-            onChange={(e) => setPin(e.target.value.replace(/\D/g, "").slice(0, 4))}
-            onBlur={() => up((b) => { b.prefs.lock.pin = pin; return b; })} />
-        )}
-      </Card>
-      <Card style={{ padding: "16px 18px" }}>
-        <div style={{ fontSize: 13.5, fontWeight: 700 }}>Backup &amp; Restore</div>
-        <div style={{ fontSize: 10, color: C.muted, fontWeight: 600, marginTop: 4 }}>Export your data as a JSON file you can restore from later.</div>
-        <GhostBtn style={{ width: "100%", marginTop: 10 }} onClick={() => {
-          const blob = new Blob([JSON.stringify(book, null, 2)], { type: "application/json" });
-          const a = document.createElement("a");
-          a.href = URL.createObjectURL(blob);
-          a.download = `cashbook-simple-backup-${today()}.json`;
-          a.click();
-          URL.revokeObjectURL(a.href);
-        }}>Back Up Now</GhostBtn>
-      </Card>
-    </Sheet>
-  );
-}
-
-function SetupAccountsPage({ book, up, open, onBack }) {
   return (
     <PageOverlay open={open} onBack={onBack} title="Accounts">
-      <div style={{ fontSize: 10, color: C.muted, fontWeight: 600, marginBottom: 12 }}>Rename an account, change its kind, or set its opening balance. Everything you add here shows up on Home and in Transactions.</div>
-      {book.accounts.map((a) => (
-        <Card key={a.id} style={{ padding: "14px 16px", marginBottom: 10 }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-            <input style={{ ...st.input, flex: 1, fontWeight: 700 }} value={a.name}
-              onChange={(e) => up((b) => { b.accounts.find((x) => x.id === a.id).name = e.target.value; return b; })} />
-            <RoundBtn onClick={() => {
-              const n = book.entries.filter((e) => e.accountId === a.id || e.fromAccountId === a.id || e.toAccountId === a.id).length;
-              if (n > 0 && !window.confirm(`Delete "${a.name}"? This also permanently deletes its ${n} transaction${n === 1 ? "" : "s"} — this can't be undone.`)) return;
-              up((b) => { b.accounts = b.accounts.filter((x) => x.id !== a.id); b.entries = b.entries.filter((e) => e.accountId !== a.id && e.fromAccountId !== a.id && e.toAccountId !== a.id); return b; });
-            }}><Ic name="close" size={13} /></RoundBtn>
-          </div>
-          <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
-            <div style={{ flex: 1 }}>
-              <div style={{ ...st.label, margin: "0 0 4px" }}>Kind</div>
-              <select style={st.input} value={a.kind} onChange={(e) => up((b) => { b.accounts.find((x) => x.id === a.id).kind = e.target.value; return b; })}>
-                <option value="bank">Bank</option>
-                <option value="card">Credit Card</option>
-              </select>
-            </div>
-            <div style={{ flex: 1 }}>
-              <div style={{ ...st.label, margin: "0 0 4px" }}>Opening Balance</div>
-              <input style={st.input} defaultValue={a.opening || 0} inputMode="decimal"
-                onBlur={(e) => up((b) => { b.accounts.find((x) => x.id === a.id).opening = parseAmount(e.target.value) || 0; return b; })} />
-            </div>
-          </div>
-          {a.kind === "card" && (
-            <div style={{ marginTop: 8 }}>
-              <div style={{ ...st.label, margin: "0 0 4px" }}>Due Day of Month (optional)</div>
-              <input style={st.input} type="number" min={1} max={31} defaultValue={a.dueDay || ""}
-                onBlur={(e) => up((b) => { b.accounts.find((x) => x.id === a.id).dueDay = e.target.value ? +e.target.value : undefined; return b; })} />
-            </div>
-          )}
-        </Card>
-      ))}
-      <DashedBtn onClick={() => up((b) => { b.accounts.push({ id: uid(), name: "New Account", kind: "bank", opening: 0 }); return b; })}>+ Add Account</DashedBtn>
+      {bankRows.length > 0 && (
+        <>
+          <div style={{ fontSize: 10, fontWeight: 700, color: C.muted, textTransform: "uppercase", letterSpacing: ".05em", padding: "0 2px 6px" }}>Bank & savings</div>
+          <Card style={{ padding: "0 14px", marginBottom: 16 }}>{bankRows.map((a, i) => AccountRow(a, i, bankRows, false))}</Card>
+        </>
+      )}
+      {cardRows.length > 0 && (
+        <>
+          <div style={{ fontSize: 10, fontWeight: 700, color: C.muted, textTransform: "uppercase", letterSpacing: ".05em", padding: "0 2px 6px" }}>Credit cards</div>
+          <Card style={{ padding: "0 14px", marginBottom: 16 }}>{cardRows.map((a, i) => AccountRow(a, i, cardRows, true))}</Card>
+        </>
+      )}
+
+      <Card style={{ padding: 16 }}>
+        <div style={{ fontSize: 11, fontWeight: 700, marginBottom: 12 }}>Add account</div>
+        <div style={{ fontSize: 9.5, fontWeight: 700, color: C.muted, textTransform: "uppercase", letterSpacing: ".04em", marginBottom: 5 }}>Account type</div>
+        <div style={{ display: "flex", gap: 6, marginBottom: 12 }}>
+          {[["bank", "Bank account"], ["card", "Credit card"]].map(([v, label]) => (
+            <div key={v} onClick={() => setNewType(v)} style={{ display: "inline-flex", alignItems: "center", whiteSpace: "nowrap", fontSize: 10.5, fontWeight: 500, padding: "5px 10px", borderRadius: 999, cursor: "pointer", background: newType === v ? C.accent : "rgba(17,17,17,.06)", color: newType === v ? "#fff" : "#444" }}>{label}</div>
+          ))}
+        </div>
+        <div style={{ fontSize: 9.5, fontWeight: 700, color: C.muted, textTransform: "uppercase", letterSpacing: ".04em", marginBottom: 5 }}>Account name</div>
+        <input style={{ ...st.input, marginBottom: 12 }} placeholder="e.g. HDFC Current Account" value={newName} onChange={(e) => setNewName(e.target.value)} />
+        <div style={{ fontSize: 9.5, fontWeight: 700, color: C.muted, textTransform: "uppercase", letterSpacing: ".04em", marginBottom: 5 }}>Opening balance</div>
+        <div style={{ display: "flex", alignItems: "center", border: `1px solid ${C.overlayBorder}`, borderRadius: 10, marginBottom: 6, overflow: "hidden" }}>
+          <div style={{ padding: "10px 0 10px 11px", fontSize: 12, fontWeight: 600, color: C.muted }}>₹</div>
+          <input style={{ flex: 1, boxSizing: "border-box", border: "none", padding: "10px 11px 10px 4px", fontFamily: F.sans, fontSize: 12, fontVariantNumeric: "tabular-nums", outline: "none" }} inputMode="decimal" placeholder="0" value={newOpening} onChange={(e) => setNewOpening(e.target.value)} />
+        </div>
+        <div style={{ fontSize: 10, color: C.muted, marginBottom: 14 }}>{newType === "card" ? "Amount currently outstanding on this card." : "Balance on the day you started tracking this account in Cash Book."}</div>
+        {newType === "card" && (
+          <>
+            <div style={{ fontSize: 9.5, fontWeight: 700, color: C.muted, textTransform: "uppercase", letterSpacing: ".04em", marginBottom: 5 }}>Payment due date</div>
+            <input style={{ ...st.input, marginBottom: 6 }} type="number" min={1} max={31} placeholder="e.g. 5" value={newDueDay} onChange={(e) => setNewDueDay(e.target.value)} />
+            <div style={{ fontSize: 10, color: C.muted, marginBottom: 14 }}>Day of the month your card payment is due (1–31).</div>
+          </>
+        )}
+        <PrimaryBtn onClick={addAccount}>+ Add account</PrimaryBtn>
+      </Card>
+
+      <ConfirmModal open={!!confirmDelete} title="Delete account?"
+        body={confirmDelete ? `"${confirmDelete.name}" will be removed${confirmDelete.count > 0 ? `, along with its ${confirmDelete.count} transaction${confirmDelete.count === 1 ? "" : "s"}` : ""}. This can't be undone.` : ""}
+        onCancel={() => setConfirmDelete(null)} onConfirm={doDelete} />
     </PageOverlay>
   );
 }
@@ -2924,11 +3168,15 @@ export default function App() {
   const [book, setBook] = useState(null);
   const [tab, setTab] = useState("home");
   const [sheet, setSheet] = useState(null); // { name, ctx }
-  const [accountsPageOpen, setAccountsPageOpen] = useState(false);
   const [txSelectMode, setTxSelectMode] = useState(false);
   const [txJumpTab, setTxJumpTab] = useState(null);
   const [toast, setToast] = useState(null); // { message, undo }
   const toastTimerRef = useRef(null);
+  // Per-session only, deliberately not persisted -- "Hide balances until
+  // unlocked" (Setup ▸ Security) should mask Home's numbers again the next
+  // time the app is opened, not stay revealed forever once tapped once.
+  const [balancesRevealed, setBalancesRevealed] = useState(false);
+  const hiddenAtRef = useRef(null);
   // Whether THIS session still needs a PIN. Only decided once, right after
   // the book loads, from whatever book.prefs.lock.on was at that moment —
   // turning the lock on later in the same session (Setup) must NOT
@@ -2939,6 +3187,14 @@ export default function App() {
   useEffect(() => {
     loadBook().then((b) => {
       const loaded = b || defaultBook();
+      // Backfills prefs fields added after this book was first saved --
+      // defaultBook() already seeds these for brand-new installs, but an
+      // existing saved book predating them needs the same defaults applied
+      // once here rather than crashing on a missing field everywhere it's read.
+      loaded.prefs.hideBalances = loaded.prefs.hideBalances ?? false;
+      loaded.prefs.autoLockOption = loaded.prefs.autoLockOption || "1min";
+      loaded.prefs.lastBackup = loaded.prefs.lastBackup ?? null;
+      loaded.prefs.notifPrefs = loaded.prefs.notifPrefs || { paymentDue: true, unexplained: true, approval: true };
       // Catches up any row that was already sitting Unexplained before a
       // matching coding rule existed (or before this sweep existed at all)
       // -- without this, only a rule added from this point forward would
@@ -2985,6 +3241,27 @@ export default function App() {
 
   useEffect(() => { if (tab !== "tx") setTxSelectMode(false); }, [tab]);
 
+  // Auto-lock (Setup ▸ Security): re-locking on a timer only makes sense
+  // relative to the app actually leaving the foreground -- there's no other
+  // signal for "idle" in a tab-based PWA -- so this tracks how long the tab
+  // was hidden and re-locks on return if that exceeds the configured option.
+  useEffect(() => {
+    if (!book || !book.prefs.lock.on) return;
+    const THRESHOLDS = { immediate: 0, "1min": 60000, "5min": 300000 };
+    const onVisibility = () => {
+      if (document.visibilityState === "hidden") {
+        hiddenAtRef.current = Date.now();
+      } else if (document.visibilityState === "visible" && hiddenAtRef.current != null) {
+        const elapsed = Date.now() - hiddenAtRef.current;
+        hiddenAtRef.current = null;
+        const threshold = THRESHOLDS[book.prefs.autoLockOption] ?? THRESHOLDS["1min"];
+        if (elapsed >= threshold) { setUnlocked(false); setBalancesRevealed(false); }
+      }
+    };
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => document.removeEventListener("visibilitychange", onVisibility);
+  }, [book && book.prefs.lock.on, book && book.prefs.autoLockOption]);
+
   if (!book || unlocked === null) {
     return (
       <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", background: C.bg, color: C.muted, fontFamily: F.sans, fontSize: 13, fontWeight: 600 }}>
@@ -3019,11 +3296,11 @@ export default function App() {
       <div className="no-print" style={{ position: "fixed", inset: 0, background: C.bgGradient, zIndex: 0 }} />
       <div style={{ position: "relative", zIndex: 2, minHeight: "100vh", paddingBottom: 70 }}>
         {tab !== "home" && tab !== "reports" && tab !== "owed" && tab !== "tx" && <Header title={TABS.find((x) => x.id === tab).label} />}
-        {tab === "home" && <HomeScreen book={book} go={go} openSheet={openSheet} notifCount={notifCount} />}
+        {tab === "home" && <HomeScreen book={book} go={go} openSheet={openSheet} notifCount={notifCount} balancesRevealed={balancesRevealed} setBalancesRevealed={setBalancesRevealed} />}
         {tab === "owed" && <OwedScreen book={book} up={up} openSheet={openSheet} />}
         {tab === "tx" && <TransactionsScreen book={book} up={up} openSheet={openSheet} selectMode={txSelectMode} setSelectMode={setTxSelectMode} showToast={showToast} initialTab={txJumpTab} clearInitialTab={() => setTxJumpTab(null)} />}
         {tab === "reports" && <ReportsScreen book={book} openSheet={openSheet} />}
-        {tab === "setup" && <SetupScreen book={book} openSheet={openSheet} openAccountsPage={() => setAccountsPageOpen(true)} />}
+        {tab === "setup" && <SetupScreen book={book} up={up} onLockNow={() => { setUnlocked(false); setBalancesRevealed(false); }} />}
       </div>
 
       {tab === "tx" && !txSelectMode && (
@@ -3035,8 +3312,6 @@ export default function App() {
       <NavBar tab={tab} setTab={setTab} />
       <Toast toast={toast} />
 
-      <SetupAccountsPage book={book} up={up} open={accountsPageOpen} onBack={() => setAccountsPageOpen(false)} />
-
       {sheet && sheet.name === "newTx" && <NewTransactionSheet book={book} up={up} close={closeSheet} preset={sheet.ctx} />}
       {sheet && sheet.name === "categorize" && <CategorizeSheet book={book} up={up} close={closeSheet} entryIds={sheet.ctx.entryIds} />}
       {sheet && sheet.name === "viewTx" && <ViewTransactionSheet book={book} up={up} close={closeSheet} entryId={sheet.ctx.entryId} />}
@@ -3045,12 +3320,6 @@ export default function App() {
       {sheet && sheet.name === "notifications" && <NotificationsSheet book={book} go={go} close={closeSheet} />}
       {sheet && sheet.name === "breakdown" && <BreakdownSheet book={book} close={closeSheet} />}
       {sheet && sheet.name === "import" && <ImportSheet book={book} up={up} close={closeSheet} />}
-      {sheet && sheet.name === "setupCategories" && <SetupCategoriesSheet book={book} up={up} close={closeSheet} />}
-      {sheet && sheet.name === "setupIncomeCategories" && <SetupIncomeCategoriesSheet book={book} up={up} close={closeSheet} />}
-      {sheet && sheet.name === "setupBsCategories" && <SetupBsCategoriesSheet book={book} up={up} close={closeSheet} />}
-      {sheet && sheet.name === "setupRules" && <SetupRulesSheet book={book} up={up} close={closeSheet} />}
-      {sheet && sheet.name === "setupPrefs" && <SetupPrefsSheet book={book} up={up} close={closeSheet} />}
-      {sheet && sheet.name === "setupProfile" && <ProfileSheet book={book} up={up} close={closeSheet} />}
     </div>
   );
 }
