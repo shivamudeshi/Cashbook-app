@@ -3183,7 +3183,13 @@ function CategorizeSheet({ book, up, close, entryIds, showToast, onApplied }) {
   const [refundOn, setRefundOn] = useState(false);
   const [splitOn, setSplitOn] = useState(false);
   const [splits, setSplits] = useState([]);
-  const [toAccountId, setToAccountId] = useState(() => (book.accounts.find((a) => a.id !== entries[0].accountId) || {}).id || "");
+  // Every selected entry's own account is excluded from the transfer target
+  // picker -- picking one of those is always a no-op self-transfer (nothing
+  // to actually move), which used to be silently offered and silently do
+  // nothing when saved.
+  const ownAccountIds = new Set(entries.map((e) => e.accountId));
+  const transferAccountChoices = book.accounts.filter((a) => !ownAccountIds.has(a.id));
+  const [toAccountId, setToAccountId] = useState(() => (transferAccountChoices[0] || {}).id || "");
   const [addingParty, setAddingParty] = useState(false);
   const [newPartyName, setNewPartyName] = useState("");
 
@@ -3355,8 +3361,20 @@ function CategorizeSheet({ book, up, close, entryIds, showToast, onApplied }) {
       {targetMode === "transfer" && (
         <>
           <div style={st.label}>{signIn ? "From Account" : "To Account"}</div>
-          <AccountSelect book={book} value={toAccountId} onChange={setToAccountId} />
-          <PrimaryBtn style={{ marginTop: 16 }} onClick={applyTransfer}>Save as Transfer</PrimaryBtn>
+          {/* Picking the entry's own account here used to be silently
+              possible -- applyTransfer/recodeEntryAsTransfer both treat that
+              as a no-op self-transfer (nothing to actually move), so "Save
+              as Transfer" would do nothing at all with no error shown.
+              Excluding it from the list here removes that trap instead of
+              only guarding against it after the tap. */}
+          {transferAccountChoices.length === 0 ? (
+            <div style={{ fontSize: 11.5, color: C.muted, padding: "10px 0" }}>No other account to transfer to/from -- add one in Setup ▸ Accounts.</div>
+          ) : (
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 7, marginBottom: 4 }}>
+              {transferAccountChoices.map((a) => <button key={a.id} onClick={() => setToAccountId(a.id)} style={txChipBtn(toAccountId === a.id)}>{a.name}</button>)}
+            </div>
+          )}
+          <PrimaryBtn style={{ marginTop: 16, opacity: toAccountId ? 1 : 0.5, cursor: toAccountId ? "pointer" : "default" }} onClick={applyTransfer}>Save as Transfer</PrimaryBtn>
         </>
       )}
     </Sheet>
