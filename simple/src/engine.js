@@ -296,3 +296,20 @@ export function keywordOf(note) {
   const skip = new Set(["upi", "neft", "imps", "rtgs", "bank", "transfer", "payment", "toward", "from"]);
   return words.find((w) => !skip.has(w)) || words[0] || "";
 }
+
+// Coding rules are only ever checked against a row's merchant text at the
+// moment it's imported (see storage/import) -- a rule added *after* that
+// still leaves the old row sitting in Suspense forever, since nothing else
+// ever re-checks it. Call this right after a rule is added/edited to sweep
+// every still-uncoded row against the current rule set, promoting any new
+// matches to Approval exactly like a fresh import would have. Deliberately
+// NOT run on every mutation: an entry the user just rejected also reads as
+// plain Suspense, and re-sweeping on unrelated changes would immediately
+// re-promote it right back, defeating "reject".
+export function applyCodingRules(db) {
+  for (const e of db.entries) {
+    if ((e.type !== "in" && e.type !== "out") || e.category !== "Suspense" || e.pendingApproval) continue;
+    const matched = suggestHead(db, e.merchant || "");
+    if (matched !== "Suspense") { e.category = matched; e.pendingApproval = true; }
+  }
+}
