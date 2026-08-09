@@ -79,7 +79,11 @@ export const DEFAULT_CODING_RULES = [
 export function defaultBook() {
   return {
     v: 1,
-    prefs: { lock: { on: false, pin: "" }, name: "" },
+    prefs: {
+      lock: { on: false, pin: "" }, name: "",
+      hideBalances: false, autoLockOption: "1min", lastBackup: null,
+      notifPrefs: { paymentDue: true, unexplained: true, approval: true },
+    },
     accounts: [],
     categories: {
       expense: ["Rent", "Groceries", "Food out", "Transport", "Utilities", "Shopping", "Suspense"],
