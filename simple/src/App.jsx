@@ -711,13 +711,13 @@ function OwedScreen({ book, up, openSheet, showToast }) {
         <Card style={{ padding: "2px 16px" }}>
           {hist.length === 0 && <div style={{ padding: "14px 0", fontSize: 12.5, color: C.muted }}>No transactions with {party.name} yet.</div>}
           {hist.map((h, i) => (
-            <RowLine key={h.id} last={i === hist.length - 1}>
+            <RowLine key={h.id} last={i === hist.length - 1} onClick={() => openSheet("viewTx", { entryId: h.id })}>
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div style={{ fontSize: 13, fontWeight: 600, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{h.note}</div>
                 <div style={{ fontSize: 10.5, color: C.muted, marginTop: 2 }}>{h.when}</div>
               </div>
               <div style={{ fontSize: 13.5, fontWeight: 700, marginRight: 6, fontVariantNumeric: "tabular-nums" }}>{h.signed >= 0 ? "+" : "−"}{inr(Math.abs(h.signed))}</div>
-              <div onClick={() => deleteEntry(h.id)} style={{ cursor: "pointer", flexShrink: 0, display: "flex" }}><Ic name="undo" size={14} color={C.faint} /></div>
+              <div onClick={(ev) => { ev.stopPropagation(); deleteEntry(h.id); }} style={{ cursor: "pointer", flexShrink: 0, display: "flex" }}><Ic name="undo" size={14} color={C.faint} /></div>
             </RowLine>
           ))}
         </Card>
@@ -837,7 +837,12 @@ function explainedRowInfo(book, e) {
   }
   if (e.type === "party") {
     const out = e.dir === "out";
-    return { title: out ? `Paid ${partyName(e.partyId)}` : `Received from ${partyName(e.partyId)}`, sub: accountName(e.accountId), pill: null, sign: out ? "−" : "+", color: out ? C.red : C.green };
+    // No accountId at all means this IOU was recorded as not linked to any
+    // bank account (see NewTransactionSheet's owedNoAccount) -- say so
+    // explicitly rather than falling through accountName's "—" fallback,
+    // which reads like missing data rather than an intentional choice.
+    const sub = e.accountId ? accountName(e.accountId) : "Not linked to a bank account";
+    return { title: out ? `Paid ${partyName(e.partyId)}` : `Received from ${partyName(e.partyId)}`, sub, pill: null, sign: out ? "−" : "+", color: out ? C.red : C.green };
   }
   const isBS = book.bsCategories.includes(e.category);
   return {
@@ -1900,7 +1905,7 @@ const NOTIF_PREF_DEFS = [
 // isn't -- none of that exists anywhere in engine.js, so they're dropped
 // rather than faked, same as dropping the mockup's non-functional "Merge"
 // button in Transactions.
-function SetupScreen({ book, up, onLockNow }) {
+function SetupScreen({ book, up, onLockNow, openSheet }) {
   const [view, setView] = useState("list");
   const [resetOpen, setResetOpen] = useState(false);
   const back = () => setView("list");
@@ -1958,7 +1963,7 @@ function SetupScreen({ book, up, onLockNow }) {
         confirmLabel="Reset" onCancel={() => setResetOpen(false)} onConfirm={resetApp} />
 
       <ProfilePage open={view === "profile"} book={book} up={up} onBack={back} />
-      <AccountsPage open={view === "accounts"} book={book} up={up} onBack={back} />
+      <AccountsPage open={view === "accounts"} book={book} up={up} onBack={back} openSheet={openSheet} />
       <CategoryListPage open={view === "income"} title="Income categories" onBack={back}
         help="Where money-in transactions get coded — these count toward P&amp;L too."
         cats={book.categories.income}
@@ -2312,12 +2317,19 @@ function BackupPage({ open, book, up, onBack }) {
   );
 }
 
-function AccountsPage({ open, book, up, onBack }) {
+function AccountsPage({ open, book, up, onBack, openSheet }) {
   const [newType, setNewType] = useState("bank");
   const [newName, setNewName] = useState("");
   const [newOpening, setNewOpening] = useState("");
   const [newDueDay, setNewDueDay] = useState("");
   const [confirmDelete, setConfirmDelete] = useState(null); // { id, name, count } | null
+  // Opening balance (and a card's due day) can be fixed after the account
+  // already exists -- there was previously no way to correct a typo or an
+  // opening figure that was wrong from the start short of deleting the
+  // whole account (and every transaction on it) and starting over.
+  const [editingId, setEditingId] = useState(null);
+  const [editOpening, setEditOpening] = useState("");
+  const [editDueDay, setEditDueDay] = useState("");
 
   const withBal = accountsWithBalances(book, today());
   const bankRows = withBal.filter((a) => a.kind !== "card");
@@ -2339,6 +2351,19 @@ function AccountsPage({ open, book, up, onBack }) {
     setNewName(""); setNewOpening(""); setNewDueDay("");
   };
 
+  const startEdit = (a) => { setEditingId(a.id); setEditOpening(String(a.opening || 0)); setEditDueDay(a.dueDay ? String(a.dueDay) : ""); };
+  const cancelEdit = () => { setEditingId(null); setEditOpening(""); setEditDueDay(""); };
+  const saveEdit = (a) => {
+    const parsed = parseAmount(editOpening) || 0;
+    const opening = a.kind === "card" ? Math.abs(parsed) : parsed;
+    const dueDay = a.kind === "card" && editDueDay ? +editDueDay : undefined;
+    up((b) => {
+      const acc = b.accounts.find((x) => x.id === a.id);
+      if (acc) { acc.opening = opening; if (a.kind === "card") acc.dueDay = dueDay; }
+    });
+    cancelEdit();
+  };
+
   const requestDelete = (a) => {
     const count = book.entries.filter((e) => e.accountId === a.id || e.fromAccountId === a.id || e.toAccountId === a.id).length;
     setConfirmDelete({ id: a.id, name: a.name, count });
@@ -2348,19 +2373,51 @@ function AccountsPage({ open, book, up, onBack }) {
     up((b) => { b.accounts = b.accounts.filter((x) => x.id !== id); b.entries = b.entries.filter((e) => e.accountId !== id && e.fromAccountId !== id && e.toAccountId !== id); });
     setConfirmDelete(null);
   };
+  // "Pay card" is just a pre-filled Transfer -- same account-to-account
+  // mechanism (and the same duplicate-leg matching) a bank-to-bank transfer
+  // already gets, just pre-aimed at this card with today's outstanding
+  // balance filled in so paying it off doesn't mean re-entering that
+  // number by hand.
+  const payCard = (a) => openSheet && openSheet("newTx", { tab: "transfer", toAccountId: a.id, amount: a.balance > 0 ? String(Math.round(a.balance)) : "" });
 
   const AccountRow = (a, i, arr, isCredit) => (
-    <div key={a.id} style={{ display: "flex", alignItems: "center", gap: 11, padding: "12px 14px", borderBottom: i < arr.length - 1 ? `1px solid ${C.line}` : "none" }}>
-      <div style={{ width: 34, height: 34, borderRadius: 10, background: isCredit ? "rgba(122,46,59,.10)" : "rgba(29,58,143,.08)", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
-        <Ic name="card" size={15} color={isCredit ? "#7a2e3b" : C.accent} />
+    <React.Fragment key={a.id}>
+      <div style={{ display: "flex", alignItems: "center", gap: 11, padding: "12px 14px", borderBottom: i < arr.length - 1 || editingId === a.id ? `1px solid ${C.line}` : "none" }}>
+        <div style={{ width: 34, height: 34, borderRadius: 10, background: isCredit ? "rgba(122,46,59,.10)" : "rgba(29,58,143,.08)", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+          <Ic name="card" size={15} color={isCredit ? "#7a2e3b" : C.accent} />
+        </div>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ fontSize: 12.5, fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{a.name}</div>
+          <div style={{ fontSize: 10, color: C.muted }}>{isCredit ? "Credit card" : "Bank account"}{isCredit && a.dueDay ? ` · Due on the ${a.dueDay}${dueOrdinal(a.dueDay)}` : ""}</div>
+          <div style={{ fontSize: 9.5, color: C.faint, marginTop: 1 }}>Opening {inr(Math.abs(a.opening || 0))}{a.opening < 0 ? " (overdrawn)" : ""}</div>
+        </div>
+        <div style={{ fontSize: 12.5, fontWeight: 700, fontVariantNumeric: "tabular-nums", color: isCredit ? "#7a2e3b" : C.green, marginRight: 2 }}>{isCredit && a.balance > 0 ? "−" : ""}{inr(Math.abs(a.balance))}</div>
+        {isCredit && a.balance > 0 && openSheet && (
+          <div onClick={() => payCard(a)} style={{ display: "inline-flex", alignItems: "center", fontSize: 9.5, fontWeight: 700, padding: "4px 9px", borderRadius: 999, background: C.accent, color: "#fff", cursor: "pointer", flexShrink: 0, whiteSpace: "nowrap", marginRight: 2 }}>Pay</div>
+        )}
+        <div onClick={() => (editingId === a.id ? cancelEdit() : startEdit(a))} style={{ cursor: "pointer", padding: 4, color: editingId === a.id ? C.accent : "#bbb", display: "flex" }}><Ic name="edit" size={13} color={editingId === a.id ? C.accent : "#bbb"} /></div>
+        <div onClick={() => requestDelete(a)} style={{ cursor: "pointer", padding: 4, color: "#bbb", display: "flex" }}><Ic name="trash" size={13} color="#bbb" /></div>
       </div>
-      <div style={{ flex: 1, minWidth: 0 }}>
-        <div style={{ fontSize: 12.5, fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{a.name}</div>
-        <div style={{ fontSize: 10, color: C.muted }}>{isCredit ? "Credit card" : "Bank account"}{isCredit && a.dueDay ? ` · Due on the ${a.dueDay}${dueOrdinal(a.dueDay)}` : ""}</div>
-      </div>
-      <div style={{ fontSize: 12.5, fontWeight: 700, fontVariantNumeric: "tabular-nums", color: isCredit ? "#7a2e3b" : C.green, marginRight: 2 }}>{isCredit && a.balance > 0 ? "−" : ""}{inr(Math.abs(a.balance))}</div>
-      <div onClick={() => requestDelete(a)} style={{ cursor: "pointer", padding: 4, color: "#bbb", display: "flex" }}><Ic name="trash" size={13} color="#bbb" /></div>
-    </div>
+      {editingId === a.id && (
+        <div style={{ padding: "10px 14px 14px", borderBottom: i < arr.length - 1 ? `1px solid ${C.line}` : "none" }}>
+          <div style={{ fontSize: 9.5, fontWeight: 700, color: C.muted, textTransform: "uppercase", letterSpacing: ".04em", marginBottom: 5 }}>Opening balance</div>
+          <div style={{ display: "flex", alignItems: "center", border: `1px solid ${C.overlayBorder}`, borderRadius: 10, marginBottom: 10, overflow: "hidden" }}>
+            <div style={{ padding: "10px 0 10px 11px", fontSize: 12, fontWeight: 600, color: C.muted }}>₹</div>
+            <input style={{ flex: 1, boxSizing: "border-box", border: "none", padding: "10px 11px 10px 4px", fontFamily: F.sans, fontSize: 12, fontVariantNumeric: "tabular-nums", outline: "none" }} inputMode="decimal" placeholder="0" value={editOpening} onChange={(e) => setEditOpening(e.target.value)} />
+          </div>
+          {isCredit && (
+            <>
+              <div style={{ fontSize: 9.5, fontWeight: 700, color: C.muted, textTransform: "uppercase", letterSpacing: ".04em", marginBottom: 5 }}>Payment due date</div>
+              <input style={{ ...st.input, marginBottom: 10 }} type="number" min={1} max={31} placeholder="e.g. 5" value={editDueDay} onChange={(e) => setEditDueDay(e.target.value)} />
+            </>
+          )}
+          <div style={{ display: "flex", gap: 8 }}>
+            <GhostBtn style={{ flex: 1, padding: "9px 0", fontSize: 12 }} onClick={cancelEdit}>Cancel</GhostBtn>
+            <PrimaryBtn style={{ flex: 1, padding: "9px 0", fontSize: 12 }} onClick={() => saveEdit(a)}>Save</PrimaryBtn>
+          </div>
+        </div>
+      )}
+    </React.Fragment>
   );
 
   return (
@@ -2458,33 +2515,48 @@ const rowSelectStyle = { border: "none", outline: "none", background: "none", fo
 // still has that power-user option for imported rows.
 function NewTransactionSheet({ book, up, close, preset }) {
   const [tab, setTab] = useState((preset && preset.tab) || "expense");
-  const [amount, setAmount] = useState("");
+  const [amount, setAmount] = useState((preset && preset.amount) || "");
   const [note, setNote] = useState("");
   const [date, setDate] = useState(today());
 
   const firstAccountId = (book.accounts[0] || {}).id || "";
   const secondAccountId = (book.accounts[1] || book.accounts[0] || {}).id || "";
+  // Prefer a real bank/cash account as the default "paid from" side of a
+  // transfer -- otherwise a lone credit card sitting first in the account
+  // list would default to paying itself, which is never what's meant (and
+  // trips the same-account transferInvalid guard for no reason).
+  const firstBankAccountId = ((book.accounts.find((a) => a.kind !== "card") || book.accounts[0] || {}).id) || "";
 
   const [expCategory, setExpCategory] = useState(() => book.categories.expense.find((c) => c !== "Suspense") || book.bsCategories[0] || "");
   const [expAccountId, setExpAccountId] = useState(firstAccountId);
-  const [splitOn, setSplitOn] = useState(false);
-  const [splitPartyId, setSplitPartyId] = useState(book.parties[0] ? book.parties[0].id : "");
-  const [addingSplitParty, setAddingSplitParty] = useState(false);
-  const [newSplitPartyName, setNewSplitPartyName] = useState("");
 
   const [incomeMode, setIncomeMode] = useState("income"); // income | refund
   const [incCategory, setIncCategory] = useState(book.categories.income[0] || "");
   const [refundFor, setRefundFor] = useState(book.categories.expense.find((c) => c !== "Suspense") || "");
   const [incAccountId, setIncAccountId] = useState(firstAccountId);
 
-  const [fromAccountId, setFromAccountId] = useState(firstAccountId);
-  const [toAccountId, setToAccountId] = useState(secondAccountId);
+  // Split applies to both the Expense and Income tabs -- same N-way
+  // category-or-person editor CategorizeSheet uses (see SplitEditor), so a
+  // brand-new transaction can be split right away instead of only after
+  // it's saved and then re-categorized.
+  const [splitOn, setSplitOn] = useState(false);
+  const [splits, setSplits] = useState([]);
+  const toggleSplitOn = () => { if (!splitOn) setSplits(defaultSplitPair(parseAmount(amount) || 0)); setSplitOn((v) => !v); };
+
+  const [fromAccountId, setFromAccountId] = useState(firstBankAccountId || firstAccountId);
+  const [toAccountId, setToAccountId] = useState((preset && preset.toAccountId) || secondAccountId);
 
   const [owedMode, setOwedMode] = useState((preset && preset.owedMode) || "receive"); // receive | pay
   const [owedPartyId, setOwedPartyId] = useState("");
   const [owedAccountId, setOwedAccountId] = useState(firstAccountId);
   const [addingOwedParty, setAddingOwedParty] = useState(false);
   const [newOwedName, setNewOwedName] = useState("");
+  // An IOU that never touched any tracked account -- cash handed over
+  // off-book, a debt someone mentioned, etc. Recorded with accountId left
+  // out entirely: accountsWithBalances' applyLeg already no-ops when the
+  // account it's given can't be found, so this naturally never moves any
+  // bank/cash balance, only the Owed ledger.
+  const [owedNoAccount, setOwedNoAccount] = useState(false);
 
   const expenseCatItems = [
     ...book.categories.expense.filter((c) => c !== "Suspense").map((c) => ({ value: c, label: c })),
@@ -2507,38 +2579,45 @@ function NewTransactionSheet({ book, up, close, preset }) {
   const amt = parseAmount(amount) || 0;
   const transferInvalid = tab === "transfer" && fromAccountId === toAccountId;
   const owedInvalid = tab === "owed" && !owedPartyId;
+  const splitActive = (tab === "expense" || tab === "income") && splitOn;
+  const { valid: splitValid } = splitStatus(splits, amt);
 
   const save = () => {
     if (!amt || amt <= 0 || transferInvalid || owedInvalid) return;
+    if (splitActive) {
+      if (!splitValid) return;
+      const accountId = tab === "expense" ? expAccountId : incAccountId;
+      const type = tab === "expense" ? "out" : "in";
+      up((b) => {
+        for (const sp of splits) {
+          const spAmt = Math.round(parseAmount(sp.amount) || 0);
+          if (sp.target.kind === "category") {
+            b.entries.push({ id: uid(), date, amount: spAmt, type, category: sp.target.value, accountId, note });
+          } else {
+            b.entries.push({ id: uid(), date, amount: spAmt, type: "party", partyId: sp.target.value, accountId, dir: type === "in" ? "in" : "out", note: note || "Split expense" });
+          }
+        }
+        return b;
+      });
+      close();
+      return;
+    }
     up((b) => {
       if (tab === "expense") {
         b.entries.push({ id: uid(), date, amount: amt, type: "out", category: expCategory, accountId: expAccountId, note });
-        // Full amount is your own expense; the other half is a receivable
-        // (dir "out" -- see owedAsOf: money conceptually went to them, so
-        // their balance rises and they now owe you back).
-        if (splitOn && splitPartyId) {
-          b.entries.push({ id: uid(), date, amount: Math.round(amt / 2), type: "party", partyId: splitPartyId, accountId: expAccountId, dir: "out", note: note || "Split expense" });
-        }
       } else if (tab === "income") {
         b.entries.push({ id: uid(), date, amount: amt, type: "in", category: incomeMode === "refund" ? refundFor : incCategory, accountId: incAccountId, note });
       } else if (tab === "transfer") {
         b.entries.push({ id: uid(), date, amount: amt, type: "transfer", fromAccountId, toAccountId, note });
       } else if (tab === "owed") {
-        b.entries.push({ id: uid(), date, amount: amt, type: "party", partyId: owedPartyId, accountId: owedAccountId, dir: owedMode === "receive" ? "out" : "in", note });
+        // No account at all when owedNoAccount -- accountsWithBalances'
+        // applyLeg no-ops for an accountId that doesn't resolve to a real
+        // account, so this only ever touches the Owed ledger.
+        b.entries.push({ id: uid(), date, amount: amt, type: "party", partyId: owedPartyId, ...(owedNoAccount ? {} : { accountId: owedAccountId }), dir: owedMode === "receive" ? "out" : "in", note });
       }
       return b;
     });
     close();
-  };
-
-  const addSplitParty = () => {
-    const n = newSplitPartyName.trim();
-    if (!n) return;
-    const id = uid();
-    up((b) => { b.parties.push({ id, name: n }); return b; });
-    setSplitPartyId(id);
-    setAddingSplitParty(false);
-    setNewSplitPartyName("");
   };
 
   const addOwedParty = () => {
@@ -2555,10 +2634,12 @@ function NewTransactionSheet({ book, up, close, preset }) {
     return <Sheet open title="Add transaction" onClose={close}><div style={{ fontSize: 13, color: C.muted }}>Add an account first, in Setup ▸ Accounts.</div></Sheet>;
   }
 
-  const saveLabel = tab === "expense" ? "Record expense"
+  const saveLabel = splitActive ? "Save Split"
+    : tab === "expense" ? "Record expense"
     : tab === "income" ? (incomeMode === "refund" ? "Record refund" : "Record income")
     : tab === "transfer" ? "Record transfer"
     : "Settle up";
+  const changeTab = (v) => { setTab(v); setSplitOn(false); setSplits([]); };
 
   // Plain label/value rows with hairline dividers, matching the mockup --
   // no glass-card wrapper (the mockup's account/date fields sit directly
@@ -2593,7 +2674,7 @@ function NewTransactionSheet({ book, up, close, preset }) {
             <div style={{ flex: 1, textAlign: "center", fontSize: 16, fontWeight: 800 }}>Add transaction</div>
             <div style={{ width: 30, flexShrink: 0 }} />
           </div>
-          <Seg value={tab} onChange={setTab} style={{ marginBottom: 14 }} options={[
+          <Seg value={tab} onChange={changeTab} style={{ marginBottom: 14 }} options={[
             { v: "expense", label: "Expense" }, { v: "income", label: "Income" },
             { v: "transfer", label: "Transfer" }, { v: "owed", label: "Settle owed" },
           ]} />
@@ -2609,57 +2690,49 @@ function NewTransactionSheet({ book, up, close, preset }) {
 
       {tab === "expense" && (
         <div>
-          <div style={st.label}>Category</div>
-          <CategoryPickList items={expenseCatItems} value={expCategory} onChange={setExpCategory} />
+          {!splitOn && (
+            <>
+              <div style={st.label}>Category</div>
+              <CategoryPickList items={expenseCatItems} value={expCategory} onChange={setExpCategory} />
+            </>
+          )}
           <AccountDateRows accountId={expAccountId} setAccountId={setExpAccountId} />
           <input style={{ ...st.input, marginBottom: 12 }} placeholder="Add a note" value={note} onChange={(e) => setNote(e.target.value)} />
-          <div style={{ border: `1px solid ${C.overlayBorder}`, borderRadius: 12, padding: "12px 14px" }}>
+          <div style={{ border: `1px solid ${C.overlayBorder}`, borderRadius: 12, padding: "12px 14px", marginBottom: splitOn ? 12 : 0 }}>
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-              <span style={{ fontSize: 12.5, fontWeight: 500 }}>Split with someone</span>
-              <Toggle value={splitOn} onChange={setSplitOn} reverse />
+              <span style={{ fontSize: 12.5, fontWeight: 500 }}>Split this amount</span>
+              <Toggle value={splitOn} onChange={toggleSplitOn} reverse />
             </div>
-            {splitOn && (
-              <div style={{ marginTop: 12, paddingTop: 12, borderTop: `1px solid ${C.line}` }}>
-                <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
-                  {book.parties.map((p) => (
-                    <button key={p.id} onClick={() => setSplitPartyId(p.id)} style={txChipBtn(p.id === splitPartyId)}>{p.name}</button>
-                  ))}
-                  {addingSplitParty ? (
-                    <div style={{ display: "flex", gap: 6 }}>
-                      <input value={newSplitPartyName} autoFocus onChange={(e) => setNewSplitPartyName(e.target.value)} onKeyDown={(e) => e.key === "Enter" && addSplitParty()} placeholder="Person's name" style={{ ...st.input, padding: "5px 9px", fontSize: 10.5, width: 120 }} />
-                      <button onClick={addSplitParty} style={{ ...txChipBtn(false), border: "none" }}>Add</button>
-                    </div>
-                  ) : (
-                    <button onClick={() => setAddingSplitParty(true)} style={txChipBtn(false)}>+ New person</button>
-                  )}
-                </div>
-                {splitPartyId && amt > 0 && (
-                  <div style={{ fontSize: 11.5, color: C.accent, fontWeight: 600, marginTop: 8 }}>
-                    {(book.parties.find((p) => p.id === splitPartyId) || {}).name} owes you {inr(Math.round(amt / 2))}
-                  </div>
-                )}
-              </div>
-            )}
           </div>
+          {splitOn && <SplitEditor book={book} up={up} totalAmount={amt} splits={splits} setSplits={setSplits} signIn={false} refundOn={false} />}
         </div>
       )}
 
       {tab === "income" && (
         <div>
           <Seg value={incomeMode} onChange={setIncomeMode} style={{ marginBottom: 14 }} options={[{ v: "income", label: "Income" }, { v: "refund", label: "Refund" }]} />
-          {incomeMode === "refund" ? (
-            <>
-              <div style={st.label}>Which expense is this refunding?</div>
-              <CategoryPickList items={refundCatItems} value={refundFor} onChange={setRefundFor} />
-            </>
-          ) : (
-            <>
-              <div style={st.label}>Category</div>
-              <CategoryPickList items={incomeCatItems} value={incCategory} onChange={setIncCategory} />
-            </>
+          {!splitOn && (
+            incomeMode === "refund" ? (
+              <>
+                <div style={st.label}>Which expense is this refunding?</div>
+                <CategoryPickList items={refundCatItems} value={refundFor} onChange={setRefundFor} />
+              </>
+            ) : (
+              <>
+                <div style={st.label}>Category</div>
+                <CategoryPickList items={incomeCatItems} value={incCategory} onChange={setIncCategory} />
+              </>
+            )
           )}
           <AccountDateRows accountId={incAccountId} setAccountId={setIncAccountId} />
-          <input style={st.input} placeholder="Add a note" value={note} onChange={(e) => setNote(e.target.value)} />
+          <input style={{ ...st.input, marginBottom: 12 }} placeholder="Add a note" value={note} onChange={(e) => setNote(e.target.value)} />
+          <div style={{ border: `1px solid ${C.overlayBorder}`, borderRadius: 12, padding: "12px 14px", marginBottom: splitOn ? 12 : 0 }}>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+              <span style={{ fontSize: 12.5, fontWeight: 500 }}>Split this amount</span>
+              <Toggle value={splitOn} onChange={toggleSplitOn} reverse />
+            </div>
+          </div>
+          {splitOn && <SplitEditor book={book} up={up} totalAmount={amt} splits={splits} setSplits={setSplits} signIn={true} refundOn={incomeMode === "refund"} />}
         </div>
       )}
 
@@ -2716,11 +2789,29 @@ function NewTransactionSheet({ book, up, close, preset }) {
             <div style={{ fontSize: 10, color: C.muted, textTransform: "uppercase", marginBottom: 4 }}>{owedMode === "receive" ? "They'll owe you" : "You'll owe them"}</div>
             <span style={{ fontSize: 24, fontWeight: 700 }}>₹<input value={amount} onChange={(e) => setAmount(e.target.value)} placeholder="0" style={{ border: "none", outline: "none", fontFamily: F.sans, fontSize: 24, fontWeight: 700, width: 110, textAlign: "center", background: "none", color: C.ink }} /></span>
           </div>
-          <SummaryRow label={owedMode === "receive" ? "Deposit into" : "Pay from"} last>
-            <select style={rowSelectStyle} value={owedAccountId} onChange={(e) => setOwedAccountId(e.target.value)}>
-              {book.accounts.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
-            </select>
-          </SummaryRow>
+          {/* An IOU that never went through a real account -- cash handed over
+              off-book, or just a debt to remember -- stays purely in the Owed
+              ledger with no accountId at all, so it can never move a bank/cash
+              balance (see the `owedNoAccount` comment on save()). */}
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, padding: "9px 12px", marginBottom: owedNoAccount ? 12 : 14, borderRadius: 12, background: C.accentSoft }}>
+            <div>
+              <div style={{ fontSize: 12, fontWeight: 600 }}>Not linked to a bank account</div>
+              <div style={{ fontSize: 10, color: C.muted, marginTop: 1 }}>Tracked here only -- won't touch any bank or cash balance</div>
+            </div>
+            <Toggle value={owedNoAccount} onChange={setOwedNoAccount} reverse />
+          </div>
+          {owedNoAccount ? (
+            <div style={{ fontSize: 10.5, color: C.muted, fontWeight: 600, marginBottom: 14, display: "flex", gap: 5, alignItems: "flex-start" }}>
+              <Ic name="wand" size={11} style={{ flexShrink: 0, marginTop: 1 }} />
+              <span>This is not related to any bank -- it'll show up in Owed only.</span>
+            </div>
+          ) : (
+            <SummaryRow label={owedMode === "receive" ? "Deposit into" : "Pay from"} last>
+              <select style={rowSelectStyle} value={owedAccountId} onChange={(e) => setOwedAccountId(e.target.value)}>
+                {book.accounts.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
+              </select>
+            </SummaryRow>
+          )}
           <input style={{ ...st.input, marginTop: 12 }} placeholder="Add a note" value={note} onChange={(e) => setNote(e.target.value)} />
         </div>
       )}
@@ -2770,7 +2861,7 @@ function ViewTransactionSheet({ book, up, close, entryId }) {
   } else if (entry.type === "party") {
     rows.push(["Type", entry.dir === "out" ? "Party to Pay" : "Party to Receive"]);
     rows.push(["Party", partyName(entry.partyId)]);
-    rows.push(["Account", accountName(entry.accountId)]);
+    rows.push(["Account", entry.accountId ? accountName(entry.accountId) : "Not linked to a bank account"]);
   } else if (isUnexplained) {
     rows.push(["Category", "Uncategorized"]);
     rows.push(["Account", accountName(entry.accountId)]);
@@ -2834,6 +2925,99 @@ function categorizeGroups(book, sign, refundOn, search) {
   if (sign === "in" && !refundOn) groups.push({ label: "Income", items: book.categories.income });
   if (book.bsCategories.length > 0) groups.push({ label: "Balance Sheet", items: book.bsCategories });
   return groups.map((g) => ({ ...g, items: g.items.filter((c) => c.toLowerCase().includes(q)) })).filter((g) => g.items.length > 0);
+}
+
+// A fresh 2-row 50/50 split, the starting point whenever "Split this
+// amount" is switched on -- shared by CategorizeSheet (splitting an
+// existing transaction) and NewTransactionSheet (splitting a fresh one).
+const defaultSplitPair = (totalAmount) => {
+  const half = Math.round(totalAmount / 2);
+  return [{ amount: String(half), target: null, open: false }, { amount: String(totalAmount - half), target: null, open: false }];
+};
+// Pure validity check for a split's rows against the amount they need to
+// add up to -- every row needs a target and a positive amount, and the
+// rows need to sum back to the total (within half a rupee, for rounding).
+function splitStatus(splits, totalAmount) {
+  const sum = splits.reduce((s, sp) => s + (parseAmount(sp.amount) || 0), 0);
+  const remaining = totalAmount - sum;
+  const valid = splits.length >= 2 && splits.every((sp) => sp.target && (parseAmount(sp.amount) || 0) > 0) && Math.abs(remaining) < 0.5;
+  return { remaining, valid };
+}
+
+// The N-way split editor itself -- any number of rows, each an amount plus
+// a category-or-person target, rendered as a controlled list (`splits`/
+// `setSplits` owned by the caller) so both CategorizeSheet and
+// NewTransactionSheet can drive it with their own save/validate logic
+// rather than duplicating this ~60 lines of row/picker JSX between them.
+// Deliberately has no Save button of its own -- CategorizeSheet renders one
+// inline (it has no other footer), NewTransactionSheet's is the sheet's
+// single fixed footer button instead.
+function SplitEditor({ book, up, totalAmount, splits, setSplits, signIn, refundOn }) {
+  const [splitAddPartyIdx, setSplitAddPartyIdx] = useState(null);
+  const [splitNewPartyName, setSplitNewPartyName] = useState("");
+  const splitGroups = categorizeGroups(book, signIn ? "in" : "out", refundOn, "");
+  const { remaining } = splitStatus(splits, totalAmount);
+
+  const addSplitRow = () => setSplits((s) => [...s, { amount: "", target: null, open: false }]);
+  const removeSplitRow = (i) => setSplits((s) => s.filter((_, idx) => idx !== i));
+  const updateSplitAmount = (i, v) => setSplits((s) => s.map((sp, idx) => (idx === i ? { ...sp, amount: v } : sp)));
+  const toggleSplitTargetOpen = (i) => { setSplitAddPartyIdx(null); setSplits((s) => s.map((sp, idx) => (idx === i ? { ...sp, open: !sp.open } : { ...sp, open: false }))); };
+  const setSplitTarget = (i, target) => setSplits((s) => s.map((sp, idx) => (idx === i ? { ...sp, target, open: false } : sp)));
+  const addSplitPartyAndSet = () => {
+    const n = splitNewPartyName.trim();
+    if (!n || splitAddPartyIdx === null) return;
+    const id = uid();
+    up((b) => { b.parties.push({ id, name: n }); return b; });
+    setSplitTarget(splitAddPartyIdx, { kind: "owed", value: id, label: n });
+    setSplitAddPartyIdx(null);
+    setSplitNewPartyName("");
+  };
+
+  return (
+    <>
+      <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 8 }}>
+        {splits.map((sp, i) => (
+          <div key={i} style={{ border: `1px solid ${C.overlayBorder}`, borderRadius: 12, padding: "10px 12px" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              <span style={{ fontSize: 13, fontWeight: 700 }}>₹</span>
+              <input value={sp.amount} onChange={(e) => updateSplitAmount(i, e.target.value)} placeholder="0" style={{ border: "none", background: "none", fontFamily: F.sans, fontSize: 13, fontWeight: 700, width: 90, outline: "none", color: C.ink }} />
+              <div style={{ flex: 1 }} />
+              {splits.length > 1 && <div onClick={() => removeSplitRow(i)} style={{ cursor: "pointer", flexShrink: 0, display: "flex" }}><Ic name="close" size={13} color={C.faint} /></div>}
+            </div>
+            <div onClick={() => toggleSplitTargetOpen(i)} style={{ display: "inline-flex", alignItems: "center", fontSize: 10.5, fontWeight: 500, padding: "4px 10px", borderRadius: 999, cursor: "pointer", marginTop: 6, whiteSpace: "nowrap", background: sp.target ? C.accentSoft : C.overlayWash, color: sp.target ? C.accentText : C.muted }}>
+              {sp.target ? sp.target.label : "Choose category or person"} ▾
+            </div>
+            {sp.open && (
+              <div style={{ marginTop: 9, paddingTop: 9, borderTop: `1px solid ${C.line}` }}>
+                <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 6 }}>
+                  {splitGroups.map((g) => g.items.map((c) => (
+                    <button key={c} onClick={() => setSplitTarget(i, { kind: "category", value: c, label: c })} style={{ ...catChipStyle, fontSize: 10.5, padding: "5px 10px" }}>{c}</button>
+                  )))}
+                </div>
+                <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                  {book.parties.map((p) => (
+                    <button key={p.id} onClick={() => setSplitTarget(i, { kind: "owed", value: p.id, label: p.name })} style={{ ...owedChipStyle, fontSize: 10.5, padding: "5px 10px" }}>{p.name}</button>
+                  ))}
+                  {splitAddPartyIdx === i ? (
+                    <div style={{ display: "flex", gap: 6 }}>
+                      <input value={splitNewPartyName} autoFocus onChange={(e) => setSplitNewPartyName(e.target.value)} onKeyDown={(e) => e.key === "Enter" && addSplitPartyAndSet()} placeholder="Person's name" style={{ ...st.input, padding: "5px 9px", fontSize: 10.5, width: 120 }} />
+                      <button onClick={addSplitPartyAndSet} style={{ ...owedChipStyle, fontSize: 10.5, padding: "5px 10px", border: "none" }}>Add</button>
+                    </div>
+                  ) : (
+                    <button onClick={() => setSplitAddPartyIdx(i)} style={{ ...owedChipStyle, fontSize: 10.5, padding: "5px 10px" }}>+ New person</button>
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
+        ))}
+      </div>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 14 }}>
+        <div onClick={addSplitRow} style={{ fontSize: 11, fontWeight: 600, color: C.accentText, cursor: "pointer" }}>+ Add another split</div>
+        <div style={{ fontSize: 10.5, fontWeight: 600, color: Math.abs(remaining) < 0.5 ? C.green : C.red }}>{Math.abs(remaining) < 0.5 ? "Fully allocated" : `${inr(Math.abs(remaining))} ${remaining > 0 ? "remaining" : "over"}`}</div>
+      </div>
+    </>
+  );
 }
 
 // Converts entry `id` in draft `b` into a real "party" (owed) entry,
@@ -2947,8 +3131,6 @@ function CategorizeSheet({ book, up, close, entryIds, showToast, onApplied }) {
   const [refundOn, setRefundOn] = useState(false);
   const [splitOn, setSplitOn] = useState(false);
   const [splits, setSplits] = useState([]);
-  const [splitAddPartyIdx, setSplitAddPartyIdx] = useState(null);
-  const [splitNewPartyName, setSplitNewPartyName] = useState("");
   const [toAccountId, setToAccountId] = useState(() => (book.accounts.find((a) => a.id !== entries[0].accountId) || {}).id || "");
   const [addingParty, setAddingParty] = useState(false);
   const [newPartyName, setNewPartyName] = useState("");
@@ -3007,33 +3189,18 @@ function CategorizeSheet({ book, up, close, entryIds, showToast, onApplied }) {
 
   // Split -- single row only, real N-way splitting: any number of rows,
   // each targeting its own category or party, validated to add back up to
-  // the original amount before Save is enabled.
+  // the original amount before Save is enabled. Row/picker UI and the
+  // validity math both live in the shared SplitEditor/splitStatus (also
+  // used by NewTransactionSheet), so this only owns the toggle and the
+  // apply-to-the-book step.
   const splitRow = entries[0];
   const splitTotal = isBulk ? 0 : Math.abs(splitRow.amount);
-  const splitSum = splits.reduce((s, sp) => s + (parseAmount(sp.amount) || 0), 0);
-  const splitRemaining = splitTotal - splitSum;
-  const splitValid = splits.length >= 2 && splits.every((sp) => sp.target && (parseAmount(sp.amount) || 0) > 0) && Math.abs(splitRemaining) < 0.5;
-  const splitGroups = categorizeGroups(book, signIn ? "in" : "out", false, "");
+  const { valid: splitValid } = splitStatus(splits, splitTotal);
 
   const toggleSplit = () => {
     if (splitOn) { setSplitOn(false); return; }
-    const half = Math.round(splitTotal / 2);
-    setSplits([{ amount: String(half), target: null, open: false }, { amount: String(splitTotal - half), target: null, open: false }]);
+    setSplits(defaultSplitPair(splitTotal));
     setSplitOn(true);
-  };
-  const addSplitRow = () => setSplits((s) => [...s, { amount: "", target: null, open: false }]);
-  const removeSplitRow = (i) => setSplits((s) => s.filter((_, idx) => idx !== i));
-  const updateSplitAmount = (i, v) => setSplits((s) => s.map((sp, idx) => (idx === i ? { ...sp, amount: v } : sp)));
-  const toggleSplitTargetOpen = (i) => { setSplitAddPartyIdx(null); setSplits((s) => s.map((sp, idx) => (idx === i ? { ...sp, open: !sp.open } : { ...sp, open: false }))); };
-  const setSplitTarget = (i, target) => setSplits((s) => s.map((sp, idx) => (idx === i ? { ...sp, target, open: false } : sp)));
-  const addSplitPartyAndSet = () => {
-    const n = splitNewPartyName.trim();
-    if (!n || splitAddPartyIdx === null) return;
-    const id = uid();
-    up((b) => { b.parties.push({ id, name: n }); return b; });
-    setSplitTarget(splitAddPartyIdx, { kind: "owed", value: id, label: n });
-    setSplitAddPartyIdx(null);
-    setSplitNewPartyName("");
   };
   const saveSplit = () => {
     if (!splitValid) return;
@@ -3088,47 +3255,7 @@ function CategorizeSheet({ book, up, close, entryIds, showToast, onApplied }) {
 
       {splitOn ? (
         <>
-          <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 8 }}>
-            {splits.map((sp, i) => (
-              <div key={i} style={{ border: `1px solid ${C.overlayBorder}`, borderRadius: 12, padding: "10px 12px" }}>
-                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                  <span style={{ fontSize: 13, fontWeight: 700 }}>₹</span>
-                  <input value={sp.amount} onChange={(e) => updateSplitAmount(i, e.target.value)} placeholder="0" style={{ border: "none", background: "none", fontFamily: F.sans, fontSize: 13, fontWeight: 700, width: 90, outline: "none", color: C.ink }} />
-                  <div style={{ flex: 1 }} />
-                  {splits.length > 1 && <div onClick={() => removeSplitRow(i)} style={{ cursor: "pointer", flexShrink: 0, display: "flex" }}><Ic name="close" size={13} color={C.faint} /></div>}
-                </div>
-                <div onClick={() => toggleSplitTargetOpen(i)} style={{ display: "inline-flex", alignItems: "center", fontSize: 10.5, fontWeight: 500, padding: "4px 10px", borderRadius: 999, cursor: "pointer", marginTop: 6, whiteSpace: "nowrap", background: sp.target ? C.accentSoft : C.overlayWash, color: sp.target ? C.accentText : C.muted }}>
-                  {sp.target ? sp.target.label : "Choose category or person"} ▾
-                </div>
-                {sp.open && (
-                  <div style={{ marginTop: 9, paddingTop: 9, borderTop: `1px solid ${C.line}` }}>
-                    <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 6 }}>
-                      {splitGroups.map((g) => g.items.map((c) => (
-                        <button key={c} onClick={() => setSplitTarget(i, { kind: "category", value: c, label: c })} style={{ ...catChipStyle, fontSize: 10.5, padding: "5px 10px" }}>{c}</button>
-                      )))}
-                    </div>
-                    <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
-                      {book.parties.map((p) => (
-                        <button key={p.id} onClick={() => setSplitTarget(i, { kind: "owed", value: p.id, label: p.name })} style={{ ...owedChipStyle, fontSize: 10.5, padding: "5px 10px" }}>{p.name}</button>
-                      ))}
-                      {splitAddPartyIdx === i ? (
-                        <div style={{ display: "flex", gap: 6 }}>
-                          <input value={splitNewPartyName} autoFocus onChange={(e) => setSplitNewPartyName(e.target.value)} onKeyDown={(e) => e.key === "Enter" && addSplitPartyAndSet()} placeholder="Person's name" style={{ ...st.input, padding: "5px 9px", fontSize: 10.5, width: 120 }} />
-                          <button onClick={addSplitPartyAndSet} style={{ ...owedChipStyle, fontSize: 10.5, padding: "5px 10px", border: "none" }}>Add</button>
-                        </div>
-                      ) : (
-                        <button onClick={() => setSplitAddPartyIdx(i)} style={{ ...owedChipStyle, fontSize: 10.5, padding: "5px 10px" }}>+ New person</button>
-                      )}
-                    </div>
-                  </div>
-                )}
-              </div>
-            ))}
-          </div>
-          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 14 }}>
-            <div onClick={addSplitRow} style={{ fontSize: 11, fontWeight: 600, color: C.accentText, cursor: "pointer" }}>+ Add another split</div>
-            <div style={{ fontSize: 10.5, fontWeight: 600, color: Math.abs(splitRemaining) < 0.5 ? C.green : C.red }}>{Math.abs(splitRemaining) < 0.5 ? "Fully allocated" : `${inr(Math.abs(splitRemaining))} ${splitRemaining > 0 ? "remaining" : "over"}`}</div>
-          </div>
+          <SplitEditor book={book} up={up} totalAmount={splitTotal} splits={splits} setSplits={setSplits} signIn={signIn} refundOn={refundOn} />
           <PrimaryBtn onClick={saveSplit} style={{ opacity: splitValid ? 1 : 0.5, cursor: splitValid ? "pointer" : "default" }}>Save Split</PrimaryBtn>
         </>
       ) : (
@@ -3256,6 +3383,12 @@ function ImportSheet({ book, up, close }) {
   const [accountId, setAccountId] = useState((list[0] || {}).id || "");
   const [status, setStatus] = useState("");
   const [error, setError] = useState(false);
+  // A locked bank/card statement PDF pauses here instead of failing outright
+  // -- the file itself is kept (not re-picked from the input, which clears
+  // once used) so submitting a password just re-runs the same import.
+  const [lockedFile, setLockedFile] = useState(null);
+  const [pdfPassword, setPdfPassword] = useState("");
+  const [passwordWrong, setPasswordWrong] = useState(false);
   const fileRef = useRef(null);
 
   const selectKind = (k) => {
@@ -3283,13 +3416,16 @@ function ImportSheet({ book, up, close }) {
     });
   };
 
-  const handleFile = async (file) => {
+  const handleFile = async (file, password) => {
     if (!accountId) { setStatus("Add an account first."); return; }
     setError(false);
-    setStatus("Reading…");
+    setStatus(password ? "Unlocking…" : "Reading…");
     try {
       if (file.type === "application/pdf" || file.name.toLowerCase().endsWith(".pdf")) {
-        const pages = await extractPdfPages(file);
+        const pages = await extractPdfPages(file, password);
+        setLockedFile(null);
+        setPdfPassword("");
+        setPasswordWrong(false);
         let rows = parsePdfTable(pages);
         if (!rows.length) {
           const text = pages.map((items) => items.map((i) => i.s).join(" ")).join("\n");
@@ -3307,10 +3443,18 @@ function ImportSheet({ book, up, close }) {
         setStatus(`Imported ${rows.length} transaction${rows.length === 1 ? "" : "s"}.`);
       }
     } catch (err) {
+      if (err && err.code === "PDF_PASSWORD_REQUIRED") {
+        setLockedFile(file);
+        setPasswordWrong(!!password);
+        setStatus("");
+        return;
+      }
       setError(true);
       setStatus(err && err.message ? err.message : "Make sure it's a CSV, PDF, or clear photo of a statement.");
     }
   };
+  const submitPassword = () => { if (lockedFile) handleFile(lockedFile, pdfPassword); };
+  const cancelPassword = () => { setLockedFile(null); setPdfPassword(""); setPasswordWrong(false); };
 
   if (book.accounts.length === 0) {
     return <Modal open title="Import statement" onClose={close}><div style={{ fontSize: 13, color: C.muted, textAlign: "center" }}>Add an account first, in Setup ▸ Accounts.</div></Modal>;
@@ -3318,7 +3462,19 @@ function ImportSheet({ book, up, close }) {
 
   return (
     <Modal open title="Import statement" onClose={close}>
-      {!error ? (
+      {lockedFile ? (
+        <div>
+          <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 4 }}>Password protected</div>
+          <div style={{ fontSize: 11, color: C.muted, marginBottom: 14 }}>"{lockedFile.name}" is locked. Enter its password to import it.</div>
+          <input type="password" style={st.input} placeholder="PDF password" value={pdfPassword} autoFocus onChange={(e) => setPdfPassword(e.target.value)} onKeyDown={(e) => e.key === "Enter" && submitPassword()} />
+          {passwordWrong && <div style={{ fontSize: 11, color: C.red, fontWeight: 600, marginTop: 8 }}>Incorrect password, try again.</div>}
+          <div style={{ display: "flex", gap: 8, marginTop: 14 }}>
+            <GhostBtn style={{ flex: 1, padding: "10px 0", fontSize: 12 }} onClick={cancelPassword}>Cancel</GhostBtn>
+            <PrimaryBtn style={{ flex: 1, padding: "10px 0", fontSize: 12 }} onClick={submitPassword}>Unlock & Import</PrimaryBtn>
+          </div>
+          {status && <div style={{ fontSize: 11, color: C.accentText, fontWeight: 600, marginTop: 8, textAlign: "center" }}>{status}</div>}
+        </div>
+      ) : !error ? (
         <>
           {bankAccounts.length > 0 && cardAccounts.length > 0 && (
             <Seg value={kind} onChange={selectKind} style={{ marginBottom: 12 }} options={[{ v: "bank", label: "Bank accounts" }, { v: "card", label: "Credit cards" }]} />
@@ -3636,7 +3792,7 @@ export default function App() {
         {tab === "owed" && <OwedScreen book={book} up={up} openSheet={openSheet} showToast={showToast} />}
         {tab === "tx" && <TransactionsScreen book={book} up={up} openSheet={openSheet} selectMode={txSelectMode} setSelectMode={setTxSelectMode} showToast={showToast} initialTab={txJumpTab} clearInitialTab={() => setTxJumpTab(null)} />}
         {tab === "reports" && <ReportsScreen book={book} openSheet={openSheet} />}
-        {tab === "setup" && <SetupScreen book={book} up={up} onLockNow={() => { setUnlocked(false); setBalancesRevealed(false); }} />}
+        {tab === "setup" && <SetupScreen book={book} up={up} onLockNow={() => { setUnlocked(false); setBalancesRevealed(false); }} openSheet={openSheet} />}
       </div>
 
       {tab === "tx" && !txSelectMode && (

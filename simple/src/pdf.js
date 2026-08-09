@@ -106,9 +106,27 @@ export function parseStatementText(text) {
 
 // Per-page positioned text items — x/y kept so a table's column layout can
 // be read directly, instead of only the flattened, order-guessed text.
-export async function extractPdfPages(file) {
+// Many bank/card statements ship password-protected -- passing one through
+// lets the caller prompt for it instead of the import just failing outright.
+// pdfjs-dist rejects with a PasswordException (no password given, or the
+// one given was wrong) rather than resolving, so that's turned into a
+// plain Error the caller can recognize by e.code without depending on
+// pdfjs's own exception class being exported/importable here.
+export async function extractPdfPages(file, password) {
   const pdfjsLib = await getPdfjs();
-  const pdf = await pdfjsLib.getDocument({ data: await file.arrayBuffer() }).promise;
+  const params = { data: await file.arrayBuffer() };
+  if (password) params.password = password;
+  let pdf;
+  try {
+    pdf = await pdfjsLib.getDocument(params).promise;
+  } catch (err) {
+    if (err && err.name === "PasswordException") {
+      const wrapped = new Error(password ? "Incorrect password." : "This PDF is password-protected.");
+      wrapped.code = "PDF_PASSWORD_REQUIRED";
+      throw wrapped;
+    }
+    throw err;
+  }
   const pages = [];
   for (let p = 1; p <= pdf.numPages; p++) {
     const page = await pdf.getPage(p);
