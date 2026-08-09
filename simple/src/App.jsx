@@ -2995,25 +2995,76 @@ function CategorizeSheet({ book, up, close, entryIds, showToast, onApplied }) {
 
       <Seg value={targetMode} onChange={setMode} style={{ marginBottom: 12 }} options={[{ v: "category", label: "Category" }, { v: "owed", label: "Owed person" }, { v: "transfer", label: "Transfer" }]} />
 
-      {targetMode === "category" && (
-        <>
-          {signIn && (
-            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, padding: "9px 12px", marginBottom: 10, borderRadius: 12, background: C.accentSoft }}>
-              <div>
-                <div style={{ fontSize: 12, fontWeight: 600 }}>This is a refund</div>
-                <div style={{ fontSize: 10, color: C.muted, marginTop: 1 }}>{refundOn ? "Showing expense categories" : "Showing income categories"}</div>
-              </div>
-              <Toggle value={refundOn} onChange={setRefundOn} reverse />
-            </div>
-          )}
-          {!isBulk && (
-            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, padding: "9px 12px", marginBottom: 10, borderRadius: 12, background: C.accentSoft }}>
-              <span style={{ fontSize: 12, fontWeight: 600 }}>Split this amount</span>
-              <Toggle value={splitOn} onChange={toggleSplit} reverse />
-            </div>
-          )}
+      {targetMode === "category" && signIn && (
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, padding: "9px 12px", marginBottom: 10, borderRadius: 12, background: C.accentSoft }}>
+          <div>
+            <div style={{ fontSize: 12, fontWeight: 600 }}>This is a refund</div>
+            <div style={{ fontSize: 10, color: C.muted, marginTop: 1 }}>{refundOn ? "Showing expense categories" : "Showing income categories"}</div>
+          </div>
+          <Toggle value={refundOn} onChange={setRefundOn} reverse />
+        </div>
+      )}
 
-          {!splitOn && (
+      {/* Split lives at this level, shared between Category and Owed, rather
+          than nested only under Category -- a split row can target either a
+          category or a person either way (see the picker inside each split
+          row below), so there's no reason "Split this amount" should only be
+          reachable from the Category tab. */}
+      {(targetMode === "category" || targetMode === "owed") && !isBulk && (
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, padding: "9px 12px", marginBottom: 10, borderRadius: 12, background: C.accentSoft }}>
+          <span style={{ fontSize: 12, fontWeight: 600 }}>Split this amount</span>
+          <Toggle value={splitOn} onChange={toggleSplit} reverse />
+        </div>
+      )}
+
+      {splitOn ? (
+        <>
+          <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 8 }}>
+            {splits.map((sp, i) => (
+              <div key={i} style={{ border: `1px solid ${C.overlayBorder}`, borderRadius: 12, padding: "10px 12px" }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  <span style={{ fontSize: 13, fontWeight: 700 }}>₹</span>
+                  <input value={sp.amount} onChange={(e) => updateSplitAmount(i, e.target.value)} placeholder="0" style={{ border: "none", background: "none", fontFamily: F.sans, fontSize: 13, fontWeight: 700, width: 90, outline: "none", color: C.ink }} />
+                  <div style={{ flex: 1 }} />
+                  {splits.length > 1 && <div onClick={() => removeSplitRow(i)} style={{ cursor: "pointer", flexShrink: 0, display: "flex" }}><Ic name="close" size={13} color={C.faint} /></div>}
+                </div>
+                <div onClick={() => toggleSplitTargetOpen(i)} style={{ display: "inline-flex", alignItems: "center", fontSize: 10.5, fontWeight: 500, padding: "4px 10px", borderRadius: 999, cursor: "pointer", marginTop: 6, whiteSpace: "nowrap", background: sp.target ? C.accentSoft : C.overlayWash, color: sp.target ? C.accentText : C.muted }}>
+                  {sp.target ? sp.target.label : "Choose category or person"} ▾
+                </div>
+                {sp.open && (
+                  <div style={{ marginTop: 9, paddingTop: 9, borderTop: `1px solid ${C.line}` }}>
+                    <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 6 }}>
+                      {splitGroups.map((g) => g.items.map((c) => (
+                        <button key={c} onClick={() => setSplitTarget(i, { kind: "category", value: c, label: c })} style={{ ...catChipStyle, fontSize: 10.5, padding: "5px 10px" }}>{c}</button>
+                      )))}
+                    </div>
+                    <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                      {book.parties.map((p) => (
+                        <button key={p.id} onClick={() => setSplitTarget(i, { kind: "owed", value: p.id, label: p.name })} style={{ ...owedChipStyle, fontSize: 10.5, padding: "5px 10px" }}>{p.name}</button>
+                      ))}
+                      {splitAddPartyIdx === i ? (
+                        <div style={{ display: "flex", gap: 6 }}>
+                          <input value={splitNewPartyName} autoFocus onChange={(e) => setSplitNewPartyName(e.target.value)} onKeyDown={(e) => e.key === "Enter" && addSplitPartyAndSet()} placeholder="Person's name" style={{ ...st.input, padding: "5px 9px", fontSize: 10.5, width: 120 }} />
+                          <button onClick={addSplitPartyAndSet} style={{ ...owedChipStyle, fontSize: 10.5, padding: "5px 10px", border: "none" }}>Add</button>
+                        </div>
+                      ) : (
+                        <button onClick={() => setSplitAddPartyIdx(i)} style={{ ...owedChipStyle, fontSize: 10.5, padding: "5px 10px" }}>+ New person</button>
+                      )}
+                    </div>
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 14 }}>
+            <div onClick={addSplitRow} style={{ fontSize: 11, fontWeight: 600, color: C.accentText, cursor: "pointer" }}>+ Add another split</div>
+            <div style={{ fontSize: 10.5, fontWeight: 600, color: Math.abs(splitRemaining) < 0.5 ? C.green : C.red }}>{Math.abs(splitRemaining) < 0.5 ? "Fully allocated" : `${inr(Math.abs(splitRemaining))} ${splitRemaining > 0 ? "remaining" : "over"}`}</div>
+          </div>
+          <PrimaryBtn onClick={saveSplit} style={{ opacity: splitValid ? 1 : 0.5, cursor: splitValid ? "pointer" : "default" }}>Save Split</PrimaryBtn>
+        </>
+      ) : (
+        <>
+          {targetMode === "category" && (
             <>
               <div style={{ ...glass(12), display: "flex", alignItems: "center", gap: 7, padding: "9px 11px", marginBottom: 4 }}>
                 <Ic name="search" size={12} color={C.muted} />
@@ -3037,67 +3088,20 @@ function CategorizeSheet({ book, up, close, entryIds, showToast, onApplied }) {
             </>
           )}
 
-          {splitOn && (
-            <>
-              <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 8 }}>
-                {splits.map((sp, i) => (
-                  <div key={i} style={{ border: `1px solid ${C.overlayBorder}`, borderRadius: 12, padding: "10px 12px" }}>
-                    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                      <span style={{ fontSize: 13, fontWeight: 700 }}>₹</span>
-                      <input value={sp.amount} onChange={(e) => updateSplitAmount(i, e.target.value)} placeholder="0" style={{ border: "none", background: "none", fontFamily: F.sans, fontSize: 13, fontWeight: 700, width: 90, outline: "none", color: C.ink }} />
-                      <div style={{ flex: 1 }} />
-                      {splits.length > 1 && <div onClick={() => removeSplitRow(i)} style={{ cursor: "pointer", flexShrink: 0, display: "flex" }}><Ic name="close" size={13} color={C.faint} /></div>}
-                    </div>
-                    <div onClick={() => toggleSplitTargetOpen(i)} style={{ display: "inline-flex", alignItems: "center", fontSize: 10.5, fontWeight: 500, padding: "4px 10px", borderRadius: 999, cursor: "pointer", marginTop: 6, whiteSpace: "nowrap", background: sp.target ? C.accentSoft : C.overlayWash, color: sp.target ? C.accentText : C.muted }}>
-                      {sp.target ? sp.target.label : "Choose category or person"} ▾
-                    </div>
-                    {sp.open && (
-                      <div style={{ marginTop: 9, paddingTop: 9, borderTop: `1px solid ${C.line}` }}>
-                        <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 6 }}>
-                          {splitGroups.map((g) => g.items.map((c) => (
-                            <button key={c} onClick={() => setSplitTarget(i, { kind: "category", value: c, label: c })} style={{ ...catChipStyle, fontSize: 10.5, padding: "5px 10px" }}>{c}</button>
-                          )))}
-                        </div>
-                        <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
-                          {book.parties.map((p) => (
-                            <button key={p.id} onClick={() => setSplitTarget(i, { kind: "owed", value: p.id, label: p.name })} style={{ ...owedChipStyle, fontSize: 10.5, padding: "5px 10px" }}>{p.name}</button>
-                          ))}
-                          {splitAddPartyIdx === i ? (
-                            <div style={{ display: "flex", gap: 6 }}>
-                              <input value={splitNewPartyName} autoFocus onChange={(e) => setSplitNewPartyName(e.target.value)} onKeyDown={(e) => e.key === "Enter" && addSplitPartyAndSet()} placeholder="Person's name" style={{ ...st.input, padding: "5px 9px", fontSize: 10.5, width: 120 }} />
-                              <button onClick={addSplitPartyAndSet} style={{ ...owedChipStyle, fontSize: 10.5, padding: "5px 10px", border: "none" }}>Add</button>
-                            </div>
-                          ) : (
-                            <button onClick={() => setSplitAddPartyIdx(i)} style={{ ...owedChipStyle, fontSize: 10.5, padding: "5px 10px" }}>+ New person</button>
-                          )}
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                ))}
+          {targetMode === "owed" && (
+            addingParty ? (
+              <div style={{ display: "flex", gap: 8 }}>
+                <input style={{ ...st.input, flex: 1 }} placeholder="Person's name" value={newPartyName} autoFocus onChange={(e) => setNewPartyName(e.target.value)} onKeyDown={(e) => e.key === "Enter" && addPartyAndApply()} />
+                <PrimaryBtn style={{ width: "auto", padding: "0 16px" }} onClick={addPartyAndApply}>Add</PrimaryBtn>
               </div>
-              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 14 }}>
-                <div onClick={addSplitRow} style={{ fontSize: 11, fontWeight: 600, color: C.accentText, cursor: "pointer" }}>+ Add another split</div>
-                <div style={{ fontSize: 10.5, fontWeight: 600, color: Math.abs(splitRemaining) < 0.5 ? C.green : C.red }}>{Math.abs(splitRemaining) < 0.5 ? "Fully allocated" : `${inr(Math.abs(splitRemaining))} ${splitRemaining > 0 ? "remaining" : "over"}`}</div>
+            ) : (
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 7 }}>
+                {book.parties.map((p) => <button key={p.id} onClick={() => applyParty(p.id)} style={owedChipStyle}>{p.name}</button>)}
+                <button onClick={() => setAddingParty(true)} style={owedChipStyle}>+ New person</button>
               </div>
-              <PrimaryBtn onClick={saveSplit} style={{ opacity: splitValid ? 1 : 0.5, cursor: splitValid ? "pointer" : "default" }}>Save Split</PrimaryBtn>
-            </>
+            )
           )}
         </>
-      )}
-
-      {targetMode === "owed" && (
-        addingParty ? (
-          <div style={{ display: "flex", gap: 8 }}>
-            <input style={{ ...st.input, flex: 1 }} placeholder="Person's name" value={newPartyName} autoFocus onChange={(e) => setNewPartyName(e.target.value)} onKeyDown={(e) => e.key === "Enter" && addPartyAndApply()} />
-            <PrimaryBtn style={{ width: "auto", padding: "0 16px" }} onClick={addPartyAndApply}>Add</PrimaryBtn>
-          </div>
-        ) : (
-          <div style={{ display: "flex", flexWrap: "wrap", gap: 7 }}>
-            {book.parties.map((p) => <button key={p.id} onClick={() => applyParty(p.id)} style={owedChipStyle}>{p.name}</button>)}
-            <button onClick={() => setAddingParty(true)} style={owedChipStyle}>+ New person</button>
-          </div>
-        )
       )}
 
       {targetMode === "transfer" && (
