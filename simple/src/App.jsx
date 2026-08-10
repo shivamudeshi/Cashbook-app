@@ -3348,12 +3348,12 @@ function CategorizeSheet({ book, up, close, entryIds, showToast, onApplied }) {
         </div>
       )}
 
-      {/* Split lives at this level, shared between Category and Owed, rather
-          than nested only under Category -- a split row can target either a
-          category or a person either way (see the picker inside each split
-          row below), so there's no reason "Split this amount" should only be
-          reachable from the Category tab. */}
-      {(targetMode === "category" || targetMode === "owed") && !isBulk && (
+      {/* Split lives at this level, shared between Category, Owed, and
+          Transfer, rather than nested only under Category -- a split row
+          can target a category, a person, or a transfer either way (see the
+          picker inside each split row below), so there's no reason "Split
+          this amount" should only be reachable from the Category tab. */}
+      {(targetMode === "category" || targetMode === "owed" || targetMode === "transfer") && !isBulk && (
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, padding: "9px 12px", marginBottom: 10, borderRadius: 12, background: C.accentSoft }}>
           <span style={{ fontSize: 12, fontWeight: 600 }}>Split this amount</span>
           <Toggle value={splitOn} onChange={toggleSplit} reverse />
@@ -3404,26 +3404,26 @@ function CategorizeSheet({ book, up, close, entryIds, showToast, onApplied }) {
               </div>
             )
           )}
-        </>
-      )}
 
-      {targetMode === "transfer" && (
-        <>
-          <div style={st.label}>{signIn ? "From Account" : "To Account"}</div>
-          {/* Picking the entry's own account here used to be silently
-              possible -- applyTransfer/recodeEntryAsTransfer both treat that
-              as a no-op self-transfer (nothing to actually move), so "Save
-              as Transfer" would do nothing at all with no error shown.
-              Excluding it from the list here removes that trap instead of
-              only guarding against it after the tap. */}
-          {transferAccountChoices.length === 0 ? (
-            <div style={{ fontSize: 11.5, color: C.muted, padding: "10px 0" }}>No other account to transfer to/from -- add one in Setup ▸ Accounts.</div>
-          ) : (
-            <div style={{ display: "flex", flexWrap: "wrap", gap: 7, marginBottom: 4 }}>
-              {transferAccountChoices.map((a) => <button key={a.id} onClick={() => setToAccountId(a.id)} style={txChipBtn(toAccountId === a.id)}>{a.name}</button>)}
-            </div>
+          {targetMode === "transfer" && (
+            <>
+              <div style={st.label}>{signIn ? "From Account" : "To Account"}</div>
+              {/* Picking the entry's own account here used to be silently
+                  possible -- applyTransfer/recodeEntryAsTransfer both treat
+                  that as a no-op self-transfer (nothing to actually move),
+                  so "Save as Transfer" would do nothing at all with no
+                  error shown. Excluding it from the list here removes that
+                  trap instead of only guarding against it after the tap. */}
+              {transferAccountChoices.length === 0 ? (
+                <div style={{ fontSize: 11.5, color: C.muted, padding: "10px 0" }}>No other account to transfer to/from -- add one in Setup ▸ Accounts.</div>
+              ) : (
+                <div style={{ display: "flex", flexWrap: "wrap", gap: 7, marginBottom: 4 }}>
+                  {transferAccountChoices.map((a) => <button key={a.id} onClick={() => setToAccountId(a.id)} style={txChipBtn(toAccountId === a.id)}>{a.name}</button>)}
+                </div>
+              )}
+              <PrimaryBtn style={{ marginTop: 16, opacity: toAccountId ? 1 : 0.5, cursor: toAccountId ? "pointer" : "default" }} onClick={applyTransfer}>Save as Transfer</PrimaryBtn>
+            </>
           )}
-          <PrimaryBtn style={{ marginTop: 16, opacity: toAccountId ? 1 : 0.5, cursor: toAccountId ? "pointer" : "default" }} onClick={applyTransfer}>Save as Transfer</PrimaryBtn>
         </>
       )}
     </Sheet>
