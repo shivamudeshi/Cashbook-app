@@ -2555,7 +2555,32 @@ function ReconcilePage({ open, book, up, onBack, openSheet }) {
     setStmtBalance("");
   };
 
+  // A difference under ₹5 is much more likely a rounding artifact or a
+  // tiny bank fee than a genuinely missing transaction -- rather than
+  // making the user go hunt for it, post it straight to a "Bank Charges"
+  // expense category (creating the category if this book doesn't have it
+  // yet) and record the reconciliation as matched. The entry's sign needs
+  // to account for a card's balance being inverted by applyLeg (engine.js)
+  // -- a bank's balance rises on "in", a card's *outstanding* balance
+  // falls on "in", so which type() closes a positive difference is
+  // opposite between the two account kinds.
+  const writeOff = () => {
+    if (!result || !account) return;
+    const arriving = (result.difference >= 0) !== (account.kind === "card");
+    const type = arriving ? "in" : "out";
+    const amt = Math.round(Math.abs(result.difference) * 100) / 100;
+    up((b) => {
+      if (!b.categories.expense.includes("Bank Charges")) b.categories.expense.splice(b.categories.expense.length - 1, 0, "Bank Charges");
+      b.entries.push({ id: uid(), date: asOf, amount: amt, type, category: "Bank Charges", accountId: account.id, merchant: "Reconciliation write-off", note: "" });
+      if (!b.reconciliations) b.reconciliations = [];
+      b.reconciliations.push({ id: uid(), accountId: account.id, asOfDate: asOf, statementBalance: result.statementBalance, appBalance: result.statementBalance, difference: 0, writeOff: amt, createdAt: Date.now() });
+    });
+    setResult(null);
+    setStmtBalance("");
+  };
+
   const matched = result && Math.abs(result.difference) < 1;
+  const smallDiff = result && !matched && Math.abs(result.difference) < 5;
   const pendingImpact = result ? result.withUnexplained - result.appBalance : 0;
   const diffHint = result && !matched
     ? (account.kind === "card"
@@ -2609,6 +2634,14 @@ function ReconcilePage({ open, book, up, onBack, openSheet }) {
                     <div style={{ fontSize: 10.5, color: C.muted, marginTop: 6, lineHeight: 1.5 }}>Once you categorize {result.candidates.length} pending transaction{result.candidates.length === 1 ? "" : "s"} ({inr(Math.abs(pendingImpact))}) still sitting Unexplained on this account, your books will match exactly.</div>
                   )}
                 </>
+              ) : smallDiff ? (
+                <>
+                  <div style={{ fontSize: 12.5, fontWeight: 700, color: C.amberText }}>Minor difference of {inr(Math.abs(result.difference))}</div>
+                  <div style={{ fontSize: 10.5, color: C.muted, marginTop: 6, lineHeight: 1.5 }}>Small enough to most likely be rounding or a tiny bank fee, not a missing transaction -- write it off to Bank Charges to close the gap and mark this reconciled.</div>
+                  {result.candidates.length > 0 && (
+                    <div style={{ fontSize: 10.5, color: C.muted, marginTop: 8, lineHeight: 1.5 }}>There {result.candidates.length === 1 ? "is" : "are"} also {result.candidates.length} transaction{result.candidates.length === 1 ? "" : "s"} still Unexplained on this account as of {asOf}, worth a look first if you'd rather not write this off.</div>
+                  )}
+                </>
               ) : (
                 <>
                   <div style={{ fontSize: 12.5, fontWeight: 700, color: C.amberText }}>Off by {inr(Math.abs(result.difference))}</div>
@@ -2625,6 +2658,9 @@ function ReconcilePage({ open, book, up, onBack, openSheet }) {
                 <GhostBtn style={{ marginTop: 12, padding: "9px 0", fontSize: 12 }} onClick={() => openSheet("categoryDetail", { title: "Possibly missing", entries: result.candidates })}>Review {result.candidates.length} transaction{result.candidates.length === 1 ? "" : "s"}</GhostBtn>
               )}
               <PrimaryBtn style={{ marginTop: 10, padding: "9px 0", fontSize: 12 }} onClick={save}>Save reconciliation</PrimaryBtn>
+              {smallDiff && (
+                <PrimaryBtn style={{ marginTop: 8, padding: "9px 0", fontSize: 12, background: C.amberText, boxShadow: "none" }} onClick={writeOff}>Write off {inr(Math.abs(result.difference))} to Bank Charges</PrimaryBtn>
+              )}
             </Card>
           )}
 
@@ -2636,7 +2672,7 @@ function ReconcilePage({ open, book, up, onBack, openSheet }) {
                   <RowLine key={r.id} last={i === accountReconciliations.length - 1}>
                     <div style={{ flex: 1, minWidth: 0 }}>
                       <div style={{ fontSize: 12, fontWeight: 600 }}>{r.asOfDate}</div>
-                      <div style={{ fontSize: 10, color: Math.abs(r.difference) < 1 ? C.green : C.amberText, marginTop: 1 }}>{Math.abs(r.difference) < 1 ? "Matched" : `Off by ${inr(Math.abs(r.difference))}`}</div>
+                      <div style={{ fontSize: 10, color: Math.abs(r.difference) < 1 ? C.green : C.amberText, marginTop: 1 }}>{r.writeOff ? `Matched (${inr(r.writeOff)} written off)` : Math.abs(r.difference) < 1 ? "Matched" : `Off by ${inr(Math.abs(r.difference))}`}</div>
                     </div>
                     <div style={{ fontSize: 12, fontWeight: 700, fontVariantNumeric: "tabular-nums", color: C.muted }}>{inr(r.statementBalance)}</div>
                   </RowLine>
