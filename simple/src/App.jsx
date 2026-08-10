@@ -1165,6 +1165,7 @@ function TransactionsScreen({ book, up, openSheet, selectMode, setSelectMode, sh
             const rowLocked = selectMode && !!lockedType && lockedType !== e.type && !checked;
             const info = tab === "explained" ? explainedRowInfo(book, e) : null;
             const match = tab === "unexplained" ? suggestHead(book, e.merchant || "") : null;
+            const dupTransfer = tab === "unexplained" ? findDuplicateTransferMatch(book, e) : null;
             const transferMatch = tab === "approval" && e.suggestedTransferAccount ? findTransferMatch(book, e, e.suggestedTransferAccount) : null;
             const approvalSuggestion = e.suggestedParty
               ? `${partyName(e.suggestedParty)} (owed)`
@@ -1188,16 +1189,37 @@ function TransactionsScreen({ book, up, openSheet, selectMode, setSelectMode, sh
                   </div>
                 </div>
                 <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 5 }}>
-                  <div style={{ fontSize: 10, color: C.faint, minWidth: 0, overflow: "hidden", whiteSpace: "nowrap", textOverflow: "ellipsis", flex: 1 }}>
-                    {tab === "explained" ? info.sub : tab === "approval" ? `Suggested: ${approvalSuggestion} · ${accountName(e.accountId)}` : (match !== "Suspense" ? `Auto-matched: ${match}` : "Needs a category") + " · " + accountName(e.accountId)}
+                  <div style={{ fontSize: 10, color: dupTransfer ? C.amberText : C.faint, fontWeight: dupTransfer ? 600 : 400, minWidth: 0, overflow: "hidden", whiteSpace: "nowrap", textOverflow: "ellipsis", flex: 1 }}>
+                    {tab === "explained" ? info.sub
+                      : tab === "approval" ? `Suggested: ${approvalSuggestion} · ${accountName(e.accountId)}`
+                      : dupTransfer ? `Possible duplicate of a transfer on ${shortDateLabel(dupTransfer.date)} · ${accountName(e.accountId)}`
+                      : (match !== "Suspense" ? `Auto-matched: ${match}` : "Needs a category") + " · " + accountName(e.accountId)}
                   </div>
                   {tab === "explained" && info.pill && (
                     <span style={{ display: "inline-flex", alignItems: "center", fontSize: 9.5, fontWeight: 500, padding: "2px 8px", borderRadius: 999, background: info.isBS ? "rgba(251,191,36,.18)" : "rgba(17,17,17,.06)", border: info.isBS ? "1px solid rgba(251,191,36,.4)" : "none", color: info.isBS ? C.amberText : "#444", flexShrink: 0, whiteSpace: "nowrap" }}>{info.pill}{info.isBS ? " · BS" : ""}</span>
                   )}
-                  {!selectMode && tab === "unexplained" && (
+                  {!selectMode && tab === "unexplained" && !dupTransfer && (
                     <div onClick={(ev) => { ev.stopPropagation(); openCategorize([e.id]); }} style={{ display: "inline-flex", alignItems: "center", fontSize: 9.5, fontWeight: 600, padding: "3px 9px", borderRadius: 999, background: C.accent, color: "#fff", cursor: "pointer", flexShrink: 0, whiteSpace: "nowrap" }}>Categorize</div>
                   )}
                 </div>
+                {/* A row that already matches an existing transfer (see
+                    findDuplicateTransferMatch) gets its own full-width
+                    action row instead of the plain "Categorize" pill --
+                    this is a real double-counting risk, not just a normal
+                    unexplained row, so it needs to be impossible to miss
+                    and a one-tap way to resolve it (discard, since the
+                    money's already accounted for) rather than only a
+                    smaller warning text. */}
+                {!selectMode && tab === "unexplained" && dupTransfer && (
+                  <div style={{ display: "flex", gap: 7, marginTop: 8 }}>
+                    <button onClick={(ev) => { ev.stopPropagation(); openCategorize([e.id]); }} style={approvalActionBtnStyle(C.accent, C.accentSoft)}>
+                      <Ic name="edit" size={13} color={C.accent} />Categorize anyway
+                    </button>
+                    <button onClick={(ev) => { ev.stopPropagation(); deleteEntries([e.id]); }} style={approvalActionBtnStyle(C.amberText, "rgba(251,191,36,.18)")}>
+                      <Ic name="trash" size={13} color={C.amberText} />Discard duplicate
+                    </button>
+                  </div>
+                )}
                 {/* Full-width, 36px-tall action row -- real thumb-sized targets
                     instead of the cramped 22px circles this used to be, since
                     those were reported too small/fiddly to tap reliably. */}
@@ -3138,6 +3160,33 @@ function findTransferMatch(b, base, toAccountId) {
     const diff = Math.abs(new Date(e.date).getTime() - baseTime);
     if (diff > 3 * DAY) continue;
     if (diff < bestDiff) { bestDiff = diff; best = e; }
+  }
+  return best;
+}
+
+// The reverse case findTransferMatch doesn't cover: a raw Unexplained row
+// that arrived AFTER its other leg was already recoded into a "transfer"
+// entry -- e.g. a credit card payment converted to a Transfer straight from
+// the bank statement, weeks before the card's own statement (which posts
+// the same payment as its own raw row) gets imported. findTransferMatch
+// only ever looks for a Suspense row to merge into a NEW transfer being
+// created right now; it never notices that an *existing* transfer already
+// covers a row that's still sitting in Unexplained, since a transfer entry
+// has no accountId/category for that search to match against at all.
+// Flags it here instead, by the same amount/account/opposite-leg/few-days
+// signature -- explaining this row too (any category, or another transfer)
+// would move the same money a second time.
+function findDuplicateTransferMatch(b, e) {
+  const wantAsTo = e.type === "in"; // this row arriving = needs a transfer that already delivered TO this account; leaving = FROM it
+  const eTime = new Date(e.date).getTime();
+  const DAY = 86400000;
+  let best = null, bestDiff = Infinity;
+  for (const t of b.entries) {
+    if (t.type !== "transfer" || t.amount !== e.amount) continue;
+    if ((wantAsTo ? t.toAccountId : t.fromAccountId) !== e.accountId) continue;
+    const diff = Math.abs(new Date(t.date).getTime() - eTime);
+    if (diff > 3 * DAY) continue;
+    if (diff < bestDiff) { bestDiff = diff; best = t; }
   }
   return best;
 }
