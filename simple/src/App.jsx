@@ -3,7 +3,7 @@ import { loadBook, saveBook, defaultBook } from "./storage.js";
 import {
   inr, parseAmount, today, addDays, periodByOffset, previousPeriod, shortDateLabel,
   uid, isExplained, isRefund, computePL, computeCashFlow, accountsWithBalances,
-  owedAsOf, suggestHead, keywordOf, applyCodingRules,
+  owedAsOf, suggestHead, keywordOf, applyCodingRules, balanceIncludingUnexplained,
 } from "./engine.js";
 import { extractPdfPages, parsePdfTable, parseStatementText, getOcrWorker } from "./pdf.js";
 import ExcelJS from "exceljs";
@@ -1973,7 +1973,8 @@ function SetupScreen({ book, up, onLockNow, openSheet }) {
           <SettingsRow label="Income categories" meta={`${book.categories.income.length}`} onClick={() => setView("income")} />
           <SettingsRow label="Expense categories" meta={`${expenseCats.length}`} onClick={() => setView("expense")} />
           <SettingsRow label="Balance Sheet categories" meta={`${book.bsCategories.length}`} onClick={() => setView("other")} />
-          <SettingsRow label="Auto-coding rules" meta={`${book.codingRules.length}`} last onClick={() => setView("rules")} />
+          <SettingsRow label="Auto-coding rules" meta={`${book.codingRules.length}`} onClick={() => setView("rules")} />
+          <SettingsRow label="Bank Reconciliation" last onClick={() => setView("reconcile")} />
         </Card>
 
         <div style={{ fontSize: 10, fontWeight: 700, color: C.muted, textTransform: "uppercase", letterSpacing: ".05em", padding: "0 2px 6px", marginTop: 18 }}>Preferences</div>
@@ -2018,6 +2019,7 @@ function SetupScreen({ book, up, onLockNow, openSheet }) {
         onAdd={(name) => up((b) => { if (!b.bsCategories.includes(name)) b.bsCategories.push(name); })}
         addPlaceholder="e.g. Car Loan EMI" />
       <RulesPage open={view === "rules"} book={book} up={up} onBack={back} />
+      <ReconcilePage open={view === "reconcile"} book={book} up={up} onBack={back} openSheet={openSheet} />
       <NotificationsPrefsPage open={view === "notifications"} book={book} up={up} onBack={back} />
       <SecurityPage open={view === "security"} book={book} up={up} onBack={back} onLockNow={onLockNow} />
       <BackupPage open={view === "backup"} book={book} up={up} onBack={back} />
@@ -2499,6 +2501,151 @@ function AccountsPage({ open, book, up, onBack, openSheet }) {
       <ConfirmModal open={!!confirmDelete} title="Delete account?"
         body={confirmDelete ? `"${confirmDelete.name}" will be removed${confirmDelete.count > 0 ? `, along with its ${confirmDelete.count} transaction${confirmDelete.count === 1 ? "" : "s"}` : ""}. This can't be undone.` : ""}
         onCancel={() => setConfirmDelete(null)} onConfirm={doDelete} />
+    </PageOverlay>
+  );
+}
+
+/* ══════════════════════════ RECONCILE ══════════════════════════ */
+// Compares the app's own computed balance for an account against a real
+// bank/card statement's closing balance as of a date, and -- if they don't
+// match -- shows whether the gap is fully accounted for by transactions
+// still sitting Unexplained on that account (categorize them to close it)
+// or whether a residual gap remains (most likely a transaction that was
+// never imported at all). Manual entry only: the statement parser
+// (pdf.js) doesn't capture a closing-balance figure today, and bank PDF
+// layouts vary too much for that to be reliably automated.
+function ReconcilePage({ open, book, up, onBack, openSheet }) {
+  const [pickedId, setPickedId] = useState(null);
+  const [asOf, setAsOf] = useState(today());
+  const [stmtBalance, setStmtBalance] = useState("");
+  const [result, setResult] = useState(null); // { appBalance, withUnexplained, statementBalance, difference, candidates } | null
+
+  const reconciliations = book.reconciliations || [];
+  const withBal = accountsWithBalances(book, today());
+  const account = withBal.find((a) => a.id === pickedId);
+
+  const lastReconciled = (accountId) => {
+    const past = reconciliations.filter((r) => r.accountId === accountId);
+    return past.length ? past.reduce((a, b) => (a.createdAt > b.createdAt ? a : b)) : null;
+  };
+
+  const pick = (id) => { setPickedId(id); setAsOf(today()); setStmtBalance(""); setResult(null); };
+  const back = () => { if (pickedId) { setPickedId(null); setResult(null); } else onBack(); };
+
+  const compare = () => {
+    const parsed = parseAmount(stmtBalance);
+    if (Number.isNaN(parsed) || !account) return;
+    // A card's closing balance, like its opening balance elsewhere in the
+    // app, is always the amount currently owed -- typing "-2450" or "2450"
+    // off a statement should mean the same 2,450 owed either way.
+    const statementBalance = account.kind === "card" ? Math.abs(parsed) : parsed;
+    const appBalance = accountsWithBalances(book, asOf).find((a) => a.id === account.id).balance;
+    const withUnexplained = balanceIncludingUnexplained(book, account.id, asOf);
+    const candidates = book.entries.filter((e) => e.accountId === account.id && (e.type === "in" || e.type === "out") && e.category === "Suspense" && !e.pendingApproval && e.date <= asOf);
+    setResult({ appBalance, withUnexplained, statementBalance, difference: statementBalance - withUnexplained, candidates });
+  };
+
+  const save = () => {
+    if (!result || !account) return;
+    up((b) => {
+      if (!b.reconciliations) b.reconciliations = [];
+      b.reconciliations.push({ id: uid(), accountId: account.id, asOfDate: asOf, statementBalance: result.statementBalance, appBalance: result.withUnexplained, difference: result.difference, createdAt: Date.now() });
+    });
+    setResult(null);
+    setStmtBalance("");
+  };
+
+  const matched = result && Math.abs(result.difference) < 1;
+  const pendingImpact = result ? result.withUnexplained - result.appBalance : 0;
+  const diffHint = result && !matched
+    ? (account.kind === "card"
+        ? (result.difference > 0 ? "Your books show less owed than the statement -- a purchase or fee may be missing." : "Your books show more owed than the statement -- a payment may be missing.")
+        : (result.difference > 0 ? "The statement shows more money than your books -- an income transaction may be missing." : "The statement shows less money than your books -- an expense transaction may be missing."))
+    : "";
+  const accountReconciliations = account ? reconciliations.filter((r) => r.accountId === account.id).slice().sort((a, b) => b.createdAt - a.createdAt) : [];
+
+  return (
+    <PageOverlay open={open} onBack={back} title={account ? account.name : "Bank Reconciliation"}>
+      {!account ? (
+        <>
+          <div style={{ fontSize: 11.5, color: C.muted, marginBottom: 14, lineHeight: 1.5 }}>Pick an account to check its balance against a real statement.</div>
+          <Card style={{ padding: "0 14px" }}>
+            {withBal.length === 0 && <div style={{ padding: "14px 0", fontSize: 12.5, color: C.muted }}>Add an account first, in Setup ▸ Accounts.</div>}
+            {withBal.map((a, i) => {
+              const last = lastReconciled(a.id);
+              return (
+                <RowLine key={a.id} last={i === withBal.length - 1} onClick={() => pick(a.id)}>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontSize: 12.5, fontWeight: 600 }}>{a.name}</div>
+                    <div style={{ fontSize: 10, color: C.muted, marginTop: 1 }}>{last ? `Last reconciled ${last.asOfDate}` : "Not yet reconciled"}</div>
+                  </div>
+                  <div style={{ fontSize: 12.5, fontWeight: 700, fontVariantNumeric: "tabular-nums", marginRight: 8 }}>{inr(Math.abs(a.balance))}</div>
+                  <Ic name="chevronDown" size={12} color={C.faint} style={{ transform: "rotate(-90deg)", flexShrink: 0 }} />
+                </RowLine>
+              );
+            })}
+          </Card>
+        </>
+      ) : (
+        <>
+          <Card style={{ marginBottom: 14 }}>
+            <div style={st.label}>As of date</div>
+            <input type="date" style={st.input} value={asOf} onChange={(e) => { setAsOf(e.target.value); setResult(null); }} />
+            <div style={st.label}>Statement closing balance</div>
+            <div style={{ display: "flex", alignItems: "center", border: `1px solid ${C.overlayBorder}`, borderRadius: 10, overflow: "hidden" }}>
+              <div style={{ padding: "10px 0 10px 11px", fontSize: 12, fontWeight: 600, color: C.muted }}>₹</div>
+              <input style={{ flex: 1, boxSizing: "border-box", border: "none", padding: "10px 11px 10px 4px", fontFamily: F.sans, fontSize: 12, fontVariantNumeric: "tabular-nums", outline: "none" }} inputMode="decimal" placeholder="0" value={stmtBalance} onChange={(e) => { setStmtBalance(e.target.value); setResult(null); }} />
+            </div>
+            <div style={{ fontSize: 10, color: C.muted, marginTop: 6 }}>{account.kind === "card" ? "Total amount due, exactly as shown on the statement." : "Closing balance, exactly as shown on the statement."}</div>
+            <PrimaryBtn style={{ marginTop: 14 }} onClick={compare}>Compare</PrimaryBtn>
+          </Card>
+
+          {result && (
+            <Card style={{ marginBottom: 14, background: matched ? "rgba(15,106,92,.08)" : "rgba(251,191,36,.12)" }}>
+              {matched ? (
+                <>
+                  <div style={{ fontSize: 12.5, fontWeight: 700, color: C.green, display: "flex", alignItems: "center", gap: 6 }}><Ic name="check" size={13} color={C.green} />Matches the statement</div>
+                  {result.candidates.length > 0 && (
+                    <div style={{ fontSize: 10.5, color: C.muted, marginTop: 6, lineHeight: 1.5 }}>Once you categorize {result.candidates.length} pending transaction{result.candidates.length === 1 ? "" : "s"} ({inr(Math.abs(pendingImpact))}) still sitting Unexplained on this account, your books will match exactly.</div>
+                  )}
+                </>
+              ) : (
+                <>
+                  <div style={{ fontSize: 12.5, fontWeight: 700, color: C.amberText }}>Off by {inr(Math.abs(result.difference))}</div>
+                  <div style={{ fontSize: 10.5, color: C.muted, marginTop: 6, lineHeight: 1.5 }}>{diffHint}</div>
+                  {result.candidates.length > 0 && (
+                    <div style={{ fontSize: 10.5, color: C.muted, marginTop: 8, lineHeight: 1.5 }}>There {result.candidates.length === 1 ? "is" : "are"} also {result.candidates.length} transaction{result.candidates.length === 1 ? "" : "s"} still Unexplained on this account as of {asOf} -- categorizing {result.candidates.length === 1 ? "it" : "them"} may close some or all of the gap.</div>
+                  )}
+                  {result.candidates.length === 0 && (
+                    <div style={{ fontSize: 10.5, color: C.muted, marginTop: 8, lineHeight: 1.5 }}>Nothing's sitting Unexplained on this account, so this most likely means a transaction from the statement was never imported -- try Import Statement, or add it manually.</div>
+                  )}
+                </>
+              )}
+              {result.candidates.length > 0 && (
+                <GhostBtn style={{ marginTop: 12, padding: "9px 0", fontSize: 12 }} onClick={() => openSheet("categoryDetail", { title: "Possibly missing", entries: result.candidates })}>Review {result.candidates.length} transaction{result.candidates.length === 1 ? "" : "s"}</GhostBtn>
+              )}
+              <PrimaryBtn style={{ marginTop: 10, padding: "9px 0", fontSize: 12 }} onClick={save}>Save reconciliation</PrimaryBtn>
+            </Card>
+          )}
+
+          {accountReconciliations.length > 0 && (
+            <>
+              <div style={{ fontSize: 10, fontWeight: 700, color: C.muted, textTransform: "uppercase", letterSpacing: ".05em", padding: "0 2px 6px" }}>Past reconciliations</div>
+              <Card style={{ padding: "2px 16px" }}>
+                {accountReconciliations.map((r, i) => (
+                  <RowLine key={r.id} last={i === accountReconciliations.length - 1}>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontSize: 12, fontWeight: 600 }}>{r.asOfDate}</div>
+                      <div style={{ fontSize: 10, color: Math.abs(r.difference) < 1 ? C.green : C.amberText, marginTop: 1 }}>{Math.abs(r.difference) < 1 ? "Matched" : `Off by ${inr(Math.abs(r.difference))}`}</div>
+                    </div>
+                    <div style={{ fontSize: 12, fontWeight: 700, fontVariantNumeric: "tabular-nums", color: C.muted }}>{inr(r.statementBalance)}</div>
+                  </RowLine>
+                ))}
+              </Card>
+            </>
+          )}
+        </>
+      )}
     </PageOverlay>
   );
 }
