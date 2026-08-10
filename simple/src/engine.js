@@ -259,6 +259,26 @@ export function accountsWithBalances(db, asOf) {
   return db.accounts.map((a) => ({ ...a, balance: balances[a.id] || 0 }));
 }
 
+// For Bank Reconciliation: "what would this account's balance be, as of
+// `asOf`, if every still-Suspense in/out row on it up to that date got
+// categorized as-is instead of sitting Unexplained" -- reuses
+// accountsWithBalances rather than re-deriving its applyLeg/sign logic, by
+// patching just those rows' category away from the reserved "Suspense"
+// sentinel (isExplained only ever checks that one string) before calling
+// through unchanged.
+export function balanceIncludingUnexplained(db, accountId, asOf) {
+  const patched = {
+    ...db,
+    entries: db.entries.map((e) =>
+      e.accountId === accountId && (e.type === "in" || e.type === "out") && e.category === "Suspense" && e.date <= asOf
+        ? { ...e, category: "__reconcile_included__" }
+        : e
+    ),
+  };
+  const acc = accountsWithBalances(patched, asOf).find((a) => a.id === accountId);
+  return acc ? acc.balance : 0;
+}
+
 /* ────────────────────────── Owed ──────────────────────────
    Ported verbatim from CashBook.jsx:497-515 -- zero coupling to book
    shape beyond parties/entries/owedMemos, which are unchanged here.

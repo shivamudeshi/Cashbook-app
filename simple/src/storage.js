@@ -92,6 +92,7 @@ export function defaultBook() {
     bsCategories: ["Home Loan EMI"],
     parties: [],
     owedMemos: [],
+    reconciliations: [],
     entries: [],
     codingRules: DEFAULT_CODING_RULES.map((r) => ({ ...r })),
   };
